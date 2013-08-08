@@ -1282,7 +1282,7 @@ extern "C" {
             
         // =-=-=-=-=-=-=-
         // determine if the resource is down 
-        if( !(ret = _prop_map.get< int >( "status", resc_status )).ok() ) {
+        if( !(ret = _prop_map.get< int >( eirods::RESOURCE_STATUS, resc_status )).ok() ) {
             std::stringstream msg;
             msg << __FUNCTION__;
             msg << " - Failed to retrieve status property.";
@@ -1291,7 +1291,7 @@ extern "C" {
 
         // =-=-=-=-=-=-=-
         // get the resource host for comparison to curr host
-        else if( !(ret = _prop_map.get< std::string >( "location", host_name )).ok() ) {
+        else if( !(ret = _prop_map.get< std::string >( eirods::RESOURCE_LOCATION, host_name )).ok() ) {
             std::stringstream msg;
             msg << __FUNCTION__;
             msg << " - Failed to get location property.";
@@ -1333,7 +1333,7 @@ extern "C" {
             
         // =-=-=-=-=-=-=-
         // determine if the resource is down 
-        if( !(ret = _prop_map.get< int >( "status", resc_status )).ok() ) {
+        if( !(ret = _prop_map.get< int >( eirods::RESOURCE_STATUS, resc_status )).ok() ) {
             std::stringstream msg;
             msg << __FUNCTION__;
             msg << " - Failed to get status property for resource.";
@@ -1342,7 +1342,7 @@ extern "C" {
 
         // =-=-=-=-=-=-=-
         // get the resource host for comparison to curr host
-        else if( !(ret = _prop_map.get< std::string >( "location", host_name )).ok() ) {
+        else if( !(ret = _prop_map.get< std::string >( eirods::RESOURCE_LOCATION, host_name )).ok() ) {
             std::stringstream msg;
             msg << __FUNCTION__;
             msg << " - Failed to get the location property.";
@@ -1440,7 +1440,7 @@ extern "C" {
                 
             // =-=-=-=-=-=-=-
             // get the name of this resource
-            else if( !(ret = _ctx->prop_map().get< std::string >( "name", resc_name )).ok() ) {
+            else if( !(ret = _ctx->prop_map().get< std::string >( eirods::RESOURCE_NAME, resc_name )).ok() ) {
                 std::stringstream msg;
                 msg << __FUNCTION__;
                 msg << " - Failed to get resource name property.";
