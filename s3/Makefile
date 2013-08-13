@@ -4,7 +4,7 @@ SRCS = libeirods_s3.cpp
 
 HEADERS = libeirods_s3.h
 
-EXTRALIBS = -ls3
+EXTRALIBS = /usr/lib/libeirods.a -ls3
 
 EXTRAINCS = 
 

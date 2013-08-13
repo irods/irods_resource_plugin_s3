@@ -75,10 +75,6 @@ const std::string s3_access_key = "S3_SECRET_ACCESS_KEY";
 extern "C" {
 
 
-    // =-=-=-=-=-=-=-
-    // Define plugin Version Variable
-    double EIRODS_PLUGIN_INTERFACE_VERSION=1.0;
-
     //////////////////////////////////////////////////////////////////////
     // s3 specific functionality
     static bool S3Initialized = false; // so we only initialize the s3 library once
