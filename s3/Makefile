@@ -24,7 +24,7 @@ DEPS = $(patsubst %.cpp, ${DEPDIR}/%.d, ${SRCS})
 
 GCC = g++ -DRODS_SERVER -DZIP_EXEC_PATH=\"$(ZIP_EXEC_PATH)\" -DUNZIP_EXEC_PATH=\"$(UNZIP_EXEC_PATH)\"
 
-INC = -I/usr/include/eirods ${EXTRAINCS}
+INC = -I/usr/include/eirods -I/usr/include/openssl ${EXTRAINCS}
 
 .PHONY: clean
 

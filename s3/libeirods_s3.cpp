@@ -120,7 +120,13 @@ extern "C" {
         const char *buffer,
         void *callbackData)
     {
-        FILE *outfile = (FILE *) callbackData;
+        eirods::error result = ASSERT_ERROR(bufferSize != 0 && buffer != NULL && callbackData != NULL,
+                                            SYS_INVALID_INPUT_PARAM, "Invalid input parameter.");
+        if(!result.ok()) {
+            eirods::log(result);
+        }
+
+        FILE *outfile = ((callback_data_t *)callbackData)->fd;
 
         size_t wrote = fwrite(buffer, 1, bufferSize, outfile);
 
@@ -190,14 +196,8 @@ extern "C" {
             slash_pos = _s3ObjName.find_first_of("/", 1);
         }
         // have to have at least one slash to separate bucket from key
-        if(slash_pos == std::string::npos) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - problem parsing \"";
-            msg << _s3ObjName;
-            msg << "\"";
-            result = ERROR(SYS_INVALID_FILE_PATH, msg.str());
-        } else {
+        if((result = ASSERT_ERROR(slash_pos != std::string::npos, SYS_INVALID_FILE_PATH, "Problem parsing \"%s\".",
+                                  _s3ObjName.c_str())).ok()) {
             _bucket = _s3ObjName.substr(start_pos, slash_pos - start_pos);
             _key = _s3ObjName.substr(slash_pos + 1);
         }
@@ -220,15 +220,8 @@ extern "C" {
         
         fptr = fopen (_filename.c_str(), "r");
 
-        if (fptr == NULL) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to open S3 auth file: \"";
-            msg << _filename;
-            msg << "\" - ";
-            msg << strerror(errno);
-            result = ERROR(SYS_CONFIG_FILE_ERR, msg.str());
-        } else {
+        if ((result = ASSERT_ERROR(fptr != NULL, SYS_CONFIG_FILE_ERR, "Failed to open S3 auth file: \"%s\", errno = \"%s\".",
+                                   _filename.c_str(), strerror(errno))).ok()) {
             while ((lineLen = getLine (fptr, inbuf, MAX_NAME_LEN)) > 0) {
                 char *inPtr = inbuf;
                 if (linecnt == 0) {
@@ -243,15 +236,8 @@ extern "C" {
                     }
                 }
             }
-            if (linecnt != 2)  {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Error: read ";
-                msg << linecnt;
-                msg << " lines in the auth file. Expected 2.";
-                result = ERROR(SYS_CONFIG_FILE_ERR, msg.str());
-            }
-            else {
+            if ((result = ASSERT_ERROR(linecnt == 2, SYS_CONFIG_FILE_ERR, "Read %d lines in the auth file. Expected 2.",
+                                       linecnt)).ok())  {
                 _rtn_key_id = access_key_id;
                 _rtn_access_key = secret_access_key;
             }
@@ -262,7 +248,7 @@ extern "C" {
     /// @brief Retrieves the auth info from either the environment or the resource's specified auth file and set the appropriate
     /// fields in the property map
     eirods::error s3ReadAuthInfo(
-        eirods::resource_property_map& _prop_map)
+        eirods::plugin_property_map& _prop_map)
     {
         eirods::error result = SUCCESS();
         eirods::error ret;
@@ -277,33 +263,16 @@ extern "C" {
             }
         } else {
             std::string auth_file;
-            if(!(ret = _prop_map.get<std::string>(s3_auth_file, auth_file)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to retrieve S3 auth filename property.";
-                result = PASSMSG(msg.str(), ret);
-            }
-            
-            else if (!(ret = readS3AuthInfo(auth_file, key_id, access_key)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed reading the authorization credentials file.";
-                result = PASSMSG(msg.str(), ret);
-            }
-        }
-        if(result.ok()) {
-            if(!(ret = _prop_map.set<std::string>(s3_key_id, key_id)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to set the " << s3_key_id << " property.";
-                result = PASSMSG(msg.str(), ret);
-            }
-
-            else if(!(ret = _prop_map.set<std::string>(s3_access_key, access_key)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to set the " << s3_access_key << " property.";
-                result = PASSMSG(msg.str(), ret);
+            ret = _prop_map.get<std::string>(s3_auth_file, auth_file);
+            if((result = ASSERT_PASS(ret, "Failed to retrieve S3 auth filename property.")).ok()) {
+                ret = readS3AuthInfo(auth_file, key_id, access_key);
+                if ((result = ASSERT_PASS(ret, "Failed reading the authorization credentials file.")).ok()) {
+                    ret = _prop_map.set<std::string>(s3_key_id, key_id);
+                    if((result = ASSERT_PASS(ret, "Failed to set the \"%s\" property.", s3_key_id.c_str())).ok()) {
+                        ret = _prop_map.set<std::string>(s3_access_key, access_key);
+                        result = ASSERT_PASS(ret, "Failed to set the \"%s\" property.", s3_access_key.c_str());
+                    }
+                }
             }
         }
         return result;
@@ -323,19 +292,15 @@ extern "C" {
 #else
             status = S3_initialize ("s3", S3_INIT_ALL, NULL);
 #endif
-            if(status != S3StatusOK) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Error initializing the S3 library. status = ";
-                msg << status << " ";
-                if(status >= 0) {
-                    msg << " - \"";
-                    msg << S3_get_status_name((S3Status)status);
-                    msg << "\"";
-                    status = S3_INIT_ERROR - status;
-                }
-                result = ERROR(status, msg.str());
+            int err_status = S3_INIT_ERROR - status;
+            std::stringstream msg;
+            if(status >= 0) {
+                msg << " - \"";
+                msg << S3_get_status_name((S3Status)status);
+                msg << "\"";
             }
+            result = ASSERT_ERROR(status == S3StatusOK, status, "Error initializing the S3 library. Status = %d.",
+                                  status, msg.str().c_str());
         }
 
         return result;
@@ -353,62 +318,52 @@ extern "C" {
         FILE* cache_file = NULL;
         std::string bucket;
         std::string key;
-        if(!(ret = parseS3Path(_s3ObjName, bucket, key)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed parsing the S3 bucket and key from the physical path: \"";
-            msg << _s3ObjName;
-            msg << "\"";
-            result = PASSMSG(msg.str(), ret);
-        }
-        else if(!(ret = s3Init()).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to initialize the S3 system.";
-            result = PASSMSG(msg.str(), ret);
-        }
-        else if((cache_file = fopen(_filename.c_str(), "w+")) == NULL) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to open the cache file: \"";
-            msg << _filename;
-            msg << "\"";
-            result = ERROR(UNIX_FILE_OPEN_ERR - errno, msg.str());
-        }
-        else {
-            callback_data_t data;
-            S3BucketContext bucketContext;
+        ret = parseS3Path(_s3ObjName, bucket, key);
+        if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
+                                 _s3ObjName.c_str())).ok()) {
+            ret = s3Init();
+            if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
-            bzero (&data, sizeof (data));
-            data.fd = cache_file;
-            data.contentLength = data.originalContentLength = _fileSize;
-            bzero (&bucketContext, sizeof (bucketContext));
-            bucketContext.bucketName = bucket.c_str();
-            bucketContext.protocol = S3ProtocolHTTPS;
-            bucketContext.uriStyle = S3UriStylePath;
-            bucketContext.accessKeyId = _key_id.c_str();
-            bucketContext.secretAccessKey = _access_key.c_str();
+                cache_file = fopen(_filename.c_str(), "w+");
+                if((result = ASSERT_ERROR(cache_file != NULL, UNIX_FILE_OPEN_ERR, "Failed to open the cache file: \"%s\".",
+                                          _filename.c_str())).ok()) {
 
-            S3GetObjectHandler getObjectHandler = {
-                { &responsePropertiesCallback, &responseCompleteCallback },
-                &getObjectDataCallback
-            };
+                    callback_data_t data;
+                    S3BucketContext bucketContext;
 
-            S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
-            if (data.status != S3StatusOK) {
-                int status = data.status;
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Error fetching the S3 object: \"";
-                msg << _s3ObjName;
-                msg << "\"";
-                if(status >= 0) {
-                    msg << " - \"";
-                    msg << S3_get_status_name((S3Status)status);
-                    msg << "\"";
-                    status = S3_INIT_ERROR - status;
+                    bzero (&data, sizeof (data));
+                    data.fd = cache_file;
+                    data.contentLength = data.originalContentLength = _fileSize;
+                    bzero (&bucketContext, sizeof (bucketContext));
+                    bucketContext.bucketName = bucket.c_str();
+                    bucketContext.protocol = S3ProtocolHTTPS;
+                    bucketContext.uriStyle = S3UriStylePath;
+                    bucketContext.accessKeyId = _key_id.c_str();
+                    bucketContext.secretAccessKey = _access_key.c_str();
+
+                    S3GetObjectHandler getObjectHandler = {
+                        { &responsePropertiesCallback, &responseCompleteCallback },
+                        &getObjectDataCallback
+                    };
+
+                    S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
+                    if (data.status != S3StatusOK) {
+                        int status = data.status;
+                        std::stringstream msg;
+                        msg << __FUNCTION__;
+                        msg << " - Error fetching the S3 object: \"";
+                        msg << _s3ObjName;
+                        msg << "\"";
+                        if(status >= 0) {
+                            msg << " - \"";
+                            msg << S3_get_status_name((S3Status)status);
+                            msg << "\"";
+                            status = S3_INIT_ERROR - status;
+                        }
+                        result = ERROR(status, msg.str());
+                    }
+                    fclose(cache_file);
                 }
-                result = ERROR(status, msg.str());
             }
         }
         return result;
@@ -426,63 +381,57 @@ extern "C" {
         FILE* cache_file = NULL;
         std::string bucket;
         std::string key;
-        if(!(ret = parseS3Path(_s3ObjName, bucket, key)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed parsing the S3 bucket and key from the physical path: \"";
-            msg << _s3ObjName;
-            msg << "\"";
-            result = PASSMSG(msg.str(), ret);
-        }
-        else if(!(ret = s3Init()).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to initialize the S3 system.";
-            result = PASSMSG(msg.str(), ret);
-        }
-        else if((cache_file = fopen(_filename.c_str(), "r")) == NULL) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to open the cache file: \"";
-            msg << _filename;
-            msg << "\"";
-            result = ERROR(UNIX_FILE_OPEN_ERR - errno, msg.str());
-        }
-        else {
-            callback_data_t data;
-            S3BucketContext bucketContext;
+        int err_status = 0;
+        
+        ret = parseS3Path(_s3ObjName, bucket, key);
+        if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
+                                 _s3ObjName.c_str())).ok()) {
 
-            bzero (&data, sizeof (data));
-            data.fd = cache_file;
-            data.contentLength = data.originalContentLength = _fileSize;
+            ret = s3Init();
+            if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
+
+                cache_file = fopen(_filename.c_str(), "r");
+                err_status = UNIX_FILE_OPEN_ERR - errno;
+                if((result = ASSERT_ERROR(cache_file  != NULL, err_status, "Failed to open the cache file: \"%s\".",
+                                          _filename.c_str())).ok()) {
+
+                    callback_data_t data;
+                    S3BucketContext bucketContext;
+
+                    bzero (&data, sizeof (data));
+                    data.fd = cache_file;
+                    data.contentLength = data.originalContentLength = _fileSize;
                 
-            bzero (&bucketContext, sizeof (bucketContext));
-            bucketContext.bucketName = bucket.c_str();
-            bucketContext.protocol = S3ProtocolHTTPS;
-            bucketContext.uriStyle = S3UriStylePath;
-            bucketContext.accessKeyId = _key_id.c_str();
-            bucketContext.secretAccessKey = _access_key.c_str();
+                    bzero (&bucketContext, sizeof (bucketContext));
+                    bucketContext.bucketName = bucket.c_str();
+                    bucketContext.protocol = S3ProtocolHTTPS;
+                    bucketContext.uriStyle = S3UriStylePath;
+                    bucketContext.accessKeyId = _key_id.c_str();
+                    bucketContext.secretAccessKey = _access_key.c_str();
 
-            S3PutObjectHandler putObjectHandler = {
-                { &responsePropertiesCallback, &responseCompleteCallback },
-                &putObjectDataCallback
-            };
+                    S3PutObjectHandler putObjectHandler = {
+                        { &responsePropertiesCallback, &responseCompleteCallback },
+                        &putObjectDataCallback
+                    };
 
-            S3_put_object (&bucketContext, key.c_str(), _fileSize, NULL, 0, &putObjectHandler, &data);
-            if (data.status != S3StatusOK) {
-                int status = data.status;
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Error putting the S3 object: \"";
-                msg << _s3ObjName;
-                msg << "\"";
-                if(status >= 0) {
-                    msg << " - \"";
-                    msg << S3_get_status_name((S3Status)status);
-                    msg << "\"";
-                    status = S3_INIT_ERROR - status;
+                    S3_put_object (&bucketContext, key.c_str(), _fileSize, NULL, 0, &putObjectHandler, &data);
+                    if (data.status != S3StatusOK) {
+                        int status = data.status;
+                        std::stringstream msg;
+                        msg << __FUNCTION__;
+                        msg << " - Error putting the S3 object: \"";
+                        msg << _s3ObjName;
+                        msg << "\"";
+                        if(status >= 0) {
+                            msg << " - \"";
+                            msg << S3_get_status_name((S3Status)status);
+                            msg << "\"";
+                            status = S3_INIT_ERROR - status;
+                        }
+                        result = ERROR(status, msg.str());
+                    }
+                    fclose(cache_file);
                 }
-                result = ERROR(status, msg.str());
             }
         }
         return result;
@@ -503,71 +452,60 @@ extern "C" {
         std::string dest_key;
 
         // Parse the src file
-        if(!(ret = parseS3Path(_src_file, src_bucket, src_key)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to parse the source file name: \"";
-            msg << _src_file;
-            msg << "\"";
-            result = PASSMSG(msg.str(), ret);
-        }
+        ret = parseS3Path(_src_file, src_bucket, src_key);
+        if((result = ASSERT_PASS(ret, "Failed to parse the source file name: \"%s\".",
+                                 _src_file.c_str())).ok()) {
 
-        // Parse the dest file
-        else if(!(ret = parseS3Path(_dest_file, dest_bucket, dest_key)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to parse the destination file name: \"";
-            msg << _dest_file;
-            msg << "\"";
-            result = PASSMSG(msg.str(), ret);
-        }
+            // Parse the dest file
+            ret = parseS3Path(_dest_file, dest_bucket, dest_key);
+            if((result = ASSERT_PASS(ret, "Failed to parse the destination file name: \"%s\".",
+                                     _dest_file.c_str())).ok()) {
 
-        else {
-            callback_data_t data;
-            S3BucketContext bucketContext;
-            int64_t lastModified;
-            char eTag[256];
+                callback_data_t data;
+                S3BucketContext bucketContext;
+                int64_t lastModified;
+                char eTag[256];
 
-            bzero (&data, sizeof (data));
-            bzero (&bucketContext, sizeof (bucketContext));
-            bucketContext.bucketName = src_bucket.c_str();
-            bucketContext.protocol = S3ProtocolHTTPS;
-            bucketContext.uriStyle = S3UriStylePath;
-            bucketContext.accessKeyId = _key_id.c_str();
-            bucketContext.secretAccessKey = _access_key.c_str();
+                bzero (&data, sizeof (data));
+                bzero (&bucketContext, sizeof (bucketContext));
+                bucketContext.bucketName = src_bucket.c_str();
+                bucketContext.protocol = S3ProtocolHTTPS;
+                bucketContext.uriStyle = S3UriStylePath;
+                bucketContext.accessKeyId = _key_id.c_str();
+                bucketContext.secretAccessKey = _access_key.c_str();
    
 
-            S3ResponseHandler responseHandler = {
-                &responsePropertiesCallback,
-                &responseCompleteCallback
-            };
+                S3ResponseHandler responseHandler = {
+                    &responsePropertiesCallback,
+                    &responseCompleteCallback
+                };
 
-            S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), NULL, &lastModified, sizeof(eTag), eTag, 0,
-                           &responseHandler, &data);
-            if (data.status != S3StatusOK) {
-                int status = data.status;
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Error copying the S3 object: \"";
-                msg << _src_file;
-                msg << "\" to S3 object: \"";
-                msg << _dest_file;
-                msg << "\"";
-                if(status >= 0) {
-                    msg << " - \"";
-                    msg << S3_get_status_name((S3Status)status);
+                S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), NULL, &lastModified, sizeof(eTag), eTag, 0,
+                               &responseHandler, &data);
+                if (data.status != S3StatusOK) {
+                    int status = data.status;
+                    std::stringstream msg;
+                    msg << __FUNCTION__;
+                    msg << " - Error copying the S3 object: \"";
+                    msg << _src_file;
+                    msg << "\" to S3 object: \"";
+                    msg << _dest_file;
                     msg << "\"";
-                    status = S3_INIT_ERROR - status;
+                    if(status >= 0) {
+                        msg << " - \"";
+                        msg << S3_get_status_name((S3Status)status);
+                        msg << "\"";
+                        status = S3_INIT_ERROR - status;
+                    }
+                    result = ERROR(status, msg.str());
                 }
-                result = ERROR(status, msg.str());
             }
-        }
-        
+        }        
         return result;
     }
     
     eirods::error s3GetAuthCredentials(
-        eirods::resource_property_map& _prop_map,
+        eirods::plugin_property_map& _prop_map,
         std::string& _rtn_key_id,
         std::string& _rtn_access_key)
     {
@@ -575,23 +513,16 @@ extern "C" {
         eirods::error ret;
         std::string key_id;
         std::string access_key;
-        if(!(ret = _prop_map.get<std::string>(s3_key_id, key_id)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to get the S3 access key id property.";
-            result = PASSMSG(msg.str(), ret);
-        }
 
-        else if(!(ret = _prop_map.get<std::string>(s3_access_key, access_key)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to get the S3 secret access key property.";
-            result = PASSMSG(msg.str(), ret);
-        }
+        ret = _prop_map.get<std::string>(s3_key_id, key_id);
+        if((result = ASSERT_PASS(ret, "Failed to get the S3 access key id property.")).ok()) {
 
-        else {
-            _rtn_key_id = key_id;
-            _rtn_access_key = access_key;
+            ret = _prop_map.get<std::string>(s3_access_key, access_key);
+            if((result = ASSERT_PASS(ret, "Failed to get the S3 secret access key property.")).ok()) {
+
+                _rtn_key_id = key_id;
+                _rtn_access_key = access_key;
+            }
         }
         
         return result;
@@ -601,29 +532,15 @@ extern "C" {
         
     // =-=-=-=-=-=-=-
     /// @brief Checks the basic operation parameters and updates the physical path in the file object
-    eirods::error s3CheckParams(eirods::resource_operation_context* _ctx ) {
+    eirods::error s3CheckParams(eirods::resource_plugin_context& _ctx ) {
 
         eirods::error result = SUCCESS();
         eirods::error ret;
 
         // =-=-=-=-=-=-=-
-        // check incoming parameters
-        if( !_ctx ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - null resource context";
-            result = ERROR( SYS_INVALID_INPUT_PARAM, msg.str() );
-        }
-
-        // =-=-=-=-=-=-=-
         // verify that the resc context is valid 
-        ret = _ctx->valid();
-        if( !ret.ok() ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - resource context is invalid";
-            result = PASSMSG( msg.str(), ret );
-        } 
+        ret = _ctx.valid();
+        result = ASSERT_PASS(ret, "Resource context is invalid");
 
         return result;
 
@@ -631,28 +548,19 @@ extern "C" {
     
     /// @brief Start up operation - Initialize the S3 library and set the auth fields in the properties.
     eirods:: error s3StartOperation(
-        eirods::resource_property_map& _prop_map,
+        eirods::plugin_property_map& _prop_map,
         eirods::resource_child_map& _child_map)
     {
         eirods::error result = SUCCESS();
         eirods::error ret;
         
         // Initialize the S3 library
-        if(!(ret = s3Init()).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to initialize the S3 library.";
-            result = PASSMSG(msg.str(), ret);
-        }
+        ret = s3Init();
+        if((result = ASSERT_PASS(ret, "Failed to initialize the S3 library.")).ok()) {
 
-        else {
             // Retrieve the auth info and set the appropriate fields in the property map
-            if(!(ret = s3ReadAuthInfo(_prop_map)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to read S3 auth info.";
-                result = PASSMSG(msg.str(), ret);
-            }
+            ret = s3ReadAuthInfo(_prop_map);
+            result = ASSERT_PASS(ret, "Failed to read S3 auth info.");
         }
         
         return result;
@@ -660,7 +568,7 @@ extern "C" {
 
     /// @brief stop operation. All this does is deinitialize the s3 library
     eirods::error s3StopOperation(
-        eirods::resource_property_map& _prop_map,
+        eirods::plugin_property_map& _prop_map,
         eirods::resource_child_map& _child_map)
     {
         eirods::error result = SUCCESS();
@@ -674,42 +582,42 @@ extern "C" {
     
     // =-=-=-=-=-=-=-
     // interface for file registration
-    eirods::error s3RegisteredPlugin( eirods::resource_operation_context* _ctx) {
+    eirods::error s3RegisteredPlugin( eirods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     }
 
     // =-=-=-=-=-=-=-
     // interface for file unregistration
-    eirods::error s3UnregisteredPlugin( eirods::resource_operation_context* _ctx) {
+    eirods::error s3UnregisteredPlugin( eirods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     } 
 
     // =-=-=-=-=-=-=-
     // interface for file modification
-    eirods::error s3ModifiedPlugin( eirods::resource_operation_context* _ctx) {
+    eirods::error s3ModifiedPlugin( eirods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     } 
     
     // =-=-=-=-=-=-=-
     // interface for POSIX create
-    eirods::error s3FileCreatePlugin( eirods::resource_operation_context* _ctx) {
+    eirods::error s3FileCreatePlugin( eirods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     } 
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Open
-    eirods::error s3FileOpenPlugin( eirods::resource_operation_context* _ctx) {
+    eirods::error s3FileOpenPlugin( eirods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Read
-    eirods::error s3FileReadPlugin( eirods::resource_operation_context* _ctx,
+    eirods::error s3FileReadPlugin( eirods::resource_plugin_context& _ctx,
                                     void*               _buf, 
                                     int                 _len ) {
                                       
@@ -719,7 +627,7 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
-    eirods::error s3FileWritePlugin( eirods::resource_operation_context* _ctx,
+    eirods::error s3FileWritePlugin( eirods::resource_plugin_context& _ctx,
                                      void*               _buf, 
                                      int                 _len ) {
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
@@ -728,7 +636,7 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Close
-    eirods::error s3FileClosePlugin(  eirods::resource_operation_context* _ctx ) {
+    eirods::error s3FileClosePlugin(  eirods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
         
@@ -737,7 +645,7 @@ extern "C" {
     // =-=-=-=-=-=-=-
     // interface for POSIX Unlink
     eirods::error s3FileUnlinkPlugin(
-        eirods::resource_operation_context* _ctx )
+        eirods::resource_plugin_context& _ctx )
     {
         eirods::error result = SUCCESS();
         
@@ -753,70 +661,58 @@ extern "C" {
             
             // =-=-=-=-=-=-=-
             // get ref to fco
-            eirods::first_class_object& _object = _ctx->fco();
+            eirods::data_object_ptr _object = boost::dynamic_pointer_cast<eirods::data_object>(_ctx.fco());
 
             eirods::error ret;
             std::string bucket;
             std::string key;
             std::string key_id;
             std::string access_key;
-            
-            if(!(ret = parseS3Path(_object.physical_path(), bucket, key)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed parsing the S3 bucket and key from the physical path: \"";
-                msg << _object.physical_path();
-                msg << "\"";
-                result = PASSMSG(msg.str(), ret);
-            }
 
-            else if(!(ret = s3Init()).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to initialize the S3 system.";
-                result = PASSMSG(msg.str(), ret);
-            }
+            ret = parseS3Path(_object->physical_path(), bucket, key);
+            if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
+                                     _object->physical_path().c_str())).ok()) {
 
-            else if(!(ret = s3GetAuthCredentials(_ctx->prop_map(), key_id, access_key)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to get the S3 credentials properties.";
-                result = PASSMSG(msg.str(), ret);
-            }
-                
-            else {
-                callback_data_t data;
-                S3BucketContext bucketContext;
+                ret = s3Init();
+                if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
-                bzero (&data, sizeof (data));
+                    ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+                    if((result = ASSERT_PASS(ret, "Failed to get the S3 credentials properties.")).ok()) {
 
-                bzero (&bucketContext, sizeof (bucketContext));
-                bucketContext.bucketName = bucket.c_str();
-                bucketContext.protocol = S3ProtocolHTTPS;
-                bucketContext.uriStyle = S3UriStylePath;
-                bucketContext.accessKeyId = key_id.c_str();
-                bucketContext.secretAccessKey = access_key.c_str();
+                        callback_data_t data;
+                        S3BucketContext bucketContext;
 
-                S3ResponseHandler responseHandler = {
-                    0, &responseCompleteCallback
-                };
+                        bzero (&data, sizeof (data));
 
-                S3_delete_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
+                        bzero (&bucketContext, sizeof (bucketContext));
+                        bucketContext.bucketName = bucket.c_str();
+                        bucketContext.protocol = S3ProtocolHTTPS;
+                        bucketContext.uriStyle = S3UriStylePath;
+                        bucketContext.accessKeyId = key_id.c_str();
+                        bucketContext.secretAccessKey = access_key.c_str();
 
-                if (data.status != S3StatusOK) {
-                    int status = data.status;
-                    std::stringstream msg;
-                    msg << __FUNCTION__;
-                    msg << " - Error unlinking the S3 object: \"";
-                    msg << _object.physical_path();
-                    msg << "\"";
-                    if(status >= 0) {
-                        msg << " - \"";
-                        msg << S3_get_status_name((S3Status)status);
-                        msg << "\"";
-                        status = S3_INIT_ERROR - status;
+                        S3ResponseHandler responseHandler = {
+                            0, &responseCompleteCallback
+                        };
+
+                        S3_delete_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
+
+                        if (data.status != S3StatusOK) {
+                            int status = data.status;
+                            std::stringstream msg;
+                            msg << __FUNCTION__;
+                            msg << " - Error unlinking the S3 object: \"";
+                            msg << _object->physical_path();
+                            msg << "\"";
+                            if(status >= 0) {
+                                msg << " - \"";
+                                msg << S3_get_status_name((S3Status)status);
+                                msg << "\"";
+                                status = S3_INIT_ERROR - status;
+                            }
+                            result = ERROR(status, msg.str());
+                        }
                     }
-                    result = ERROR(status, msg.str());
                 }
             }
         }
@@ -826,7 +722,7 @@ extern "C" {
     // =-=-=-=-=-=-=-
     // interface for POSIX Stat
     eirods::error s3FileStatPlugin(
-        eirods::resource_operation_context* _ctx,
+        eirods::resource_plugin_context& _ctx,
         struct stat* _statbuf )
     { 
 
@@ -835,20 +731,15 @@ extern "C" {
         // =-=-=-=-=-=-=-
         // check incoming parameters
         eirods::error ret = s3CheckParams( _ctx );
-        if(!ret.ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
-            result = PASSMSG(msg.str(), ret);  
-        }
-        else {
+        if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
             
             // =-=-=-=-=-=-=-
             // get ref to fco
-            eirods::first_class_object& _object = _ctx->fco();
+            eirods::data_object_ptr _object = boost::dynamic_pointer_cast<eirods::data_object>(_ctx.fco());
 
             bzero (_statbuf, sizeof (struct stat));
 
-            if(_object.physical_path().find("/", _object.physical_path().size()) != std::string::npos) {
+            if(_object->physical_path().find("/", _object->physical_path().size()) != std::string::npos) {
                 // A directory
                 _statbuf->st_mode = S_IFDIR;
             } else {
@@ -858,86 +749,74 @@ extern "C" {
                 std::string key;
                 std::string key_id;
                 std::string access_key;
-                
-                if(!(ret = parseS3Path(_object.physical_path(), bucket, key)).ok()) {
-                    std::stringstream msg;
-                    msg << __FUNCTION__;
-                    msg << " - Failed parsing the S3 bucket and key from the physical path: \"";
-                    msg << _object.physical_path();
-                    msg << "\"";
-                    result = PASSMSG(msg.str(), ret);
-                }
 
-                else if(!(ret = s3Init()).ok()) {
-                    std::stringstream msg;
-                    msg << __FUNCTION__;
-                    msg << " - Failed to initialize the S3 system.";
-                    result = PASSMSG(msg.str(), ret);
-                }
+                ret = parseS3Path(_object->physical_path(), bucket, key);
+                if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
+                                         _object->physical_path().c_str())).ok()) {
 
-                else if(!(ret = s3GetAuthCredentials(_ctx->prop_map(), key_id, access_key)).ok()) {
-                    std::stringstream msg;
-                    msg << __FUNCTION__;
-                    msg << " - Failed to get the S3 credentials properties.";
-                    result = PASSMSG(msg.str(), ret);
-                }
-                
-                else {
-                    callback_data_t data;
-                    S3BucketContext bucketContext;
+                    ret = s3Init();
+                    if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
-                    bzero (&data, sizeof (data));
+                        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+                        if((result = ASSERT_PASS(ret, "Failed to get the S3 credentials properties.")).ok()) {
 
-                    bzero (&bucketContext, sizeof (bucketContext));
-                    bucketContext.bucketName = bucket.c_str();
-                    bucketContext.protocol = S3ProtocolHTTPS;
-                    bucketContext.uriStyle = S3UriStylePath;
-                    bucketContext.accessKeyId = key_id.c_str();
-                    bucketContext.secretAccessKey = access_key.c_str();
+                            callback_data_t data;
+                            S3BucketContext bucketContext;
 
-                    S3ListBucketHandler listBucketHandler = {
-                        { &responsePropertiesCallback, &responseCompleteCallback },
-                        &listBucketCallback
-                    };
+                            bzero (&data, sizeof (data));
 
-                    data.keyCount = 0;
-                    data.allDetails = 1;
+                            bzero (&bucketContext, sizeof (bucketContext));
+                            bucketContext.bucketName = bucket.c_str();
+                            bucketContext.protocol = S3ProtocolHTTPS;
+                            bucketContext.uriStyle = S3UriStylePath;
+                            bucketContext.accessKeyId = key_id.c_str();
+                            bucketContext.secretAccessKey = access_key.c_str();
 
-                    S3_list_bucket(&bucketContext, key.c_str(), NULL,
-                                   NULL, 1, 0, &listBucketHandler, &data);
+                            S3ListBucketHandler listBucketHandler = {
+                                { &responsePropertiesCallback, &responseCompleteCallback },
+                                &listBucketCallback
+                            };
 
-                    if (data.status != S3StatusOK) {
-                        int status = data.status;
-                        std::stringstream msg;
-                        msg << __FUNCTION__;
-                        msg << " - Error stat'ing the S3 object: \"";
-                        msg << _object.physical_path();
-                        msg << "\"";
-                        if(status >= 0) {
-                            msg << " - \"";
-                            msg << S3_get_status_name((S3Status)status);
-                            msg << "\"";
-                            status = S3_FILE_STAT_ERR - status;
+                            data.keyCount = 0;
+                            data.allDetails = 1;
+
+                            S3_list_bucket(&bucketContext, key.c_str(), NULL,
+                                           NULL, 1, 0, &listBucketHandler, &data);
+
+                            if (data.status != S3StatusOK) {
+                                int status = data.status;
+                                std::stringstream msg;
+                                msg << __FUNCTION__;
+                                msg << " - Error stat'ing the S3 object: \"";
+                                msg << _object->physical_path();
+                                msg << "\"";
+                                if(status >= 0) {
+                                    msg << " - \"";
+                                    msg << S3_get_status_name((S3Status)status);
+                                    msg << "\"";
+                                    status = S3_FILE_STAT_ERR - status;
+                                }
+                                result = ERROR(status, msg.str());
+                            }
+
+                            else if(data.keyCount > 0) {
+                                _statbuf->st_mode = S_IFREG;
+                                _statbuf->st_nlink = 1;
+                                _statbuf->st_uid = getuid ();
+                                _statbuf->st_gid = getgid ();
+                                _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = data.s3Stat.lastModified;
+                                _statbuf->st_size = data.s3Stat.size;
+                            }
+
+                            else {
+                                std::stringstream msg;
+                                msg << __FUNCTION__;
+                                msg << " - S3 object not found: \"";
+                                msg << _object->physical_path();
+                                msg << "\"";
+                                result = ERROR(S3_FILE_STAT_ERR, msg.str());
+                            }
                         }
-                        result = ERROR(status, msg.str());
-                    }
-
-                    else if(data.keyCount > 0) {
-                        _statbuf->st_mode = S_IFREG;
-                        _statbuf->st_nlink = 1;
-                        _statbuf->st_uid = getuid ();
-                        _statbuf->st_gid = getgid ();
-                        _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = data.s3Stat.lastModified;
-                        _statbuf->st_size = data.s3Stat.size;
-                    }
-
-                    else {
-                        std::stringstream msg;
-                        msg << __FUNCTION__;
-                        msg << " - S3 object not found: \"";
-                        msg << _object.physical_path();
-                        msg << "\"";
-                        result = ERROR(S3_FILE_STAT_ERR, msg.str());
                     }
                 }
             }
@@ -947,7 +826,7 @@ extern "C" {
         
     // =-=-=-=-=-=-=-
     // interface for POSIX Fstat
-    eirods::error s3FileFstatPlugin(  eirods::resource_operation_context* _ctx,
+    eirods::error s3FileFstatPlugin(  eirods::resource_plugin_context& _ctx,
                                       struct stat*        _statbuf ) {
         return ERROR( SYS_NOT_SUPPORTED, "s3FileFstatPlugin" );
                                    
@@ -955,7 +834,7 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
-    eirods::error s3FileLseekPlugin(  eirods::resource_operation_context* _ctx, 
+    eirods::error s3FileLseekPlugin(  eirods::resource_plugin_context& _ctx, 
                                       size_t              _offset, 
                                       int                 _whence ) {
 
@@ -965,7 +844,7 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX fsync
-    eirods::error s3FileFsyncPlugin(  eirods::resource_operation_context* _ctx ) {
+    eirods::error s3FileFsyncPlugin(  eirods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "wosFileFsyncPlugin" );
 
@@ -973,7 +852,7 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
-    eirods::error s3FileMkdirPlugin(  eirods::resource_operation_context* _ctx ) {
+    eirods::error s3FileMkdirPlugin(  eirods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileMkdirPlugin" );
 
@@ -981,35 +860,35 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
-    eirods::error s3FileChmodPlugin(  eirods::resource_operation_context* _ctx ) {
+    eirods::error s3FileChmodPlugin(  eirods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileChmodPlugin" );
     } // s3FileChmodPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
-    eirods::error s3FileRmdirPlugin(  eirods::resource_operation_context* _ctx ) {
+    eirods::error s3FileRmdirPlugin(  eirods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileRmdirPlugin" );
     } // s3FileRmdirPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX opendir
-    eirods::error s3FileOpendirPlugin( eirods::resource_operation_context* _ctx ) {
+    eirods::error s3FileOpendirPlugin( eirods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileOpendirPlugin" );
     } // s3FileOpendirPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX closedir
-    eirods::error s3FileClosedirPlugin( eirods::resource_operation_context* _ctx) {
+    eirods::error s3FileClosedirPlugin( eirods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileClosedirPlugin" );
     } // s3FileClosedirPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX readdir
-    eirods::error s3FileReaddirPlugin( eirods::resource_operation_context* _ctx,
+    eirods::error s3FileReaddirPlugin( eirods::resource_plugin_context& _ctx,
                                        struct rodsDirent**     _dirent_ptr ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileReaddirPlugin" );
@@ -1017,57 +896,45 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX readdir
-    eirods::error s3FileStagePlugin( eirods::resource_operation_context* _ctx ) {
+    eirods::error s3FileStagePlugin( eirods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileStagePlugin" );
     } // s3FileStagePlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX readdir
-    eirods::error s3FileRenamePlugin( eirods::resource_operation_context* _ctx,
+    eirods::error s3FileRenamePlugin( eirods::resource_plugin_context& _ctx,
                                       const char*         _new_file_name )
     {
         eirods::error result = SUCCESS();
         eirods::error ret;
         std::string key_id;
         std::string access_key;
-        
-        if(!(ret = s3GetAuthCredentials(_ctx->prop_map(), key_id, access_key)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to get S3 credential properties.";
-            return PASSMSG(msg.str(), ret);
-        }
-        
-        // copy the file to the new location
-        if(!(ret = s3CopyFile(_ctx->fco().physical_path(), _new_file_name, key_id, access_key)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to copy file from: \"";
-            msg << _ctx->fco().physical_path();
-            msg << "\" to: \"";
-            msg << _new_file_name;
-            msg << "\"";
-            return PASSMSG(msg.str(), ret);
-        }
-        
-        // delete the old file
-        if(!(ret = s3FileUnlinkPlugin(_ctx)).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to unlink old S3 file: \"";
-            msg << _ctx->fco().physical_path();
-            msg << "\"";
-            return PASSMSG(msg.str(), ret);
-        }
 
+        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
+
+            eirods::data_object_ptr object = boost::dynamic_pointer_cast<eirods::data_object>(_ctx.fco());
+        
+            // copy the file to the new location
+            ret = s3CopyFile(object->physical_path(), _new_file_name, key_id, access_key);
+            if((result = ASSERT_PASS(ret, "Failed to copy file from: \"%s\" to \"%s\".",
+                                     object->physical_path().c_str(), _new_file_name)).ok()) {
+        
+                // delete the old file
+                ret = s3FileUnlinkPlugin(_ctx);
+                result = ASSERT_PASS(ret, "FAiled to unlink old S3 file: \"%s\".",
+                                     object->physical_path().c_str());
+            }
+        }
+        
         return result;
     } // s3FileRenamePlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX truncate
     eirods::error s3FileTruncatePlugin( 
-        eirods::resource_operation_context* _ctx )
+        eirods::resource_plugin_context& _ctx )
     { 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileTruncatePlugin" );
     } // s3FileTruncatePlugin
@@ -1075,7 +942,7 @@ extern "C" {
     
     // interface to determine free space on a device given a path
     eirods::error s3FileGetFsFreeSpacePlugin(
-        eirods::resource_operation_context* _ctx )
+        eirods::resource_plugin_context& _ctx )
     {
         return ERROR(SYS_NOT_SUPPORTED, "s3FileGetFsFreeSpacePlugin");
             
@@ -1093,80 +960,42 @@ extern "C" {
     // Just copy the file from filename to cacheFilename. optionalInfo info
     // is not used.
     eirods::error s3StageToCachePlugin(
-        eirods::resource_operation_context* _ctx,
+        eirods::resource_plugin_context& _ctx,
         char*                               _cache_file_name )
     {
         eirods::error result = SUCCESS();
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
         eirods::error ret = s3CheckParams( _ctx );
-        if(!ret.ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
-            result = PASSMSG(msg.str(), ret);  
-        }
-        else {
-            eirods::error ret;
+        if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
+
             struct stat statbuf;
             std::string key_id;
             std::string access_key;
             
-            eirods::file_object* object = dynamic_cast<eirods::file_object*>(&(_ctx->fco()));
-            if(object == NULL) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to cast first class object to file object for file: \"";
-                msg << _ctx->fco().physical_path();
-                msg << "\"";
-                result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
-            }
-            else if(!(ret = s3FileStatPlugin(_ctx, &statbuf)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed stat'ing the file: \"";
-                msg << object->physical_path();
-                msg << "\"";
-                result = PASSMSG(msg.str(), ret);
-            }
-            else if((statbuf.st_mode & S_IFREG) == 0) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Error stat'ing the file: \"";
-                msg << object->physical_path();
-                msg << "\"";
-                result = ERROR(S3_FILE_STAT_ERR, msg.str());
-            }
-            else if(object->size() > 0 && object->size() != statbuf.st_size) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Error for file: \"";
-                msg << object->physical_path();
-                msg << "\" inp data size: ";
-                msg << object->size();
-                msg << " does not match stat size: ";
-                msg << statbuf.st_size;
-                result = ERROR(SYS_COPY_LEN_ERR, msg.str());
-            }
+            eirods::file_object_ptr object = boost::dynamic_pointer_cast<eirods::file_object>(_ctx.fco());
 
-            else if(!(ret = s3GetAuthCredentials(_ctx->prop_map(), key_id, access_key)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to get S3 credential properties.";
-                result = PASSMSG(msg.str(), ret);
-            }
-            
-            else {
-                rodsLong_t mySize = statbuf.st_size;
-                ret = s3GetFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key);
-                if(!ret.ok()) {
-                    std::stringstream msg;
-                    msg << __FUNCTION__;
-                    msg << " - Failed to copy the S3 object: \"";
-                    msg << object->physical_path();
-                    msg << "\" to the cache: \"";
-                    msg << _cache_file_name;
-                    msg << "\"";
-                    result = PASSMSG(msg.str(), ret);
+            ret = s3FileStatPlugin(_ctx, &statbuf);
+            if((result = ASSERT_PASS(ret, "Failed stating the file: \"%s\".",
+                                     object->physical_path().c_str())).ok()) {
+
+                if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, S3_FILE_STAT_ERR, "Error stating the file: \"%s\".",
+                                          object->physical_path().c_str())).ok()) {
+
+                    if((result = ASSERT_ERROR(object->size() <= 0 || object->size() == statbuf.st_size, SYS_COPY_LEN_ERR,
+                                              "Error for file: \"%s\" inp data size: %ld does not match stat size: %ld.",
+                                              object->physical_path().c_str(), object->size(), statbuf.st_size)).ok()) {
+
+                        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+                        if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
+
+                            rodsLong_t mySize = statbuf.st_size;
+                            ret = s3GetFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key);
+                            result = ASSERT_PASS(ret, "Failed to copy the S3 object: \"%s\" to the cache: \"%s\".",
+                                                 object->physical_path().c_str(), _cache_file_name);
+                        }
+                    }
                 }
             }
         }
@@ -1178,94 +1007,48 @@ extern "C" {
     // Just copy the file from cacheFilename to filename. optionalInfo info
     // is not used.
     eirods::error s3SyncToArchPlugin( 
-        eirods::resource_operation_context* _ctx,
+        eirods::resource_plugin_context& _ctx,
         char*                               _cache_file_name )
     {
         eirods::error result = SUCCESS();
         // =-=-=-=-=-=-=-
         // check incoming parameters
         eirods::error ret = s3CheckParams( _ctx );
-        if(!ret.ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
-            result = PASSMSG(msg.str(), ret);  
-        }
-        else {
+        if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
+
             struct stat statbuf;
             int status;
             std::string key_id;
             std::string access_key;
             
-            eirods::file_object* object = dynamic_cast<eirods::file_object*>(&(_ctx->fco()));
-            if(object == NULL) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to cast first class object to file object for file: \"";
-                msg << _ctx->fco().physical_path();
-                msg << "\"";
-                result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
-            }
+            eirods::file_object_ptr object = boost::dynamic_pointer_cast<eirods::file_object>(_ctx.fco());
+            status = stat(_cache_file_name, &statbuf);
+            int err_status = UNIX_FILE_STAT_ERR - errno;
+            if((result = ASSERT_ERROR(status >= 0, err_status, "Failed to stat cache file: \"%s\".",
+                                      _cache_file_name)).ok()) {
 
-            else if((status = stat(_cache_file_name, &statbuf)) < 0) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to stat cache file: \"";
-                msg << _cache_file_name;
-                msg << "\"";
-                result = ERROR(UNIX_FILE_STAT_ERR - errno, msg.str());
-            }
+                if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, UNIX_FILE_STAT_ERR, "Cache file: \"%s\" is not a file.",
+                                          _cache_file_name)).ok()) {
 
-            else if((statbuf.st_mode & S_IFREG) == 0) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Cache file: \"";
-                msg << _cache_file_name;
-                msg << "\" is not a file.";
-                result = ERROR(UNIX_FILE_STAT_ERR, msg.str());
-            }
+                    ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+                    if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
-            // This check is overridden since apparently the size in the inp is not initialized for a put - harry
-            else if(false && (object->size() > 0 & object->size() != statbuf.st_size)) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Cache file: \"";
-                msg << _cache_file_name;
-                msg << "\" inp size: ";
-                msg << object->size();
-                msg << " does not match actual size: ";
-                msg << statbuf.st_size;
-                result = ERROR(SYS_COPY_LEN_ERR, msg.str());
-            }
-
-            else if(!(ret = s3GetAuthCredentials(_ctx->prop_map(), key_id, access_key)).ok()) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to get S3 credential properties.";
-                result = PASSMSG(msg.str(), ret);
-            }
-            
-            else {
-                rodsLong_t data_size = statbuf.st_size;
-                ret = s3PutFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key);
-                if(!ret.ok()) {
-                    std::stringstream msg;
-                    msg << __FUNCTION__;
-                    msg << " - Failed to copy the cache file: \"";
-                    msg << _cache_file_name;
-                    msg << "\" to the S3 object: \"";
-                    msg << object->physical_path();
-                    msg << "\"";
-                    result = PASSMSG(msg.str(), ret);
+                        rodsLong_t data_size = statbuf.st_size;
+                        ret = s3PutFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key);
+                        result = ASSERT_PASS(ret, "Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".",
+                                             _cache_file_name, object->physical_path().c_str());
+                    }
                 }
             }
         }
+        
         return result;
     } // s3SyncToArchPlugin
 
     // =-=-=-=-=-=-=-
     // redirect_get - code to determine redirection for get operation
     eirods::error s3RedirectCreate( 
-        eirods::resource_property_map& _prop_map,
+        eirods::plugin_property_map& _prop_map,
         eirods::file_object&           _file_obj,
         const std::string&             _resc_name, 
         const std::string&             _curr_host, 
@@ -1277,46 +1060,38 @@ extern "C" {
         std::string host_name;
             
         // =-=-=-=-=-=-=-
-        // determine if the resource is down 
-        if( !(ret = _prop_map.get< int >( eirods::RESOURCE_STATUS, resc_status )).ok() ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to retrieve status property.";
-            result = PASSMSG(msg.str(), ret);
-        }
+        // determine if the resource is down
+        ret = _prop_map.get< int >( eirods::RESOURCE_STATUS, resc_status );
+        if((result = ASSERT_PASS(ret, "Failed to retrieve status property.")).ok() ) {
 
-        // =-=-=-=-=-=-=-
-        // get the resource host for comparison to curr host
-        else if( !(ret = _prop_map.get< std::string >( eirods::RESOURCE_LOCATION, host_name )).ok() ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to get location property.";
-            result = PASSMSG(msg.str(), ret);
-        } 
-
-        else {
             // =-=-=-=-=-=-=-
-            // if the status is down, vote no.
-            if( INT_RESC_STATUS_DOWN == resc_status ) {
-                _out_vote = 0.0;
-            }
+            // get the resource host for comparison to curr host
+            ret = _prop_map.get< std::string >( eirods::RESOURCE_LOCATION, host_name );
+            if((result = ASSERT_PASS(ret, "Failed to get location property.")).ok() ) {
+
+                // =-=-=-=-=-=-=-
+                // if the status is down, vote no.
+                if( INT_RESC_STATUS_DOWN == resc_status ) {
+                    _out_vote = 0.0;
+                }
                 
-            // =-=-=-=-=-=-=-
-            // vote higher if we are on the same host
-            else if( _curr_host == host_name ) {
-                _out_vote = 1.0;
-            } else {
-                _out_vote = 0.5;
+                // =-=-=-=-=-=-=-
+                // vote higher if we are on the same host
+                else if( _curr_host == host_name ) {
+                    _out_vote = 1.0;
+                } else {
+                    _out_vote = 0.5;
+                }
             }
         }
-
+        
         return result;
     } // s3RedirectCreate
 
     // =-=-=-=-=-=-=-
     // redirect_get - code to determine redirection for get operation
     eirods::error s3RedirectOpen( 
-        eirods::resource_property_map& _prop_map,
+        eirods::plugin_property_map& _prop_map,
         eirods::file_object&           _file_obj,
         const std::string&             _resc_name, 
         const std::string&             _curr_host, 
@@ -1328,39 +1103,31 @@ extern "C" {
         std::string host_name;
             
         // =-=-=-=-=-=-=-
-        // determine if the resource is down 
-        if( !(ret = _prop_map.get< int >( eirods::RESOURCE_STATUS, resc_status )).ok() ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to get status property for resource.";
-            result = PASSMSG(msg.str(), ret);
-        }
+        // determine if the resource is down
+        ret = _prop_map.get< int >( eirods::RESOURCE_STATUS, resc_status );
+        if((result = ASSERT_PASS(ret, "Failed to get status property for resource.")).ok() ) {
 
-        // =-=-=-=-=-=-=-
-        // get the resource host for comparison to curr host
-        else if( !(ret = _prop_map.get< std::string >( eirods::RESOURCE_LOCATION, host_name )).ok() ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Failed to get the location property.";
-            result = PASSMSG(msg.str(), ret);
-        }
-
-        else {
-                
             // =-=-=-=-=-=-=-
-            // if the status is down, vote no.
-            if( INT_RESC_STATUS_DOWN == resc_status ) {
-                _out_vote = 0.0;
-            }
+            // get the resource host for comparison to curr host
+            ret = _prop_map.get< std::string >( eirods::RESOURCE_LOCATION, host_name );
+            if((result = ASSERT_PASS(ret, "Failed to get the location property.")).ok() ) {
                 
-            // =-=-=-=-=-=-=-
-            // vote higher if we are on the same host
-            else if( _curr_host == host_name ) {
-                _out_vote = 1.0;
-            } else {
-                _out_vote = 0.5;
+                // =-=-=-=-=-=-=-
+                // if the status is down, vote no.
+                if( INT_RESC_STATUS_DOWN == resc_status ) {
+                    _out_vote = 0.0;
+                }
+                
+                // =-=-=-=-=-=-=-
+                // vote higher if we are on the same host
+                else if( _curr_host == host_name ) {
+                    _out_vote = 1.0;
+                } else {
+                    _out_vote = 0.5;
+                }
             }
         }
+        
         return result;
     } // s3RedirectOpen
 
@@ -1368,7 +1135,7 @@ extern "C" {
     // used to allow the resource to determine which host
     // should provide the requested operation
     eirods::error s3RedirectPlugin( 
-        eirods::resource_operation_context* _ctx,
+        eirods::resource_plugin_context& _ctx,
         const std::string*                  _opr,
         const std::string*                  _curr_host,
         eirods::hierarchy_parser*           _out_parser,
@@ -1378,97 +1145,50 @@ extern "C" {
         eirods::error ret;
             
         // =-=-=-=-=-=-=-
-        // check the context pointer
-        if( !_ctx ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Invalid resource context.";
-            result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
-        }
-         
-        // =-=-=-=-=-=-=-
         // check the context validity
-        else if(!(ret = _ctx->valid< eirods::file_object >()).ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Invalid resource context.";
-            result = PASSMSG(msg.str(), ret);
-        }
+        ret = _ctx.valid< eirods::file_object >();
+        if((result = ASSERT_PASS(ret, "Invalid resource context.")).ok()) {
  
-        // =-=-=-=-=-=-=-
-        // check incoming parameters
-        else if( !_opr ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Null operation pointer.";
-            result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
-        }
-        else if( !_curr_host ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Null current host pointer.";
-            result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
-        }
-        else if( !_out_parser ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Null output hierarchy parser.";
-            result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
-        }
-        else if( !_out_vote ) {
-            std::stringstream msg;
-            msg << __FUNCTION__;
-            msg << " - Null output vote.";
-            result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
-        }
-        else {
-            std::string resc_name;
-                
             // =-=-=-=-=-=-=-
-            // cast down the chain to our understood object type
-            eirods::file_object* file_obj = dynamic_cast< eirods::file_object* >( &(_ctx->fco()) );
-            if(file_obj == NULL) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Error casting first class object to file object.";
-                result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
-            }
+            // check incoming parameters
+            if((result = ASSERT_ERROR(_opr && _curr_host && _out_parser && _out_vote, SYS_INVALID_INPUT_PARAM,
+                                      "One or more NULL pointer arguments.")).ok()) {
+
+                std::string resc_name;
                 
-            // =-=-=-=-=-=-=-
-            // get the name of this resource
-            else if( !(ret = _ctx->prop_map().get< std::string >( eirods::RESOURCE_NAME, resc_name )).ok() ) {
-                std::stringstream msg;
-                msg << __FUNCTION__;
-                msg << " - Failed to get resource name property.";
-                result = PASSMSG(msg.str(), ret);
-            }
-            else {
                 // =-=-=-=-=-=-=-
-                // add ourselves to the hierarchy parser by default
-                _out_parser->add_child( resc_name );
-
+                // cast down the chain to our understood object type
+                eirods::file_object_ptr file_obj = boost::dynamic_pointer_cast< eirods::file_object >( _ctx.fco() );
+                
                 // =-=-=-=-=-=-=-
-                // test the operation to determine which choices to make
-                if( eirods::EIRODS_OPEN_OPERATION == (*_opr) ) {
-                    // =-=-=-=-=-=-=-
-                    // call redirect determination for 'get' operation
-                    result = s3RedirectOpen( _ctx->prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
+                // get the name of this resource
+                ret = _ctx.prop_map().get< std::string >( eirods::RESOURCE_NAME, resc_name );
+                if((result = ASSERT_PASS(ret, "Failed to get resource name property.")).ok() ) {
 
-                } else if( eirods::EIRODS_CREATE_OPERATION == (*_opr) ) {
                     // =-=-=-=-=-=-=-
-                    // call redirect determination for 'create' operation
-                    result = s3RedirectCreate( _ctx->prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
-                }
-                else {
-                    std::stringstream msg;
-                    msg << __FUNCTION__;
-                    msg << " - Unknown redirect operation: \"";
-                    msg << *_opr;
-                    msg << "\"";
-                    result = ERROR(SYS_INVALID_INPUT_PARAM, msg.str());
+                    // add ourselves to the hierarchy parser by default
+                    _out_parser->add_child( resc_name );
+
+                    // =-=-=-=-=-=-=-
+                    // test the operation to determine which choices to make
+                    if( eirods::EIRODS_OPEN_OPERATION == (*_opr) ) {
+                        // =-=-=-=-=-=-=-
+                        // call redirect determination for 'get' operation
+                        result = s3RedirectOpen( _ctx.prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
+
+                    } else if( eirods::EIRODS_CREATE_OPERATION == (*_opr) ) {
+                        // =-=-=-=-=-=-=-
+                        // call redirect determination for 'create' operation
+                        result = s3RedirectCreate( _ctx.prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
+                    }
+                    else {
+                        result = ASSERT_ERROR(false, SYS_INVALID_INPUT_PARAM, "Unknown redirect operation: \"%s\".",
+                                              _opr->c_str());
+                    }
                 }
             }
         }
+        
         return result;
     } // s3RedirectPlugin
 
