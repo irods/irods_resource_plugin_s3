@@ -846,7 +846,7 @@ extern "C" {
     // interface for POSIX fsync
     eirods::error s3FileFsyncPlugin(  eirods::resource_plugin_context& _ctx ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, "wosFileFsyncPlugin" );
+        return ERROR( SYS_NOT_SUPPORTED, "s3FileFsyncPlugin" );
 
     } // s3FileFsyncPlugin
 
@@ -902,7 +902,7 @@ extern "C" {
     } // s3FileStagePlugin
 
     // =-=-=-=-=-=-=-
-    // interface for POSIX readdir
+    // interface for POSIX rename
     eirods::error s3FileRenamePlugin( eirods::resource_plugin_context& _ctx,
                                       const char*         _new_file_name )
     {
