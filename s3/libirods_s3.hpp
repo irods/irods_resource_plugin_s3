@@ -3,8 +3,8 @@
 #ifndef _LIBEIRODS_S3_H_
 #define _LIBEIRODS_S3_H_
 
-#include <rodsType.h>
-#include <rodsDef.h>
+#include <rodsType.hpp>
+#include <rodsDef.hpp>
 #include <libs3.h>
 
 #define S3_AUTH_FILE "s3Auth"

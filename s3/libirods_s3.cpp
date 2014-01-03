@@ -1,30 +1,30 @@
 /* -*- mode: c++; fill-column: 132; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
-#include "libeirods_s3.h"
+#include "libirods_s3.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes
-#include <msParam.h>
-#include <reGlobalsExtern.h>
-#include <rcConnect.h>
-#include <rodsLog.h>
-#include <rodsErrorTable.h>
-#include <objInfo.h>
+#include <msParam.hpp>
+#include <reGlobalsExtern.hpp>
+#include <rcConnect.hpp>
+#include <rodsLog.hpp>
+#include <rodsErrorTable.hpp>
+#include <objInfo.hpp>
 
 #ifdef USING_JSON
 #include <json/json.h>
 #endif
 
 // =-=-=-=-=-=-=-
-// eirods includes
-#include "eirods_resource_plugin.h"
-#include "eirods_file_object.h"
-#include "eirods_physical_object.h"
-#include "eirods_collection_object.h"
-#include "eirods_string_tokenize.h"
-#include "eirods_hierarchy_parser.h"
-#include "eirods_resource_redirect.h"
-#include "eirods_stacktrace.h"
+// irods includes
+#include "irods_resource_plugin.hpp"
+#include "irods_file_object.hpp"
+#include "irods_physical_object.hpp"
+#include "irods_collection_object.hpp"
+#include "irods_string_tokenize.hpp"
+#include "irods_hierarchy_parser.hpp"
+#include "irods_resource_redirect.hpp"
+#include "irods_stacktrace.hpp"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -120,10 +120,10 @@ extern "C" {
         const char *buffer,
         void *callbackData)
     {
-        eirods::error result = ASSERT_ERROR(bufferSize != 0 && buffer != NULL && callbackData != NULL,
+        irods::error result = ASSERT_ERROR(bufferSize != 0 && buffer != NULL && callbackData != NULL,
                                             SYS_INVALID_INPUT_PARAM, "Invalid input parameter.");
         if(!result.ok()) {
-            eirods::log(result);
+            irods::log(result);
         }
 
         FILE *outfile = ((callback_data_t *)callbackData)->fd;
@@ -181,12 +181,12 @@ extern "C" {
     }
 
     // Utility functions
-    eirods::error parseS3Path (
+    irods::error parseS3Path (
         const std::string& _s3ObjName,
         std::string& _bucket,
         std::string& _key)
     {
-        eirods::error result = SUCCESS();
+        irods::error result = SUCCESS();
         size_t start_pos = 0;
         size_t slash_pos = 0;
         slash_pos = _s3ObjName.find_first_of("/");
@@ -204,13 +204,13 @@ extern "C" {
         return result;
     }
 
-    eirods::error readS3AuthInfo (
+    irods::error readS3AuthInfo (
         const std::string& _filename,
         std::string& _rtn_key_id,
         std::string& _rtn_access_key)
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         FILE *fptr;
         char inbuf[MAX_NAME_LEN];
         int lineLen, bytesCopied;
@@ -247,15 +247,15 @@ extern "C" {
 
     /// @brief Retrieves the auth info from either the environment or the resource's specified auth file and set the appropriate
     /// fields in the property map
-    eirods::error s3ReadAuthInfo(
-        eirods::plugin_property_map& _prop_map)
+    irods::error s3ReadAuthInfo(
+        irods::plugin_property_map& _prop_map)
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         char* tmpPtr;
         std::string key_id;
         std::string access_key;
-        
+
         if ((tmpPtr = getenv(s3_key_id.c_str())) != NULL) {
             key_id = tmpPtr;
             if ((tmpPtr = getenv(s3_access_key.c_str())) != NULL) {
@@ -277,14 +277,14 @@ extern "C" {
         }
         return result;
     }
-    
-    eirods::error s3Init (void)
+
+    irods::error s3Init (void)
     {
-        eirods::error result = SUCCESS();
+        irods::error result = SUCCESS();
         char *tmpPtr;
-        
+
         if (!S3Initialized) {
-            
+
             S3Initialized = true;
             int status = 0;
 #ifdef libs3_3_1_4
@@ -305,16 +305,16 @@ extern "C" {
 
         return result;
     }
-        
-    eirods::error s3GetFile(
+
+    irods::error s3GetFile(
         const std::string& _filename,
         const std::string& _s3ObjName,
         rodsLong_t _fileSize,
         const std::string& _key_id,
         const std::string& _access_key)
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         FILE* cache_file = NULL;
         std::string bucket;
         std::string key;
@@ -369,15 +369,15 @@ extern "C" {
         return result;
     }
 
-    eirods::error s3PutFile(
+    irods::error s3PutFile(
         const std::string& _filename,
         const std::string& _s3ObjName,
         rodsLong_t _fileSize,
         const std::string& _key_id,
         const std::string& _access_key)
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         FILE* cache_file = NULL;
         std::string bucket;
         std::string key;
@@ -438,14 +438,14 @@ extern "C" {
     }
 
     /// @brief Function to copy the specifed src file to the specified dest file
-    eirods::error s3CopyFile(
+    irods::error s3CopyFile(
         const std::string& _src_file,
         const std::string& _dest_file,
         const std::string& _key_id,
         const std::string& _access_key)
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         std::string src_bucket;
         std::string src_key;
         std::string dest_bucket;
@@ -500,17 +500,17 @@ extern "C" {
                     result = ERROR(status, msg.str());
                 }
             }
-        }        
+        }
         return result;
     }
-    
-    eirods::error s3GetAuthCredentials(
-        eirods::plugin_property_map& _prop_map,
+
+    irods::error s3GetAuthCredentials(
+        irods::plugin_property_map& _prop_map,
         std::string& _rtn_key_id,
         std::string& _rtn_access_key)
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         std::string key_id;
         std::string access_key;
 
@@ -524,36 +524,36 @@ extern "C" {
                 _rtn_access_key = access_key;
             }
         }
-        
+
         return result;
     }
     //
     //////////////////////////////////////////////////////////////////////
-        
+
     // =-=-=-=-=-=-=-
     /// @brief Checks the basic operation parameters and updates the physical path in the file object
-    eirods::error s3CheckParams(eirods::resource_plugin_context& _ctx ) {
+    irods::error s3CheckParams(irods::resource_plugin_context& _ctx ) {
 
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
 
         // =-=-=-=-=-=-=-
-        // verify that the resc context is valid 
+        // verify that the resc context is valid
         ret = _ctx.valid();
         result = ASSERT_PASS(ret, "Resource context is invalid");
 
         return result;
 
     } // Check Params
-    
+
     /// @brief Start up operation - Initialize the S3 library and set the auth fields in the properties.
-    eirods:: error s3StartOperation(
-        eirods::plugin_property_map& _prop_map,
-        eirods::resource_child_map& _child_map)
+    irods:: error s3StartOperation(
+        irods::plugin_property_map& _prop_map,
+        irods::resource_child_map& _child_map)
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
-        
+        irods::error result = SUCCESS();
+        irods::error ret;
+
         // Initialize the S3 library
         ret = s3Init();
         if((result = ASSERT_PASS(ret, "Failed to initialize the S3 library.")).ok()) {
@@ -562,16 +562,16 @@ extern "C" {
             ret = s3ReadAuthInfo(_prop_map);
             result = ASSERT_PASS(ret, "Failed to read S3 auth info.");
         }
-        
+
         return result;
     }
 
     /// @brief stop operation. All this does is deinitialize the s3 library
-    eirods::error s3StopOperation(
-        eirods::plugin_property_map& _prop_map,
-        eirods::resource_child_map& _child_map)
+    irods::error s3StopOperation(
+        irods::plugin_property_map& _prop_map,
+        irods::resource_child_map& _child_map)
     {
-        eirods::error result = SUCCESS();
+        irods::error result = SUCCESS();
         if(S3Initialized) {
             S3Initialized = false;
 
@@ -579,56 +579,56 @@ extern "C" {
         }
         return result;
     }
-    
+
     // =-=-=-=-=-=-=-
     // interface for file registration
-    eirods::error s3RegisteredPlugin( eirods::resource_plugin_context& _ctx) {
+    irods::error s3RegisteredPlugin( irods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     }
 
     // =-=-=-=-=-=-=-
     // interface for file unregistration
-    eirods::error s3UnregisteredPlugin( eirods::resource_plugin_context& _ctx) {
+    irods::error s3UnregisteredPlugin( irods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
-    } 
+    }
 
     // =-=-=-=-=-=-=-
     // interface for file modification
-    eirods::error s3ModifiedPlugin( eirods::resource_plugin_context& _ctx) {
+    irods::error s3ModifiedPlugin( irods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
-    } 
-    
+    }
+
     // =-=-=-=-=-=-=-
     // interface for POSIX create
-    eirods::error s3FileCreatePlugin( eirods::resource_plugin_context& _ctx) {
+    irods::error s3FileCreatePlugin( irods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
-    } 
+    }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Open
-    eirods::error s3FileOpenPlugin( eirods::resource_plugin_context& _ctx) {
+    irods::error s3FileOpenPlugin( irods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Read
-    eirods::error s3FileReadPlugin( eirods::resource_plugin_context& _ctx,
-                                    void*               _buf, 
+    irods::error s3FileReadPlugin( irods::resource_plugin_context& _ctx,
+                                    void*               _buf,
                                     int                 _len ) {
-                                      
+
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
 
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
-    eirods::error s3FileWritePlugin( eirods::resource_plugin_context& _ctx,
-                                     void*               _buf, 
+    irods::error s3FileWritePlugin( irods::resource_plugin_context& _ctx,
+                                     void*               _buf,
                                      int                 _len ) {
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
 
@@ -636,34 +636,34 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Close
-    eirods::error s3FileClosePlugin(  eirods::resource_plugin_context& _ctx ) {
+    irods::error s3FileClosePlugin(  irods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
-        
+
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Unlink
-    eirods::error s3FileUnlinkPlugin(
-        eirods::resource_plugin_context& _ctx )
+    irods::error s3FileUnlinkPlugin(
+        irods::resource_plugin_context& _ctx )
     {
-        eirods::error result = SUCCESS();
-        
+        irods::error result = SUCCESS();
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
-        eirods::error ret = s3CheckParams( _ctx );
+        irods::error ret = s3CheckParams( _ctx );
         if(!ret.ok()) {
             std::stringstream msg;
             msg << __FUNCTION__ << " - Invalid parameters or physical path.";
-            result = PASSMSG(msg.str(), ret);  
+            result = PASSMSG(msg.str(), ret);
         }
         else {
-            
+
             // =-=-=-=-=-=-=-
             // get ref to fco
-            eirods::data_object_ptr _object = boost::dynamic_pointer_cast<eirods::data_object>(_ctx.fco());
+            irods::data_object_ptr _object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
 
-            eirods::error ret;
+            irods::error ret;
             std::string bucket;
             std::string key;
             std::string key_id;
@@ -721,21 +721,21 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Stat
-    eirods::error s3FileStatPlugin(
-        eirods::resource_plugin_context& _ctx,
+    irods::error s3FileStatPlugin(
+        irods::resource_plugin_context& _ctx,
         struct stat* _statbuf )
     { 
 
-        eirods::error result = SUCCESS();
+        irods::error result = SUCCESS();
         
         // =-=-=-=-=-=-=-
         // check incoming parameters
-        eirods::error ret = s3CheckParams( _ctx );
+        irods::error ret = s3CheckParams( _ctx );
         if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
             
             // =-=-=-=-=-=-=-
             // get ref to fco
-            eirods::data_object_ptr _object = boost::dynamic_pointer_cast<eirods::data_object>(_ctx.fco());
+            irods::data_object_ptr _object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
 
             bzero (_statbuf, sizeof (struct stat));
 
@@ -744,7 +744,7 @@ extern "C" {
                 _statbuf->st_mode = S_IFDIR;
             } else {
                     
-                eirods::error ret;
+                irods::error ret;
                 std::string bucket;
                 std::string key;
                 std::string key_id;
@@ -826,7 +826,7 @@ extern "C" {
         
     // =-=-=-=-=-=-=-
     // interface for POSIX Fstat
-    eirods::error s3FileFstatPlugin(  eirods::resource_plugin_context& _ctx,
+    irods::error s3FileFstatPlugin(  irods::resource_plugin_context& _ctx,
                                       struct stat*        _statbuf ) {
         return ERROR( SYS_NOT_SUPPORTED, "s3FileFstatPlugin" );
                                    
@@ -834,7 +834,7 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
-    eirods::error s3FileLseekPlugin(  eirods::resource_plugin_context& _ctx, 
+    irods::error s3FileLseekPlugin(  irods::resource_plugin_context& _ctx, 
                                       size_t              _offset, 
                                       int                 _whence ) {
 
@@ -844,7 +844,7 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX fsync
-    eirods::error s3FileFsyncPlugin(  eirods::resource_plugin_context& _ctx ) {
+    irods::error s3FileFsyncPlugin(  irods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileFsyncPlugin" );
 
@@ -852,7 +852,7 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
-    eirods::error s3FileMkdirPlugin(  eirods::resource_plugin_context& _ctx ) {
+    irods::error s3FileMkdirPlugin(  irods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileMkdirPlugin" );
 
@@ -860,35 +860,35 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
-    eirods::error s3FileChmodPlugin(  eirods::resource_plugin_context& _ctx ) {
+    irods::error s3FileChmodPlugin(  irods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileChmodPlugin" );
     } // s3FileChmodPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
-    eirods::error s3FileRmdirPlugin(  eirods::resource_plugin_context& _ctx ) {
+    irods::error s3FileRmdirPlugin(  irods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileRmdirPlugin" );
     } // s3FileRmdirPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX opendir
-    eirods::error s3FileOpendirPlugin( eirods::resource_plugin_context& _ctx ) {
+    irods::error s3FileOpendirPlugin( irods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileOpendirPlugin" );
     } // s3FileOpendirPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX closedir
-    eirods::error s3FileClosedirPlugin( eirods::resource_plugin_context& _ctx) {
+    irods::error s3FileClosedirPlugin( irods::resource_plugin_context& _ctx) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileClosedirPlugin" );
     } // s3FileClosedirPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX readdir
-    eirods::error s3FileReaddirPlugin( eirods::resource_plugin_context& _ctx,
+    irods::error s3FileReaddirPlugin( irods::resource_plugin_context& _ctx,
                                        struct rodsDirent**     _dirent_ptr ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileReaddirPlugin" );
@@ -896,25 +896,25 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX readdir
-    eirods::error s3FileStagePlugin( eirods::resource_plugin_context& _ctx ) {
+    irods::error s3FileStagePlugin( irods::resource_plugin_context& _ctx ) {
 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileStagePlugin" );
     } // s3FileStagePlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX rename
-    eirods::error s3FileRenamePlugin( eirods::resource_plugin_context& _ctx,
+    irods::error s3FileRenamePlugin( irods::resource_plugin_context& _ctx,
                                       const char*         _new_file_name )
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         std::string key_id;
         std::string access_key;
 
         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
         if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
-            eirods::data_object_ptr object = boost::dynamic_pointer_cast<eirods::data_object>(_ctx.fco());
+            irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
         
             // copy the file to the new location
             ret = s3CopyFile(object->physical_path(), _new_file_name, key_id, access_key);
@@ -933,22 +933,22 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX truncate
-    eirods::error s3FileTruncatePlugin( 
-        eirods::resource_plugin_context& _ctx )
+    irods::error s3FileTruncatePlugin( 
+        irods::resource_plugin_context& _ctx )
     { 
         return ERROR( SYS_NOT_SUPPORTED, "s3FileTruncatePlugin" );
     } // s3FileTruncatePlugin
 
     
     // interface to determine free space on a device given a path
-    eirods::error s3FileGetFsFreeSpacePlugin(
-        eirods::resource_plugin_context& _ctx )
+    irods::error s3FileGetFsFreeSpacePlugin(
+        irods::resource_plugin_context& _ctx )
     {
         return ERROR(SYS_NOT_SUPPORTED, "s3FileGetFsFreeSpacePlugin");
             
     } // s3FileGetFsFreeSpacePlugin
 
-    eirods::error s3FileCopyPlugin( int mode, const char *srcFileName, 
+    irods::error s3FileCopyPlugin( int mode, const char *srcFileName, 
                                     const char *destFileName)
     {
         return ERROR( SYS_NOT_SUPPORTED, "s3FileCopyPlugin" );
@@ -959,22 +959,22 @@ extern "C" {
     // s3StageToCache - This routine is for testing the TEST_STAGE_FILE_TYPE.
     // Just copy the file from filename to cacheFilename. optionalInfo info
     // is not used.
-    eirods::error s3StageToCachePlugin(
-        eirods::resource_plugin_context& _ctx,
+    irods::error s3StageToCachePlugin(
+        irods::resource_plugin_context& _ctx,
         char*                               _cache_file_name )
     {
-        eirods::error result = SUCCESS();
+        irods::error result = SUCCESS();
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
-        eirods::error ret = s3CheckParams( _ctx );
+        irods::error ret = s3CheckParams( _ctx );
         if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
 
             struct stat statbuf;
             std::string key_id;
             std::string access_key;
             
-            eirods::file_object_ptr object = boost::dynamic_pointer_cast<eirods::file_object>(_ctx.fco());
+            irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
             ret = s3FileStatPlugin(_ctx, &statbuf);
             if((result = ASSERT_PASS(ret, "Failed stating the file: \"%s\".",
@@ -1006,14 +1006,14 @@ extern "C" {
     // s3SyncToArch - This routine is for testing the TEST_STAGE_FILE_TYPE.
     // Just copy the file from cacheFilename to filename. optionalInfo info
     // is not used.
-    eirods::error s3SyncToArchPlugin( 
-        eirods::resource_plugin_context& _ctx,
+    irods::error s3SyncToArchPlugin( 
+        irods::resource_plugin_context& _ctx,
         char*                               _cache_file_name )
     {
-        eirods::error result = SUCCESS();
+        irods::error result = SUCCESS();
         // =-=-=-=-=-=-=-
         // check incoming parameters
-        eirods::error ret = s3CheckParams( _ctx );
+        irods::error ret = s3CheckParams( _ctx );
         if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
 
             struct stat statbuf;
@@ -1021,7 +1021,7 @@ extern "C" {
             std::string key_id;
             std::string access_key;
             
-            eirods::file_object_ptr object = boost::dynamic_pointer_cast<eirods::file_object>(_ctx.fco());
+            irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             status = stat(_cache_file_name, &statbuf);
             int err_status = UNIX_FILE_STAT_ERR - errno;
             if((result = ASSERT_ERROR(status >= 0, err_status, "Failed to stat cache file: \"%s\".",
@@ -1047,26 +1047,26 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // redirect_get - code to determine redirection for get operation
-    eirods::error s3RedirectCreate( 
-        eirods::plugin_property_map& _prop_map,
-        eirods::file_object&           _file_obj,
+    irods::error s3RedirectCreate( 
+        irods::plugin_property_map& _prop_map,
+        irods::file_object&           _file_obj,
         const std::string&             _resc_name, 
         const std::string&             _curr_host, 
         float&                         _out_vote )
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         int resc_status = 0;
         std::string host_name;
             
         // =-=-=-=-=-=-=-
         // determine if the resource is down
-        ret = _prop_map.get< int >( eirods::RESOURCE_STATUS, resc_status );
+        ret = _prop_map.get< int >( irods::RESOURCE_STATUS, resc_status );
         if((result = ASSERT_PASS(ret, "Failed to retrieve status property.")).ok() ) {
 
             // =-=-=-=-=-=-=-
             // get the resource host for comparison to curr host
-            ret = _prop_map.get< std::string >( eirods::RESOURCE_LOCATION, host_name );
+            ret = _prop_map.get< std::string >( irods::RESOURCE_LOCATION, host_name );
             if((result = ASSERT_PASS(ret, "Failed to get location property.")).ok() ) {
 
                 // =-=-=-=-=-=-=-
@@ -1090,26 +1090,26 @@ extern "C" {
 
     // =-=-=-=-=-=-=-
     // redirect_get - code to determine redirection for get operation
-    eirods::error s3RedirectOpen( 
-        eirods::plugin_property_map& _prop_map,
-        eirods::file_object&           _file_obj,
+    irods::error s3RedirectOpen( 
+        irods::plugin_property_map& _prop_map,
+        irods::file_object&           _file_obj,
         const std::string&             _resc_name, 
         const std::string&             _curr_host, 
         float&                         _out_vote )
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
         int resc_status = 0;
         std::string host_name;
             
         // =-=-=-=-=-=-=-
         // determine if the resource is down
-        ret = _prop_map.get< int >( eirods::RESOURCE_STATUS, resc_status );
+        ret = _prop_map.get< int >( irods::RESOURCE_STATUS, resc_status );
         if((result = ASSERT_PASS(ret, "Failed to get status property for resource.")).ok() ) {
 
             // =-=-=-=-=-=-=-
             // get the resource host for comparison to curr host
-            ret = _prop_map.get< std::string >( eirods::RESOURCE_LOCATION, host_name );
+            ret = _prop_map.get< std::string >( irods::RESOURCE_LOCATION, host_name );
             if((result = ASSERT_PASS(ret, "Failed to get the location property.")).ok() ) {
                 
                 // =-=-=-=-=-=-=-
@@ -1134,19 +1134,19 @@ extern "C" {
     // =-=-=-=-=-=-=-
     // used to allow the resource to determine which host
     // should provide the requested operation
-    eirods::error s3RedirectPlugin( 
-        eirods::resource_plugin_context& _ctx,
+    irods::error s3RedirectPlugin( 
+        irods::resource_plugin_context& _ctx,
         const std::string*                  _opr,
         const std::string*                  _curr_host,
-        eirods::hierarchy_parser*           _out_parser,
+        irods::hierarchy_parser*           _out_parser,
         float*                              _out_vote )
     {
-        eirods::error result = SUCCESS();
-        eirods::error ret;
+        irods::error result = SUCCESS();
+        irods::error ret;
             
         // =-=-=-=-=-=-=-
         // check the context validity
-        ret = _ctx.valid< eirods::file_object >();
+        ret = _ctx.valid< irods::file_object >();
         if((result = ASSERT_PASS(ret, "Invalid resource context.")).ok()) {
  
             // =-=-=-=-=-=-=-
@@ -1158,11 +1158,11 @@ extern "C" {
                 
                 // =-=-=-=-=-=-=-
                 // cast down the chain to our understood object type
-                eirods::file_object_ptr file_obj = boost::dynamic_pointer_cast< eirods::file_object >( _ctx.fco() );
+                irods::file_object_ptr file_obj = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
                 
                 // =-=-=-=-=-=-=-
                 // get the name of this resource
-                ret = _ctx.prop_map().get< std::string >( eirods::RESOURCE_NAME, resc_name );
+                ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name );
                 if((result = ASSERT_PASS(ret, "Failed to get resource name property.")).ok() ) {
 
                     // =-=-=-=-=-=-=-
@@ -1171,12 +1171,12 @@ extern "C" {
 
                     // =-=-=-=-=-=-=-
                     // test the operation to determine which choices to make
-                    if( eirods::EIRODS_OPEN_OPERATION == (*_opr) ) {
+                    if( irods::OPEN_OPERATION == (*_opr) ) {
                         // =-=-=-=-=-=-=-
                         // call redirect determination for 'get' operation
                         result = s3RedirectOpen( _ctx.prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
 
-                    } else if( eirods::EIRODS_CREATE_OPERATION == (*_opr) ) {
+                    } else if( irods::CREATE_OPERATION == (*_opr) ) {
                         // =-=-=-=-=-=-=-
                         // call redirect determination for 'create' operation
                         result = s3RedirectCreate( _ctx.prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
@@ -1192,17 +1192,17 @@ extern "C" {
         return result;
     } // s3RedirectPlugin
 
-    class s3_resource : public eirods::resource {
+    class s3_resource : public irods::resource {
     public:
         s3_resource( const std::string& _inst_name,
                      const std::string& _context ) :
-            eirods::resource( _inst_name, _context ) {
+            irods::resource( _inst_name, _context ) {
             
             // =-=-=-=-=-=-=-
             // parse context string into property pairs assuming a ; as a separator
             std::vector< std::string > props;
             rodsLog( LOG_NOTICE, "context: %s", _context.c_str());
-            eirods::string_tokenize( _context, ";", props );
+            irods::string_tokenize( _context, ";", props );
 
             // =-=-=-=-=-=-=-
             // parse key/property pairs using = as a separator and
@@ -1212,7 +1212,7 @@ extern "C" {
                 // =-=-=-=-=-=-=-
                 // break up key and value into two strings
                 std::vector< std::string > vals;
-                eirods::string_tokenize( *itr, "=", vals );
+                irods::string_tokenize( *itr, "=", vals );
 
                 // =-=-=-=-=-=-=-
                 // break up key and value into two strings
@@ -1225,7 +1225,7 @@ extern "C" {
             set_stop_operation( "s3StopOperation" );
         } // ctor
 
-        eirods::error need_post_disconnect_maintenance_operation( bool& _b ) {
+        irods::error need_post_disconnect_maintenance_operation( bool& _b ) {
             _b = false;
             return SUCCESS();
         }
@@ -1234,7 +1234,7 @@ extern "C" {
         // =-=-=-=-=-=-=-
         // 3b. pass along a functor for maintenance work after
         //     the client disconnects, uncomment the first two lines for effect.
-        eirods::error post_disconnect_maintenance_operation( eirods::pdmo_type& _op  ) {
+        irods::error post_disconnect_maintenance_operation( irods::pdmo_type& _op  ) {
             return SUCCESS();
         }
 
@@ -1247,43 +1247,43 @@ extern "C" {
     // of parameters that the microservice takes and the name of the micro
     // service.  this will be called by the plugin loader in the irods server
     // to create the entry to the table when the plugin is requested.
-    eirods::resource* plugin_factory(const std::string& _inst_name, const std::string& _context) {
+    irods::resource* plugin_factory(const std::string& _inst_name, const std::string& _context) {
         s3_resource* resc = new s3_resource(_inst_name, _context);
 
-        resc->add_operation( eirods::RESOURCE_OP_CREATE,       "s3FileCreatePlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_OPEN,         "s3FileOpenPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_READ,         "s3FileReadPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_WRITE,        "s3FileWritePlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_CLOSE,        "s3FileClosePlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_UNLINK,       "s3FileUnlinkPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_STAT,         "s3FileStatPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_FSTAT,        "s3FileFstatPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_FSYNC,        "s3FileFsyncPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_MKDIR,        "s3FileMkdirPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_CHMOD,        "s3FileChmodPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_OPENDIR,      "s3FileOpendirPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_READDIR,      "s3FileReaddirPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_STAGE,        "s3FileStagePlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_RENAME,       "s3FileRenamePlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_FREESPACE,    "s3FileGetFsFreeSpacePlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_LSEEK,        "s3FileLseekPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_RMDIR,        "s3FileRmdirPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_CLOSEDIR,     "s3FileClosedirPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_TRUNCATE,     "s3FileTruncatePlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_STAGETOCACHE, "s3StageToCachePlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_SYNCTOARCH,   "s3SyncToArchPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_REGISTERED,   "s3RegisteredPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_UNREGISTERED, "s3UnregisteredPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_MODIFIED,     "s3ModifiedPlugin" );
-        resc->add_operation( eirods::RESOURCE_OP_RESOLVE_RESC_HIER, "s3RedirectPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_CREATE,       "s3FileCreatePlugin" );
+        resc->add_operation( irods::RESOURCE_OP_OPEN,         "s3FileOpenPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_READ,         "s3FileReadPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_WRITE,        "s3FileWritePlugin" );
+        resc->add_operation( irods::RESOURCE_OP_CLOSE,        "s3FileClosePlugin" );
+        resc->add_operation( irods::RESOURCE_OP_UNLINK,       "s3FileUnlinkPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_STAT,         "s3FileStatPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_FSTAT,        "s3FileFstatPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_FSYNC,        "s3FileFsyncPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_MKDIR,        "s3FileMkdirPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_CHMOD,        "s3FileChmodPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_OPENDIR,      "s3FileOpendirPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_READDIR,      "s3FileReaddirPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_STAGE,        "s3FileStagePlugin" );
+        resc->add_operation( irods::RESOURCE_OP_RENAME,       "s3FileRenamePlugin" );
+        resc->add_operation( irods::RESOURCE_OP_FREESPACE,    "s3FileGetFsFreeSpacePlugin" );
+        resc->add_operation( irods::RESOURCE_OP_LSEEK,        "s3FileLseekPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_RMDIR,        "s3FileRmdirPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_CLOSEDIR,     "s3FileClosedirPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_TRUNCATE,     "s3FileTruncatePlugin" );
+        resc->add_operation( irods::RESOURCE_OP_STAGETOCACHE, "s3StageToCachePlugin" );
+        resc->add_operation( irods::RESOURCE_OP_SYNCTOARCH,   "s3SyncToArchPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_REGISTERED,   "s3RegisteredPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_UNREGISTERED, "s3UnregisteredPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_MODIFIED,     "s3ModifiedPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_RESOLVE_RESC_HIER, "s3RedirectPlugin" );
 
         // set some properties necessary for backporting to iRODS legacy code
         resc->set_property< int >( "check_path_perm", DO_CHK_PATH_PERM );
         resc->set_property< int >( "create_path",     NO_CREATE_PATH );
         resc->set_property< int >( "category",        FILE_CAT );
 
-        //return dynamic_cast<eirods::resource*>( resc );
-        return dynamic_cast<eirods::resource *> (resc);
+        //return dynamic_cast<irods::resource*>( resc );
+        return dynamic_cast<irods::resource *> (resc);
     } // plugin_factory
 
 

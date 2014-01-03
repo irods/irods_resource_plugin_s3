@@ -1,10 +1,10 @@
-TARGET = libeirods_s3.so
+TARGET = libirods_s3.so
 
-SRCS = libeirods_s3.cpp
+SRCS = libirods_s3.cpp
 
-HEADERS = libeirods_s3.h
+HEADERS = libirods_s3.hpp
 
-EXTRALIBS = /usr/lib/libeirods.a -ls3
+EXTRALIBS = /usr/lib/libirods.a -ls3
 
 EXTRAINCS = 
 
@@ -24,7 +24,7 @@ DEPS = $(patsubst %.cpp, ${DEPDIR}/%.d, ${SRCS})
 
 GCC = g++ -DRODS_SERVER -DZIP_EXEC_PATH=\"$(ZIP_EXEC_PATH)\" -DUNZIP_EXEC_PATH=\"$(UNZIP_EXEC_PATH)\"
 
-INC = -I/usr/include/eirods -I/usr/include/openssl ${EXTRAINCS}
+INC = -I/usr/include/irods -I/usr/include/openssl ${EXTRAINCS}
 
 .PHONY: clean
 
