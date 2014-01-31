@@ -1,0 +1,220 @@
+#!/bin/bash -e
+
+# setup
+STARTTIME="$(date +%s)"
+SCRIPTNAME=`basename $0`
+SCRIPTPATH=$( cd $(dirname $0) ; pwd -P )
+FULLPATHSCRIPTNAME=$SCRIPTPATH/$SCRIPTNAME
+TOPLEVEL=$( cd $SCRIPTPATH/../ ; pwd -P )
+cd $SCRIPTPATH
+
+USAGE="
+Usage:
+  $SCRIPTNAME
+  $SCRIPTNAME clean
+"
+
+# Color Manipulation Aliases
+if [[ "$TERM" == "dumb" || "$TERM" == "unknown" ]] ; then
+    text_bold=""      # No Operation
+    text_red=""       # No Operation
+    text_green=""     # No Operation
+    text_yellow=""    # No Operation
+    text_blue=""      # No Operation
+    text_purple=""    # No Operation
+    text_cyan=""      # No Operation
+    text_white=""     # No Operation
+    text_reset=""     # No Operation
+else
+    text_bold=$(tput bold)      # Bold
+    text_red=$(tput setaf 1)    # Red
+    text_green=$(tput setaf 2)  # Green
+    text_yellow=$(tput setaf 3) # Yellow
+    text_blue=$(tput setaf 4)   # Blue
+    text_purple=$(tput setaf 5) # Purple
+    text_cyan=$(tput setaf 6)   # Cyan
+    text_white=$(tput setaf 7)  # White
+    text_reset=$(tput sgr0)     # Text Reset
+fi
+
+# =-=-=-=-=-=-=-
+# boilerplate
+echo "${text_cyan}${text_bold}"
+echo "+------------------------------------+"
+echo "| iRODS Plugin Build Script          |"
+echo "+------------------------------------+"
+date
+echo "${text_reset}"
+
+# =-=-=-=-=-=-=-
+# translate long options to short
+for arg
+do
+    delim=""
+    case "$arg" in
+        --coverage) args="${args}-c ";;
+        --help) args="${args}-h ";;
+        # pass through anything else
+        *) [[ "${arg:0:1}" == "-" ]] || delim="\""
+        args="${args}${delim}${arg}${delim} ";;
+    esac
+done
+# reset the translated args
+eval set -- $args
+# now we can process with getopts
+while getopts ":ch" opt; do
+    case $opt in
+        c)
+        COVERAGE="1"
+        echo "-c detected -- Building plugin with coverage support (gcov)"
+        ;;
+        h)
+        echo "$USAGE"
+        ;;
+        \?)
+        echo "Invalid option: -$OPTARG" >&2
+        ;;
+    esac
+done
+echo ""
+
+# =-=-=-=-=-=-=-
+# check arguments
+if [ $# -gt 1 ] ; then
+    echo "$USAGE" 1>&2
+    exit 1
+fi
+if [ "$1" = "-h" -o "$1" = "--help" -o "$1" = "help" ] ; then
+    echo "$USAGE"
+    exit 0
+fi
+
+# =-=-=-=-=-=-=-
+# require irods-dev package
+if [ ! -d /usr/include/irods ] ; then
+    echo "ERROR :: \"irods-dev\" package required to build this plugin" 1>&2
+    exit 1
+fi
+
+# =-=-=-=-=-=-=-
+# get into the top level directory
+cd $TOPLEVEL
+# =-=-=-=-=-=-=-
+# detect the project name
+PROJECTNAME=`basename $TOPLEVEL`
+echo "Detected Project Name               [$PROJECTNAME]"
+EPM_PROJECTNAME=${PROJECTNAME//_/-}
+echo "Detected EPM Project Name           [$EPM_PROJECTNAME]"
+# =-=-=-=-=-=-=-
+# set packaging directory
+PACKAGEDIR="$TOPLEVEL/packaging"
+echo "Detected Project Directory          [$PACKAGEDIR]"
+# =-=-=-=-=-=-=-
+# detect plugin version
+source $TOPLEVEL/VERSION
+echo "Detected Plugin Version to Build    [$PLUGINVERSION]"
+echo "Detected Plugin Version Integer     [$PLUGINVERSIONINT]"
+# =-=-=-=-=-=-=-
+# define list file
+LISTFILE=$PROJECTNAME.list
+echo "Detected EPM List File              [$LISTFILE]"
+
+# =-=-=-=-=-=-=-
+# check for clean
+if [ $# -eq 1 ] ; then
+    if [ "$1" == "clean" ] ; then
+        # clean up any build-created files
+        echo "${text_green}${text_bold}Cleaning...${text_reset}"
+        rm -f $LISTFILE
+        rm -rf linux-2.*
+        rm -rf linux-3.*
+        rm -rf macosx-10.*
+        echo "${text_green}${text_bold}Done.${text_reset}"
+        exit 0
+    fi
+fi
+
+# =-=-=-=-=-=-=-
+# detect number of cpus
+if [ "$DETECTEDOS" == "MacOSX" ] ; then
+    DETECTEDCPUCOUNT=`sysctl -n hw.ncpu`
+elif [ "$DETECTEDOS" == "Solaris" ] ; then
+    DETECTEDCPUCOUNT=`/usr/sbin/psrinfo -p`
+else
+    DETECTEDCPUCOUNT=`cat /proc/cpuinfo | grep processor | wc -l | tr -d ' '`
+fi
+if [ $DETECTEDCPUCOUNT -lt 2 ] ; then
+    DETECTEDCPUCOUNT=1
+fi
+CPUCOUNT=$(( $DETECTEDCPUCOUNT + 3 ))
+MAKEJCMD="make -j $CPUCOUNT"
+echo "Detected CPUs                       [$DETECTEDCPUCOUNT]"
+echo "Compile Command                     [$MAKEJCMD]"
+echo ""
+
+# =-=-=-=-=-=-=-
+# build the plugin itself
+$MAKEJCMD
+
+# =-=-=-=-=-=-=-
+# generate EPM list file from the template
+echo ""
+echo "${text_green}${text_bold}Creating Package...${text_reset}"
+cd $TOPLEVEL
+sed -e "s,TEMPLATE_PLUGINVERSIONINT,$PLUGINVERSIONINT,g" $LISTFILE.template > $LISTFILE.tmp
+mv $LISTFILE.tmp $LISTFILE
+sed -e "s,TEMPLATE_PLUGINVERSION,$PLUGINVERSION,g" $LISTFILE > $LISTFILE.tmp
+mv $LISTFILE.tmp $LISTFILE
+
+# =-=-=-=-=-=-=-
+# detect architecture
+unamem=`uname -m`
+if [[ "$unamem" == "x86_64" || "$unamem" == "amd64" ]] ; then
+    arch="amd64"
+else
+    arch="i386"
+fi
+
+# =-=-=-=-=-=-=-
+# set coverage flags
+if [ "$COVERAGE" == "1" ] ; then
+    # sets EPM to not strip binaries of debugging information
+    EPMOPTS="-g"
+    # sets listfile coverage options
+    EPMOPTS="$EPMOPTS COVERAGE=true"
+else
+    EPMOPTS=""
+fi
+
+# =-=-=-=-=-=-=-
+# build package
+cd $TOPLEVEL
+EPMCMD=/usr/bin/epm
+if [ -f "/etc/redhat-release" ]; then # CentOS and RHEL and Fedora
+  echo "${text_green}${text_bold}Running EPM :: Generating RPM${text_reset}"
+  $EPMCMD $EPMOPTS -f rpm $EPM_PROJECTNAME RPM=true $LISTFILE
+elif [ -f "/etc/SuSE-release" ]; then # SuSE
+  echo "${text_green}${text_bold}Running EPM :: Generating RPM${text_reset}"
+  $EPMCMD $EPMOPTS -f rpm $EPM_PROJECTNAME RPM=true $LISTFILE
+elif [ -f "/etc/lsb-release" ]; then  # Ubuntu
+  echo "${text_green}${text_bold}Running EPM :: Generating DEB${text_reset}"
+  $EPMCMD $EPMOPTS -a $arch -f deb $EPM_PROJECTNAME DEB=true $LISTFILE
+elif [ -f "/usr/bin/sw_vers" ]; then  # MacOSX
+  echo "${text_green}${text_bold}Running EPM :: Generating MacOSX DMG${text_reset}"
+  $EPMCMD $EPMOPTS -f osx $EPM_PROJECTNAME $LISTFILE
+fi
+
+# =-=-=-=-=-=-=-
+# show timing
+TOTALTIME="$(($(date +%s)-STARTTIME))"
+echo "${text_cyan}${text_bold}"
+echo "+------------------------------------+"
+echo "| iRODS Plugin Build Script          |"
+echo "|                                    |"
+printf "|   Completed in %02dm%02ds              |\n" "$((TOTALTIME/60))" "$((TOTALTIME%60))"
+echo "+------------------------------------+"
+echo "${text_reset}"
+
+# =-=-=-=-=-=-=-
+# exit cleanly
+exit 0

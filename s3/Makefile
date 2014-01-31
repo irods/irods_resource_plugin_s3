@@ -1,4 +1,4 @@
-TARGET = libirods_s3.so
+TARGET = libs3.so
 
 SRCS = libirods_s3.cpp
 
@@ -9,8 +9,8 @@ EXTRALIBS = /usr/lib/libirods.a -ls3
 EXTRAINCS = 
 
 ######################################################################
-# General settings below. These should not need to be changed in most
-# cases.
+# General settings below.
+# These should not need to be changed in most cases.
 
 SODIR = ..
 OBJDIR = .objs

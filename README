@@ -1,13 +1,17 @@
-E-iRODS S3 Resource Plugin
---------------------------
+iRODS S3 Resource Plugin
+------------------------
 
-To build the S3 Resource Plugin, you will need to have the E-iRODS Development Tools (eirods-dev) installed for your platform.
+To build the S3 Resource Plugin, you will need to have:
 
-  http://eirods.org/download
+ - the iRODS Development Tools (irods-dev) installed for your platform
+     http://eirods.org/download
+
+ - libs3 installed for your platform
+     https://github.com/irods/libs3
 
 
 Then to build this resource plugin:
 
-  make
+  ./packaging/build.sh
 
 

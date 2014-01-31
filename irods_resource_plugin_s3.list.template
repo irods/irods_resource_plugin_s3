@@ -1,0 +1,30 @@
+%product Amazon S3 Resource Plugin for iRODS
+%copyright 2014 by Renaissance Computing Institute, All Rights Reserved
+%vendor Renaissance Computing Institute <info@irods-consortium.org>
+%license LICENSE
+%readme README
+%description Amazon S3 Resource Plugin for iRODS
+%version TEMPLATE_PLUGINVERSION TEMPLATE_PLUGINVERSIONINT
+
+%if RPM
+%requires python26
+%else
+%requires python 2.6
+%endif
+
+%requires irods
+
+%format all
+
+# =-=-=-=-=-=-=-
+# variables for configuring the install
+# =-=-=-=-=-=-=-
+$OS_IRODS_ACCT=irods
+$OS_IRODS_HOME_DIR=/var/lib/irods
+
+# =-=-=-=-=-=-=-
+# full file listing
+# =-=-=-=-=-=-=-
+
+f 644 $OS_IRODS_ACCT $OS_IRODS_ACCT ${OS_IRODS_HOME_DIR}/plugins/resources/libs3.so ./libs3.so
+f 644 $OS_IRODS_ACCT $OS_IRODS_ACCT ${OS_IRODS_HOME_DIR}/tests/pydevtest/test_irods_resource_plugin_s3.py ./packaging/test_irods_resource_plugin_s3.py
