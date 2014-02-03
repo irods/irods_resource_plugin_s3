@@ -90,15 +90,13 @@ if [ "$1" = "-h" -o "$1" = "--help" -o "$1" = "help" ] ; then
 fi
 
 # =-=-=-=-=-=-=-
-# require irods-dev package
-if [ ! -d /usr/include/irods ] ; then
-    echo "ERROR :: \"irods-dev\" package required to build this plugin" 1>&2
-    exit 1
-fi
-
+# determine the OS Flavor
+DETECTEDOS=`$TOPLEVEL/packaging/find_os.sh`
+echo "Detected OS                         [$DETECTEDOS]"
 # =-=-=-=-=-=-=-
-# get into the top level directory
-cd $TOPLEVEL
+# determine the OS Version
+DETECTEDOSVERSION=`$TOPLEVEL/packaging/find_os_version.sh`
+echo "Detected OS Version                 [$DETECTEDOSVERSION]"
 # =-=-=-=-=-=-=-
 # detect the project name
 PROJECTNAME=`basename $TOPLEVEL`
@@ -106,9 +104,17 @@ echo "Detected Project Name               [$PROJECTNAME]"
 EPM_PROJECTNAME=${PROJECTNAME//_/-}
 echo "Detected EPM Project Name           [$EPM_PROJECTNAME]"
 # =-=-=-=-=-=-=-
+# get into the top level directory
+cd $TOPLEVEL
+echo "Detected Project Directory          [$TOPLEVEL]"
+# =-=-=-=-=-=-=-
 # set packaging directory
 PACKAGEDIR="$TOPLEVEL/packaging"
-echo "Detected Project Directory          [$PACKAGEDIR]"
+echo "Detected Packaging Directory        [$PACKAGEDIR]"
+# =-=-=-=-=-=-=-
+# set build directory
+BUILDDIR="$TOPLEVEL/build"
+echo "Detected Target Build Directory     [$BUILDDIR]"
 # =-=-=-=-=-=-=-
 # detect plugin version
 source $TOPLEVEL/VERSION
@@ -129,9 +135,18 @@ if [ $# -eq 1 ] ; then
         rm -rf linux-2.*
         rm -rf linux-3.*
         rm -rf macosx-10.*
+        rm -rf $BUILDDIR
+        make clean
         echo "${text_green}${text_bold}Done.${text_reset}"
         exit 0
     fi
+fi
+
+# =-=-=-=-=-=-=-
+# require irods-dev package
+if [ ! -d /usr/include/irods ] ; then
+    echo "ERROR :: \"irods-dev\" package required to build this plugin" 1>&2
+    exit 1
 fi
 
 # =-=-=-=-=-=-=-
@@ -190,19 +205,66 @@ fi
 # build package
 cd $TOPLEVEL
 EPMCMD=/usr/bin/epm
-if [ -f "/etc/redhat-release" ]; then # CentOS and RHEL and Fedora
-  echo "${text_green}${text_bold}Running EPM :: Generating RPM${text_reset}"
-  $EPMCMD $EPMOPTS -f rpm $EPM_PROJECTNAME RPM=true $LISTFILE
-elif [ -f "/etc/SuSE-release" ]; then # SuSE
-  echo "${text_green}${text_bold}Running EPM :: Generating RPM${text_reset}"
-  $EPMCMD $EPMOPTS -f rpm $EPM_PROJECTNAME RPM=true $LISTFILE
-elif [ -f "/etc/lsb-release" ]; then  # Ubuntu
-  echo "${text_green}${text_bold}Running EPM :: Generating DEB${text_reset}"
-  $EPMCMD $EPMOPTS -a $arch -f deb $EPM_PROJECTNAME DEB=true $LISTFILE
-elif [ -f "/usr/bin/sw_vers" ]; then  # MacOSX
-  echo "${text_green}${text_bold}Running EPM :: Generating MacOSX DMG${text_reset}"
-  $EPMCMD $EPMOPTS -f osx $EPM_PROJECTNAME $LISTFILE
+if [ "$DETECTEDOS" == "RedHatCompatible" ] ; then # CentOS and RHEL and Fedora
+    echo "${text_green}${text_bold}Running EPM :: Generating $DETECTEDOS RPMs${text_reset}"
+    EXTENSION="rpm"
+    epmvar="REDHAT"
+    ostype=`awk '{print $1}' /etc/redhat-release`
+    osversion=`awk '{print $3}' /etc/redhat-release`
+    if [ "$ostype" == "CentOS" -a "$osversion" \> "6" ]; then
+        epmosversion="CENTOS6"
+        SUFFIX=centos6
+    else
+        epmosversion="NOTCENTOS6"
+        SUFFIX=redhat
+    fi
+    $EPMCMD $EPMOPTS -f rpm $EPM_PROJECTNAME RPM=true $epmosversion=true $LISTFILE
+
+elif [ "$DETECTEDOS" == "SuSE" ] ; then # SuSE
+    echo "${text_green}${text_bold}Running EPM :: Generating $DETECTEDOS RPMs${text_reset}"
+    EXTENSION="rpm"
+    epmvar="SUSE"
+    $EPMCMD $EPMOPTS -f rpm $EPM_PROJECTNAME $epmvar=true $LISTFILE
+
+elif [ "$DETECTEDOS" == "Ubuntu" -o "$DETECTEDOS" == "Debian" ] ; then  # Ubuntu
+    echo "${text_green}${text_bold}Running EPM :: Generating $DETECTEDOS DEBs${text_reset}"
+    EXTENSION="deb"
+    epmvar="DEB"
+    $EPMCMD $EPMOPTS -a $arch -f deb $EPM_PROJECTNAME $epmvar=true $LISTFILE
+
+elif [ "$DETECTEDOS" == "Solaris" ] ; then  # Solaris
+    echo "${text_green}${text_bold}Running EPM :: Generating $DETECTEDOS PKGs${text_reset}"
+    EXTENSION="pkg"
+    epmvar="PKG"
+    $EPMCMD $EPMOPTS -f pkg $EPM_PROJECTNAME $epmvar=true $LISTFILE
+
+elif [ "$DETECTEDOS" == "MacOSX" ] ; then  # MacOSX
+    echo "${text_green}${text_bold}Running EPM :: Generating $DETECTEDOS DMGs${text_reset}"
+    EXTENSION="dmg"
+    epmvar="OSX"
+    $EPMCMD $EPMOPTS -f osx $EPM_PROJECTNAME $epmvar=true $LISTFILE
+
+elif [ "$DETECTEDOS" == "ArchLinux" ] ; then  # ArchLinux
+    echo "${text_green}${text_bold}Running EPM :: Generating $DETECTEDOS TGZs${text_reset}"
+    EXTENSION="tar.gz"
+    epmvar="ARCH"
+    $EPMCMD $EPMOPTS -f portable $EPM_PROJECTNAME $epmvar=true $LISTFILE
+
+else
+    echo "${text_red}#######################################################" 1>&2
+    echo "ERROR :: Unknown OS, cannot generate packages with EPM" 1>&2
+    echo "#######################################################${text_reset}" 1>&2
+    exit 1
 fi
+
+# =-=-=-=-=-=-=-
+# move package to build directory
+cd $TOPLEVEL
+mkdir -p $BUILDDIR
+mv linux*/$EPM_PROJECTNAME*.$EXTENSION $BUILDDIR/$EPM_PROJECTNAME-$PLUGINVERSION.$EXTENSION
+echo ""
+echo "$BUILDDIR:"
+ls -l $BUILDDIR
 
 # =-=-=-=-=-=-=-
 # show timing

@@ -6,6 +6,10 @@
 %description Amazon S3 Resource Plugin for iRODS
 %version TEMPLATE_PLUGINVERSION TEMPLATE_PLUGINVERSIONINT
 
+%if SUSE
+RPM=true
+%endif
+
 %if RPM
 %requires python26
 %else
