@@ -122,7 +122,7 @@ echo "Detected Plugin Version to Build    [$PLUGINVERSION]"
 echo "Detected Plugin Version Integer     [$PLUGINVERSIONINT]"
 # =-=-=-=-=-=-=-
 # define list file
-LISTFILE=$PROJECTNAME.list
+LISTFILE=$PACKAGEDIR/$PROJECTNAME.list
 echo "Detected EPM List File              [$LISTFILE]"
 
 # =-=-=-=-=-=-=-
