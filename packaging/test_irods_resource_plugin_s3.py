@@ -23,7 +23,7 @@ class Test_Compound_with_S3_Resource(unittest.TestCase, ResourceSuite, ChunkyDev
             "iadmin modresc demoResc name origResc",
             "iadmin mkresc demoResc compound",
             "iadmin mkresc cacheResc 'unixfilesystem' "+hostname+":/var/lib/irods/cacheRescVault",
-            "iadmin mkresc archiveResc s3 "+hostname+":/irods-ci/irods/Vault S3_KEY_FILE=/home/irodsbuild/secrets/amazon_web_services-CI.keypair",
+            "iadmin mkresc archiveResc s3 "+hostname+":/irods-ci/irods/Vault S3_AUTH_FILE=/home/irodsbuild/secrets/amazon_web_services-CI.keypair",
             "iadmin addchildtoresc demoResc cacheResc cache",
             "iadmin addchildtoresc demoResc archiveResc archive",
         ],
