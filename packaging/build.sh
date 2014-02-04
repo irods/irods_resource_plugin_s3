@@ -222,16 +222,17 @@ if [ "$DETECTEDOS" == "RedHatCompatible" ] ; then # CentOS and RHEL and Fedora
     osversion=`awk '{print $3}' /etc/redhat-release`
     if [ "$ostype" == "CentOS" -a "$osversion" \> "6" ]; then
         epmosversion="CENTOS6"
-        SUFFIX=centos6
+        SUFFIX="centos6"
     else
         epmosversion="NOTCENTOS6"
-        SUFFIX=redhat
+        SUFFIX="redhat"
     fi
     $EPMCMD $EPMOPTS -f rpm $EPM_PACKAGENAME RPM=true $epmosversion=true $LISTFILE
 
 elif [ "$DETECTEDOS" == "SuSE" ] ; then # SuSE
     echo "${text_green}${text_bold}Running EPM :: Generating $DETECTEDOS RPMs${text_reset}"
     EXTENSION="rpm"
+    SUFFIX="suse"
     epmvar="SUSE"
     $EPMCMD $EPMOPTS -f rpm $EPM_PACKAGENAME $epmvar=true $LISTFILE
 
@@ -271,6 +272,9 @@ fi
 cd $TOPLEVEL
 mkdir -p $BUILDDIR
 mv linux*/$EPM_PACKAGENAME*.$EXTENSION $BUILDDIR/$EPM_PACKAGENAME-$PLUGINVERSION.$EXTENSION
+if [ "$SUFFIX" != "" ] ; then
+    mv $BUILDDIR/$EPM_PACKAGENAME-$PLUGINVERSION.$EXTENSION $BUILDDIR/$EPM_PACKAGENAME-$PLUGINVERSION-$SUFFIX.$EXTENSION
+fi
 echo ""
 echo "$BUILDDIR:"
 ls -l $BUILDDIR
