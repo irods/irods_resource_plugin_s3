@@ -895,13 +895,6 @@ extern "C" {
     } // s3FileReaddirPlugin
 
     // =-=-=-=-=-=-=-
-    // interface for POSIX readdir
-    irods::error s3FileStagePlugin( irods::resource_plugin_context& _ctx ) {
-
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileStagePlugin" );
-    } // s3FileStagePlugin
-
-    // =-=-=-=-=-=-=-
     // interface for POSIX rename
     irods::error s3FileRenamePlugin( irods::resource_plugin_context& _ctx,
                                       const char*         _new_file_name )
@@ -1263,7 +1256,6 @@ extern "C" {
         resc->add_operation( irods::RESOURCE_OP_CHMOD,        "s3FileChmodPlugin" );
         resc->add_operation( irods::RESOURCE_OP_OPENDIR,      "s3FileOpendirPlugin" );
         resc->add_operation( irods::RESOURCE_OP_READDIR,      "s3FileReaddirPlugin" );
-        resc->add_operation( irods::RESOURCE_OP_STAGE,        "s3FileStagePlugin" );
         resc->add_operation( irods::RESOURCE_OP_RENAME,       "s3FileRenamePlugin" );
         resc->add_operation( irods::RESOURCE_OP_FREESPACE,    "s3FileGetFsFreeSpacePlugin" );
         resc->add_operation( irods::RESOURCE_OP_LSEEK,        "s3FileLseekPlugin" );
