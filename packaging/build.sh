@@ -225,7 +225,7 @@ if [ "$DETECTEDOS" == "RedHatCompatible" ] ; then # CentOS and RHEL and Fedora
         SUFFIX="centos6"
     else
         epmosversion="NOTCENTOS6"
-        SUFFIX="redhat"
+        SUFFIX="centos5"
     fi
     $EPMCMD $EPMOPTS -f rpm $EPM_PACKAGENAME RPM=true $epmosversion=true $LISTFILE
 
