@@ -173,7 +173,7 @@ class Test_Compound_with_S3_Resource(unittest.TestCase, ResourceSuite, ChunkyDev
         filepath = create_local_testfile(filename)
         hostname = get_hostname()
         # assertions
-        assertiCmd(s.adminsession,"iadmin mkresc thirdresc unixfilesystem %s:/tmp/thirdrescVault" % hostname) # create third resource
+        assertiCmd(s.adminsession,"iadmin mkresc thirdresc unixfilesystem %s:/tmp/thirdrescVault" % hostname, LIST, "Creating resource:") # create third resource
         assertiCmd(s.adminsession,"ils -L "+filename,"ERROR","does not exist") # should not be listed
         assertiCmd(s.adminsession,"iput "+filename)                            # put file
         assertiCmd(s.adminsession,"irepl -R "+self.testresc+" "+filename)      # replicate to test resource
