@@ -70,6 +70,10 @@ class Test_Compound_with_S3_Resource(unittest.TestCase, ResourceSuite, ChunkyDev
     def test_ireg_as_rodsuser_in_vault(self):
         pass
 
+    @unittest.skip("No Vault for S3 archive resource")
+    def test_iput_overwrite_others_file__ticket_2086(self):
+        pass
+
     def test_local_iput_with_force_and_destination_resource__ticket_1706(self):
         # local setup
         filename = "iputwithforceanddestination.txt"
