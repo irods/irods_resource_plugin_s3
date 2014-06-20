@@ -4,7 +4,7 @@ SRCS = libirods_s3.cpp
 
 HEADERS = libirods_s3.hpp
 
-EXTRALIBS = -lxml2 /usr/lib/irods/libirods_client.a /usr/lib/irods/libs3.a
+EXTRALIBS = /usr/lib/irods/libirods_client.a /usr/lib/irods/libs3.a -lxml2
 
 EXTRAINCS = 
 
