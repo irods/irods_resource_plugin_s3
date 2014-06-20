@@ -3,8 +3,12 @@ iRODS S3 Resource Plugin
 
 To build the S3 Resource Plugin, you will need to have:
 
- - the iRODS Development Tools (irods-dev) installed for your platform
-     http://eirods.org/download
+ - the iRODS Development Tools (irods-dev and irods-runtime) installed for your platform
+     http://irods.org/download
+
+ - libxml2-dev / libxml2-devel
+
+ - libcurl-dev / curl-devel
 
  - libs3 installed for your platform
      https://github.com/irods/libs3
