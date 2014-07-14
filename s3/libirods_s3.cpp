@@ -91,7 +91,7 @@ extern "C" {
         
         statusG = status;
         if( status != S3StatusOK ) {
-                rodsLog( LOG_ERROR, "  S3Status: %d\n", (int) status );
+                rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
         }
         if (error && error->message) {
             rodsLog( LOG_ERROR, "  Message: %s\n", error->message);
