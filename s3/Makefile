@@ -52,7 +52,7 @@ ${DEPS}: ${SRCS} ${HEADERS}
 
 ${OBJDIR}/%.o: %.cpp
 	@-mkdir -p ${OBJDIR} > /dev/null 2>&1
-	${GCC} ${INC} -fPIC -c -g -o $@ $<
+	${GCC} ${INC} -O3 -fPIC -c -o $@ $<
 
 include ${DEPFILE}
 

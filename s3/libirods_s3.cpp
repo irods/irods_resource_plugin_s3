@@ -71,6 +71,7 @@
 const std::string s3_auth_file = "S3_AUTH_FILE";
 const std::string s3_key_id = "S3_ACCESS_KEY_ID";
 const std::string s3_access_key = "S3_SECRET_ACCESS_KEY";
+const size_t RETRY_COUNT = 100;
 
 extern "C" {
 
@@ -427,23 +428,36 @@ extern "C" {
                         &putObjectDataCallback
                     };
 
-                    S3_put_object (&bucketContext, key.c_str(), _fileSize, NULL, 0, &putObjectHandler, &data);
-                    if (data.status != S3StatusOK) {
-                        int status = data.status;
-                        std::stringstream msg;
-                        msg << __FUNCTION__;
-                        msg << " - Error putting the S3 object: \"";
-                        msg << _s3ObjName;
-                        msg << "\"";
-                        if(status >= 0) {
-                            msg << " - \"";
-                            msg << S3_get_status_name((S3Status)status);
+                    bool   put_done_flg = false;
+                    size_t retry_cnt    = 0;
+
+                    while( !put_done_flg && ( retry_cnt < RETRY_COUNT ) ) {
+                        S3_put_object (&bucketContext, key.c_str(), _fileSize, NULL, 0, &putObjectHandler, &data);
+                        if (data.status != S3StatusOK) {
+                            int status = data.status;
+                            std::stringstream msg;
+                            msg << __FUNCTION__;
+                            msg << " - Error putting the S3 object: \"";
+                            msg << _s3ObjName;
                             msg << "\"";
-                            status = S3_INIT_ERROR - status;
+                            if(status >= 0) {
+                                msg << " - \"";
+                                msg << S3_get_status_name((S3Status)status);
+                                msg << "\"";
+                                status = S3_INIT_ERROR - status;
+                            }
+                            result = ERROR(status, msg.str());
                         }
-                        result = ERROR(status, msg.str());
-                    }
-                    else if( statusG != S3StatusOK ) {
+
+                        if( S3StatusInternalError != statusG) {
+                            put_done_flg = true;
+                        } else {
+                            retry_cnt++;
+                        }
+                        
+                    } // while
+                         
+                    if( statusG != S3StatusOK ) {
                         std::stringstream msg;
                         msg << "Error putting the S3 Object \""
                             << _s3ObjName
