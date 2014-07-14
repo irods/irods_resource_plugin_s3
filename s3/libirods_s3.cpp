@@ -90,20 +90,23 @@ extern "C" {
         int i;
         
         statusG = status;
+        if( status != S3StatusOK ) {
+                rodsLog( LOG_ERROR, "  S3Status: %d\n", (int) status );
+        }
         if (error && error->message) {
-            printf("  Message: %s\n", error->message);
+            rodsLog( LOG_ERROR, "  Message: %s\n", error->message);
         }
         if (error && error->resource) {
-            printf("  Resource: %s\n", error->resource);
+            rodsLog( LOG_ERROR, "  Resource: %s\n", error->resource);
         }
         if (error && error->furtherDetails) {
-            printf("  Further Details: %s\n", error->furtherDetails);
+            rodsLog( LOG_ERROR, "  Further Details: %s\n", error->furtherDetails);
         }
         if (error && error->extraDetailsCount) {
-            printf("%s", "  Extra Details:\n");
+            rodsLog( LOG_ERROR, "%s", "  Extra Details:\n");
             
             for (i = 0; i < error->extraDetailsCount; i++) {
-                printf("    %s: %s\n", error->extraDetails[i].name, error->extraDetails[i].value);
+                rodsLog( LOG_ERROR, "    %s: %s\n", error->extraDetails[i].name, error->extraDetails[i].value);
             }
         }
     }
@@ -1034,7 +1037,9 @@ extern "C" {
                 }
             }
         }
-        
+       if( !result.ok() ) {
+           irods::log( result );
+       }
         return result;
     } // s3SyncToArchPlugin
 
