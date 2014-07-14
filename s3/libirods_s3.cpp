@@ -79,7 +79,7 @@ extern "C" {
     // s3 specific functionality
     static bool S3Initialized = false; // so we only initialize the s3 library once
 //    static s3Auth_t S3Auth;            // authorization credentials for s3 operations?
-    static int statusG = 0;
+    static S3Status statusG = S3StatusOK;
 
     // Callbacks for S3
     static void responseCompleteCallback(
@@ -365,6 +365,16 @@ extern "C" {
                         }
                         result = ERROR(status, msg.str());
                     }
+                    else if( statusG != S3StatusOK ) {
+                        std::stringstream msg;
+                        msg << "Error getting the S3 Object \""
+                            << _s3ObjName
+                            << "\" with S3Status \""
+                            << S3_get_status_name( statusG )
+                            << "\"";
+                            result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
+                    }
+
                     fclose(cache_file);
                 }
             }
@@ -432,6 +442,15 @@ extern "C" {
                             status = S3_INIT_ERROR - status;
                         }
                         result = ERROR(status, msg.str());
+                    }
+                    else if( statusG != S3StatusOK ) {
+                        std::stringstream msg;
+                        msg << "Error putting the S3 Object \""
+                            << _s3ObjName
+                            << "\" with S3Status \""
+                            << S3_get_status_name( statusG )
+                            << "\"";
+                            result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
                     }
                     fclose(cache_file);
                 }
@@ -502,6 +521,17 @@ extern "C" {
                     }
                     result = ERROR(status, msg.str());
                 }
+                else if( statusG != S3StatusOK ) {
+                    std::stringstream msg;
+                    msg << "Error copying the S3 Object \""
+                        << _src_file << "\" to \""
+                        << _dest_file 
+                        << "\" with S3Status \""
+                        << S3_get_status_name( statusG )
+                        << "\"";
+                    result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
+                }
+
             }
         }
         return result;
