@@ -73,7 +73,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         os.system("cat %s %s > %s" % (filename, filename, doublefile))
         doublesize = str(os.stat(doublefile).st_size)
         # assertions
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',"does not exist")                           # should not be listed
+        self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist")                           # should not be listed
         self.admin.assert_icommand("iput "+filename)                                                      # put file
         self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)                                # replicate to test resource
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)                                    #
@@ -103,7 +103,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/thirdrescVault" % hostname, 'STDOUT_SINGLELINE', "Creating")   # create third resource
         self.admin.assert_icommand("iadmin mkresc fourthresc unixfilesystem %s:/tmp/fourthrescVault" % hostname, 'STDOUT_SINGLELINE', "Creating") # create fourth resource
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',"does not exist")              # should not be listed
+        self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist")              # should not be listed
         self.admin.assert_icommand("iput "+filename)                                         # put file
         self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)                   # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc "+filename)                           # replicate to third resource
@@ -146,7 +146,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         filename = "secondreplicatest.txt"
         filepath = lib.create_local_testfile(filename)
         # assertions
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',"does not exist")          # should not be listed
+        self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist")          # should not be listed
         self.admin.assert_icommand("iput -R "+self.testresc+" "+filename)                # put file
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)                   # for debugging
         self.admin.assert_icommand("irepl "+filename)                                    # replicate to default resource
@@ -165,7 +165,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         hostname = lib.get_hostname()
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/thirdrescVault" % hostname, 'STDOUT_SINGLELINE', "Creating") # create third resource
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',"does not exist") # should not be listed
+        self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist") # should not be listed
         self.admin.assert_icommand("iput "+filename)                            # put file
         self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc "+filename)              # replicate to third resource
@@ -190,7 +190,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         os.system("cat %s %s > %s" % (filename, filename, doublefile))
         doublesize = str(os.stat(doublefile).st_size)
         # assertions
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',"does not exist") # should not be listed
+        self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist") # should not be listed
         self.admin.assert_icommand("iput "+filename)                            # put file
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
         self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)      # replicate to test resource
