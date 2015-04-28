@@ -4,7 +4,7 @@ SRCS = libirods_s3.cpp
 
 HEADERS = libirods_s3.hpp
 
-EXTRALIBS = /usr/lib/irods/libirods_client.a /usr/lib/irods/libs3.a -lxml2 -lcurl
+EXTRALIBS = /usr/lib/libirods_client.a /usr/lib/irods/externals/libs3.a -lxml2 -lcurl
 
 EXTRAINCS = 
 
@@ -22,9 +22,9 @@ DEPFILE = .depends
 OBJS = $(patsubst %.cpp, ${OBJDIR}/%.o, ${SRCS})
 DEPS = $(patsubst %.cpp, ${DEPDIR}/%.d, ${SRCS})
 
-GCC = g++ -DRODS_SERVER -DZIP_EXEC_PATH=\"$(ZIP_EXEC_PATH)\" -DUNZIP_EXEC_PATH=\"$(UNZIP_EXEC_PATH)\"
+GCC = g++ -DRODS_SERVER
 
-INC = -I/usr/include/irods -I/usr/include/openssl ${EXTRAINCS}
+INC = -I/usr/include/irods/boost -I/usr/include/irods -I/usr/include/openssl ${EXTRAINCS}
 
 .PHONY: clean
 

@@ -23,7 +23,7 @@ To use this resource plugin:
 
   irods@hostname $ iadmin mkresc compResc compound
   irods@hostname $ iadmin mkresc cacheResc unixfilesystem <hostname>:</full/path/to/Vault>
-  irods@hostname $ iadmin mkresc archiveResc s3 <hostname>:/<s3BucketName>/irods/Vault S3_AUTH_FILE=</full/path/to/AWS.keypair>
+  irods@hostname $ iadmin mkresc archiveResc s3 <hostname>:/<s3BucketName>/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=</full/path/to/AWS.keypair>;S3_RETRY_COUNT=<num reconn tries>;S3_WAIT_TIME_SEC=<wait between retries>"
   irods@hostname $ iadmin addchildtoresc compResc cacheResc cache
   irods@hostname $ iadmin addchildtoresc compResc archiveResc archive
   irods@hostname $ iput -R compResc foo.txt

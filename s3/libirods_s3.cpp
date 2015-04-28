@@ -32,6 +32,9 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <ctime>
+
+#include <boost/lexical_cast.hpp>
 
 // =-=-=-=-=-=-=-
 // system includes
@@ -68,10 +71,22 @@
 
 #include <string.h>
 
+const std::string s3_default_hostname = "S3_DEFAULT_HOSTNAME";
 const std::string s3_auth_file = "S3_AUTH_FILE";
 const std::string s3_key_id = "S3_ACCESS_KEY_ID";
 const std::string s3_access_key = "S3_SECRET_ACCESS_KEY";
+const std::string s3_retry_count = "S3_RETRY_COUNT";
+const std::string s3_wait_time_sec = "S3_WAIT_TIME_SEC";
+
 const size_t RETRY_COUNT = 100;
+
+static void s3_sleep(
+        int _s,
+        int _ms ) {
+    useconds_t us = ( _s * 1000000 ) + ( _ms * 1000 );
+    usleep( us );
+}
+
 
 extern "C" {
 
@@ -282,30 +297,90 @@ extern "C" {
         return result;
     }
 
-    irods::error s3Init (void)
+    irods::error s3Init (
+        irods::plugin_property_map& _prop_map ) 
     {
         irods::error result = SUCCESS();
         char *tmpPtr;
 
         if (!S3Initialized) {
-
-            S3Initialized = true;
-            int status = 0;
-#ifdef libs3_3_1_4
-            status = S3_initialize ("s3", S3_INIT_ALL);
-#else
-            status = S3_initialize ("s3", S3_INIT_ALL, NULL);
-#endif
-            int err_status = S3_INIT_ERROR - status;
-            std::stringstream msg;
-            if(status >= 0) {
-                msg << " - \"";
-                msg << S3_get_status_name((S3Status)status);
-                msg << "\"";
+            std::string default_hostname;
+            irods::error ret = _prop_map.get< std::string >( 
+                                   s3_default_hostname,
+                                   default_hostname );
+            if( !ret.ok() ) {
+                // ok to fail
             }
-            result = ASSERT_ERROR(status == S3StatusOK, status, "Error initializing the S3 library. Status = %d.",
-                                  status, msg.str().c_str());
-        }
+
+            size_t retry_count = 10;
+            std::string retry_count_str;
+            ret = _prop_map.get< std::string >( 
+                                   s3_retry_count,
+                                   retry_count_str );
+            if( ret.ok() ) {
+                try {
+                    retry_count = boost::lexical_cast<int>( retry_count_str );
+                } catch ( const boost::bad_lexical_cast& ) {
+                    rodsLog(
+                        LOG_ERROR,
+                        "failed to cast retry count [%s] to an int",
+                        retry_count_str.c_str() );
+                }
+            }
+
+            size_t wait_time_sec = 3;
+            std::string wait_time_str;
+            ret = _prop_map.get< std::string >( 
+                                   s3_wait_time_sec,
+                                   wait_time_str );
+            if( ret.ok() ) {
+                try {
+                    wait_time_sec = boost::lexical_cast<int>( wait_time_str );
+                } catch ( const boost::bad_lexical_cast& ) {
+                    rodsLog(
+                        LOG_ERROR,
+                        "failed to cast wait time [%s] to an int",
+                        retry_count_str.c_str() );
+                }
+            }
+
+            size_t ctr = 0;
+            while( ctr < retry_count ) {
+                int status = 0;
+
+                const char* host_name = !default_hostname.empty() ? default_hostname.c_str() : NULL;
+                status = S3_initialize( "s3", S3_INIT_ALL, host_name );
+
+                int err_status = S3_INIT_ERROR - status;
+                std::stringstream msg;
+                if( status >= 0 ) {
+                    msg << " - \"";
+                    msg << S3_get_status_name((S3Status)status);
+                    msg << "\"";
+                }
+
+                result = ASSERT_ERROR(status == S3StatusOK, status, "Error initializing the S3 library. Status = %d.",
+                                      status, msg.str().c_str());
+                if( result.ok() ) {
+                    break;
+                }
+
+                ctr++;
+
+                s3_sleep( wait_time_sec, 0 );
+
+                rodsLog(
+                    LOG_NOTICE,
+                    "s3Init - Error in connection, retry count %d",
+                    retry_count );
+
+            } // while
+
+            if( result.ok() ) {         
+                S3Initialized = true;
+            }
+
+        } // if !init
 
         return result;
     }
@@ -315,7 +390,8 @@ extern "C" {
         const std::string& _s3ObjName,
         rodsLong_t _fileSize,
         const std::string& _key_id,
-        const std::string& _access_key)
+        const std::string& _access_key,
+        irods::plugin_property_map& _prop_map ) 
     {
         irods::error result = SUCCESS();
         irods::error ret;
@@ -325,7 +401,7 @@ extern "C" {
         ret = parseS3Path(_s3ObjName, bucket, key);
         if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                                  _s3ObjName.c_str())).ok()) {
-            ret = s3Init();
+            ret = s3Init( _prop_map );
             if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
                 cache_file = fopen(_filename.c_str(), "w+");
@@ -388,7 +464,8 @@ extern "C" {
         const std::string& _s3ObjName,
         rodsLong_t _fileSize,
         const std::string& _key_id,
-        const std::string& _access_key)
+        const std::string& _access_key,
+        irods::plugin_property_map& _prop_map ) 
     {
         irods::error result = SUCCESS();
         irods::error ret;
@@ -401,7 +478,7 @@ extern "C" {
         if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                                  _s3ObjName.c_str())).ok()) {
 
-            ret = s3Init();
+            ret = s3Init( _prop_map );
             if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
                 cache_file = fopen(_filename.c_str(), "r");
@@ -601,8 +678,16 @@ extern "C" {
         irods::error result = SUCCESS();
         irods::error ret;
 
+        std::string default_hostname;
+        ret = _prop_map.get< std::string >( 
+            s3_default_hostname, 
+            default_hostname );
+        if( !ret.ok() ) {
+            // ok to fail
+        }
+
         // Initialize the S3 library
-        ret = s3Init();
+        ret = s3Init( _prop_map );
         if((result = ASSERT_PASS(ret, "Failed to initialize the S3 library.")).ok()) {
 
             // Retrieve the auth info and set the appropriate fields in the property map
@@ -720,7 +805,15 @@ extern "C" {
             if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                                      _object->physical_path().c_str())).ok()) {
 
-                ret = s3Init();
+                std::string default_hostname;
+                ret = _ctx.prop_map().get< std::string >( 
+                    s3_default_hostname, 
+                    default_hostname );
+                if( !ret.ok() ) {
+                    // ok to fail
+                }
+
+                ret = s3Init( _ctx.prop_map() );
                 if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
@@ -801,7 +894,7 @@ extern "C" {
                 if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                                          _object->physical_path().c_str())).ok()) {
 
-                    ret = s3Init();
+                    ret = s3Init( _ctx.prop_map() );
                     if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
@@ -1030,8 +1123,16 @@ extern "C" {
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                         if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
+                            std::string default_hostname;
+                            ret = _ctx.prop_map().get< std::string >( 
+                                s3_default_hostname, 
+                                default_hostname );
+                            if( !ret.ok() ) {
+                                // ok to fail
+                            }
+
                             rodsLong_t mySize = statbuf.st_size;
-                            ret = s3GetFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key);
+                            ret = s3GetFile( _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
                             result = ASSERT_PASS(ret, "Failed to copy the S3 object: \"%s\" to the cache: \"%s\".",
                                                  object->physical_path().c_str(), _cache_file_name);
                         }
@@ -1073,8 +1174,17 @@ extern "C" {
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                     if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
+                        std::string default_hostname;
+                        ret = _ctx.prop_map().get< std::string >( 
+                            s3_default_hostname, 
+                            default_hostname );
+                        if( !ret.ok() ) {
+                            // ok to fail
+                        }
+
+
                         rodsLong_t data_size = statbuf.st_size;
-                        ret = s3PutFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key);
+                        ret = s3PutFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
                         result = ASSERT_PASS(ret, "Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".",
                                              _cache_file_name, object->physical_path().c_str());
                     }
@@ -1243,7 +1353,10 @@ extern "C" {
             // =-=-=-=-=-=-=-
             // parse context string into property pairs assuming a ; as a separator
             std::vector< std::string > props;
-            rodsLog( LOG_NOTICE, "context: %s", _context.c_str());
+            rodsLog(
+                LOG_DEBUG,
+                "context: %s",
+                _context.c_str());
             irods::string_tokenize( _context, ";", props );
 
             // =-=-=-=-=-=-=-
@@ -1258,8 +1371,14 @@ extern "C" {
 
                 // =-=-=-=-=-=-=-
                 // break up key and value into two strings
-                rodsLog( LOG_NOTICE, "vals: %s %s", vals[0].c_str(), vals[1].c_str());
+                rodsLog(
+                    LOG_DEBUG,
+                    "vals: %s %s",
+                    vals[0].c_str(),
+                    vals[1].c_str());
+
                 properties_[ vals[0] ] = vals[1];
+
             } // for itr 
 
             // Add start and stop operations

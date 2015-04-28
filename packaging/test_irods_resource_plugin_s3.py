@@ -14,7 +14,6 @@ import lib
 from resource_suite import ResourceSuite
 from test_chunkydevtest import ChunkyDevTest
 
-
 class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.TestCase):
     def setUp(self):
         hostname = lib.get_hostname()
@@ -22,7 +21,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
             admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' "+hostname+":/var/lib/irods/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
-            admin_session.assert_icommand("iadmin mkresc archiveResc s3 "+hostname+":/irods-ci/irods/Vault S3_AUTH_FILE=/home/irodsbuild/secrets/amazon_web_services-CI.keypair", 'STDOUT_SINGLELINE', 'archiveResc')
+            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/irods-ci/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/home/irodsbuild/secrets/amazon_web_services-CI.keypair;S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
         super(Test_Compound_with_S3_Resource, self).setUp()

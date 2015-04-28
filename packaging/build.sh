@@ -151,7 +151,7 @@ fi
 
 # =-=-=-=-=-=-=-
 # require irods-dev package
-if [ ! -f /usr/lib/irods/libirods_client.a ] ; then
+if [ ! -f /usr/lib/libirods_client.a ] ; then
     echo ""
     echo "ERROR :: \"irods-dev\" package required to build this plugin" 1>&2
     exit 1

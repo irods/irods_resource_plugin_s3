@@ -4,7 +4,7 @@
 #define _LIBEIRODS_S3_H_
 
 #include <rodsType.hpp>
-#include <rodsDef.hpp>
+#include <rodsDef.h>
 #include <libs3.h>
 
 #define S3_AUTH_FILE "s3Auth"

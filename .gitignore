@@ -5,3 +5,5 @@ libs3.so
 */.depends
 */.deps
 */.objs
+build/*
+packaging/irods_resource_plugin_s3.list
