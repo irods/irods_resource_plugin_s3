@@ -1344,6 +1344,15 @@ extern "C" {
         return result;
     } // s3RedirectPlugin
 
+    // =-=-=-=-=-=-=-
+    // code which would rebalance the resource, S3 does not rebalance.
+    irods::error s3FileRebalance(
+        irods::resource_plugin_context& _ctx ) {
+        return SUCCESS();
+
+    } // s3FileRebalance
+
+
     class s3_resource : public irods::resource {
     public:
         s3_resource( const std::string& _inst_name,
@@ -1436,6 +1445,7 @@ extern "C" {
         resc->add_operation( irods::RESOURCE_OP_UNREGISTERED, "s3UnregisteredPlugin" );
         resc->add_operation( irods::RESOURCE_OP_MODIFIED,     "s3ModifiedPlugin" );
         resc->add_operation( irods::RESOURCE_OP_RESOLVE_RESC_HIER, "s3RedirectPlugin" );
+        resc->add_operation( irods::RESOURCE_OP_REBALANCE,         "s3FileRebalance" );
 
         // set some properties necessary for backporting to iRODS legacy code
         resc->set_property< int >( "check_path_perm", DO_CHK_PATH_PERM );
