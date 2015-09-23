@@ -77,6 +77,7 @@ const std::string s3_key_id = "S3_ACCESS_KEY_ID";
 const std::string s3_access_key = "S3_SECRET_ACCESS_KEY";
 const std::string s3_retry_count = "S3_RETRY_COUNT";
 const std::string s3_wait_time_sec = "S3_WAIT_TIME_SEC";
+const std::string s3_proto = "S3_PROTO";
 
 const size_t RETRY_COUNT = 100;
 
@@ -385,6 +386,22 @@ extern "C" {
         return result;
     }
 
+    static S3Protocol s3GetProto( irods::plugin_property_map& _prop_map)
+    {
+        irods::error ret;
+        std::string proto_str;
+        ret = _prop_map.get< std::string >(
+                                   s3_proto,
+                                   proto_str );
+        if (!ret.ok()) { // Default to original behavior
+            return S3ProtocolHTTPS;
+        }
+        if (!strcasecmp(proto_str.c_str(), "http")) {
+            return S3ProtocolHTTP;
+        }
+        return S3ProtocolHTTPS;
+    }
+
     irods::error s3GetFile(
         const std::string& _filename,
         const std::string& _s3ObjName,
@@ -416,7 +433,7 @@ extern "C" {
                     data.contentLength = data.originalContentLength = _fileSize;
                     bzero (&bucketContext, sizeof (bucketContext));
                     bucketContext.bucketName = bucket.c_str();
-                    bucketContext.protocol = S3ProtocolHTTPS;
+                    bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
                     bucketContext.accessKeyId = _key_id.c_str();
                     bucketContext.secretAccessKey = _access_key.c_str();
@@ -495,7 +512,7 @@ extern "C" {
                 
                     bzero (&bucketContext, sizeof (bucketContext));
                     bucketContext.bucketName = bucket.c_str();
-                    bucketContext.protocol = S3ProtocolHTTPS;
+                    bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
                     bucketContext.accessKeyId = _key_id.c_str();
                     bucketContext.secretAccessKey = _access_key.c_str();
@@ -555,7 +572,8 @@ extern "C" {
         const std::string& _src_file,
         const std::string& _dest_file,
         const std::string& _key_id,
-        const std::string& _access_key)
+        const std::string& _access_key,
+        const S3Protocol _proto)
     {
         irods::error result = SUCCESS();
         irods::error ret;
@@ -582,7 +600,7 @@ extern "C" {
                 bzero (&data, sizeof (data));
                 bzero (&bucketContext, sizeof (bucketContext));
                 bucketContext.bucketName = src_bucket.c_str();
-                bucketContext.protocol = S3ProtocolHTTPS;
+                bucketContext.protocol = _proto;
                 bucketContext.uriStyle = S3UriStylePath;
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
@@ -826,7 +844,7 @@ extern "C" {
 
                         bzero (&bucketContext, sizeof (bucketContext));
                         bucketContext.bucketName = bucket.c_str();
-                        bucketContext.protocol = S3ProtocolHTTPS;
+                        bucketContext.protocol = s3GetProto(_ctx.prop_map());
                         bucketContext.uriStyle = S3UriStylePath;
                         bucketContext.accessKeyId = key_id.c_str();
                         bucketContext.secretAccessKey = access_key.c_str();
@@ -907,7 +925,7 @@ extern "C" {
 
                             bzero (&bucketContext, sizeof (bucketContext));
                             bucketContext.bucketName = bucket.c_str();
-                            bucketContext.protocol = S3ProtocolHTTPS;
+                            bucketContext.protocol = s3GetProto(_ctx.prop_map());
                             bucketContext.uriStyle = S3UriStylePath;
                             bucketContext.accessKeyId = key_id.c_str();
                             bucketContext.secretAccessKey = access_key.c_str();
@@ -1050,7 +1068,7 @@ extern "C" {
             irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
         
             // copy the file to the new location
-            ret = s3CopyFile(object->physical_path(), _new_file_name, key_id, access_key);
+            ret = s3CopyFile(object->physical_path(), _new_file_name, key_id, access_key, s3GetProto(_ctx.prop_map()));
             if((result = ASSERT_PASS(ret, "Failed to copy file from: \"%s\" to \"%s\".",
                                      object->physical_path().c_str(), _new_file_name)).ok()) {
         
