@@ -23,7 +23,7 @@ typedef struct s3Stat
 
 typedef struct callback_data
 {
-    FILE *fd;
+    int fd;
     rodsLong_t contentLength, originalContentLength;
     int isTruncated;
     char nextMarker[1024];
