@@ -936,7 +936,6 @@ extern "C" {
                             };
 
                             data.keyCount = 0;
-                            data.allDetails = 1;
 
                             S3_list_bucket(&bucketContext, key.c_str(), NULL,
                                            NULL, 1, 0, &listBucketHandler, &data);
