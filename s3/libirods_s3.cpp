@@ -146,11 +146,11 @@ extern "C" {
             irods::log(result);
         }
 
-        FILE *outfile = ((callback_data_t *)callbackData)->fd;
+        int outfd = ((callback_data_t *)callbackData)->fd;
 
-        size_t wrote = fwrite(buffer, 1, bufferSize, outfile);
+        ssize_t wrote = write(outfd, buffer, bufferSize);
 
-        return ((wrote < (size_t) bufferSize) ?
+        return ((wrote < (ssize_t) bufferSize) ?
                 S3StatusAbortedByCallback : S3StatusOK);
     }
 
@@ -166,7 +166,7 @@ extern "C" {
         if (data->contentLength) {
             int length = ((data->contentLength > (unsigned) bufferSize) ?
                           (unsigned) bufferSize : data->contentLength);
-            ret = fread(buffer, 1, length, data->fd);
+            ret = read(data->fd, buffer, length);
         }
         data->contentLength -= ret;
         return ret;
@@ -412,7 +412,7 @@ extern "C" {
     {
         irods::error result = SUCCESS();
         irods::error ret;
-        FILE* cache_file = NULL;
+        int cache_fd = -1;
         std::string bucket;
         std::string key;
         ret = parseS3Path(_s3ObjName, bucket, key);
@@ -421,15 +421,15 @@ extern "C" {
             ret = s3Init( _prop_map );
             if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
-                cache_file = fopen(_filename.c_str(), "w+");
-                if((result = ASSERT_ERROR(cache_file != NULL, UNIX_FILE_OPEN_ERR, "Failed to open the cache file: \"%s\".",
+                cache_fd = open(_filename.c_str(), O_RDWR|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
+                if((result = ASSERT_ERROR(cache_fd != -1, UNIX_FILE_OPEN_ERR, "Failed to open the cache file: \"%s\".",
                                           _filename.c_str())).ok()) {
 
                     callback_data_t data;
                     S3BucketContext bucketContext;
 
                     bzero (&data, sizeof (data));
-                    data.fd = cache_file;
+                    data.fd = cache_fd;
                     data.contentLength = data.originalContentLength = _fileSize;
                     bzero (&bucketContext, sizeof (bucketContext));
                     bucketContext.bucketName = bucket.c_str();
@@ -469,7 +469,7 @@ extern "C" {
                             result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
                     }
 
-                    fclose(cache_file);
+                    close(cache_fd);
                 }
             }
         }
@@ -486,7 +486,7 @@ extern "C" {
     {
         irods::error result = SUCCESS();
         irods::error ret;
-        FILE* cache_file = NULL;
+        int cache_fd = -1;
         std::string bucket;
         std::string key;
         int err_status = 0;
@@ -498,16 +498,16 @@ extern "C" {
             ret = s3Init( _prop_map );
             if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
-                cache_file = fopen(_filename.c_str(), "r");
+                cache_fd = open(_filename.c_str(), O_RDONLY);
                 err_status = UNIX_FILE_OPEN_ERR - errno;
-                if((result = ASSERT_ERROR(cache_file  != NULL, err_status, "Failed to open the cache file: \"%s\".",
+                if((result = ASSERT_ERROR(cache_fd  != -1, err_status, "Failed to open the cache file: \"%s\".",
                                           _filename.c_str())).ok()) {
 
                     callback_data_t data;
                     S3BucketContext bucketContext;
 
                     bzero (&data, sizeof (data));
-                    data.fd = cache_file;
+                    data.fd = cache_fd;
                     data.contentLength = data.originalContentLength = _fileSize;
                 
                     bzero (&bucketContext, sizeof (bucketContext));
@@ -560,7 +560,7 @@ extern "C" {
                             << "\"";
                             result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
                     }
-                    fclose(cache_file);
+                    close(cache_fd);
                 }
             }
         }
