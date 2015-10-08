@@ -159,14 +159,14 @@ extern "C" {
         char *buffer,
         void *callbackData)
     {
-        put_object_callback_data *data = (put_object_callback_data *) callbackData;
+        callback_data_t *data = (callback_data_t *) callbackData;
         int length;    
         int ret = 0;
         
         if (data->contentLength) {
             int length = ((data->contentLength > (unsigned) bufferSize) ?
                           (unsigned) bufferSize : data->contentLength);
-            ret = fread(buffer, 1, length, data->infile);
+            ret = fread(buffer, 1, length, data->fd);
         }
         data->contentLength -= ret;
         return ret;

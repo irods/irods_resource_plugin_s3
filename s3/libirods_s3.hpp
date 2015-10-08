@@ -33,10 +33,4 @@ typedef struct callback_data
     int status;
 } callback_data_t;
 
-typedef struct put_object_callback_data
-{
-    FILE *infile;
-    uint64_t contentLength, originalContentLength;
-} put_object_callback_data;
-
 #endif // _LIBEIRODS_S3_H_
