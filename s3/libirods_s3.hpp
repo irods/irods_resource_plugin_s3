@@ -25,10 +25,7 @@ typedef struct callback_data
 {
     int fd;
     rodsLong_t contentLength, originalContentLength;
-    int isTruncated;
-    char nextMarker[1024];
     int keyCount;
-    int allDetails;
     s3Stat_t s3Stat;    /* should be a pointer if keyCount > 1 */
     int status;
 } callback_data_t;
