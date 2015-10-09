@@ -26,9 +26,10 @@ typedef struct callback_data
     int fd;
     off_t offset;       /* For multiple upload */
     rodsLong_t contentLength, originalContentLength;
+    S3Status status;
     int keyCount;
     s3Stat_t s3Stat;    /* should be a pointer if keyCount > 1 */
-    int status;
+    //int status;
 } callback_data_t;
 
 typedef struct upload_manager
@@ -40,6 +41,8 @@ typedef struct upload_manager
     char *xml;
     int remaining;
     int offset;
+
+    S3Status status;
 } upload_manager_t;
 
 typedef struct multipart_data
@@ -47,6 +50,8 @@ typedef struct multipart_data
     int seq;                       /* Sequence number, i.e. which part */
     callback_data put_object_data; /* File being uploaded */
     upload_manager_t *manager;     /* To update w/the MD5 returned */
+
+    S3Status status;
 } multipart_data_t;
 
 #endif // _LIBEIRODS_S3_H_
