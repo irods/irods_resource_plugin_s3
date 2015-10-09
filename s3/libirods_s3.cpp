@@ -1,5 +1,5 @@
 /* -*- mode: c++; fill-column: 132; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-
+#define linux_platform
 #include "libirods_s3.hpp"
 
 // =-=-=-=-=-=-=-
@@ -99,17 +99,17 @@ extern "C" {
     // s3 specific functionality
     static bool S3Initialized = false; // so we only initialize the s3 library once
 //    static s3Auth_t S3Auth;            // authorization credentials for s3 operations?
-    static S3Status statusG = S3StatusOK;
+//    static S3Status statusG = S3StatusOK;
 
     // Callbacks for S3
-    static void responseCompleteCallback(
+    static void StoreAndLogStatus (
         S3Status status,
         const S3ErrorDetails *error, 
-        void *callbackData)
+        S3Status *pStatus )
     {
         int i;
-        
-        statusG = status;
+
+        *pStatus = status;
         if( status != S3StatusOK ) {
                 rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
         }
@@ -129,6 +129,15 @@ extern "C" {
                 rodsLog( LOG_ERROR, "    %s: %s\n", error->extraDetails[i].name, error->extraDetails[i].value);
             }
         }
+    }
+
+    static void responseCompleteCallback(
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        S3Status *pStatus = &(((callback_data_t*)callbackData)->status);
+        StoreAndLogStatus( status, error, pStatus );
     }
 
     static S3Status responsePropertiesCallback(
@@ -170,6 +179,7 @@ extern "C" {
             int length = ((data->contentLength > (unsigned) bufferSize) ?
                           (unsigned) bufferSize : data->contentLength);
             ret = pread(data->fd, buffer, length, data->offset);
+printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length, (int)data->offset);
         }
         data->contentLength -= ret;
         data->offset += ret;
@@ -498,7 +508,7 @@ extern "C" {
                         }
                         result = ERROR(status, msg.str());
                     }
-                    else if( statusG != S3StatusOK ) {
+/*                    else if( statusG != S3StatusOK ) {
                         std::stringstream msg;
                         msg << "Error getting the S3 Object \""
                             << _s3ObjName
@@ -507,7 +517,7 @@ extern "C" {
                             << "\"";
                             result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
                     }
-
+*/
                     close(cache_fd);
                 }
             }
@@ -528,30 +538,76 @@ extern "C" {
     static const char *mpuKey = NULL;
     static int mpuAbort = FALSE;   // TBD: On part upload failure, abort and destroy upload
 
+    /******************* Multipart Initialization Callbacks *****************************/
+    /* callbackData = upload_manager_t*                                                 */
+
     /* Captures the upload_id returned and stores it away in our data structure */
-    static S3Status mpuInitialCallback (
+    static S3Status mpuInitXmlCB (
         const char* upload_id,
         void *callbackData )
     {
+        printf("upload_id: %s\n", upload_id);
         upload_manager_t *manager = (upload_manager_t *)callbackData;
         manager->upload_id = strdup(upload_id);
         return S3StatusOK;
     }
 
-    /* Completion of a single part of the upload, store the returned ETag */
-    static S3Status mpuPartResponseCallback (
+    static S3Status mpuInitRespPropCB (
         const S3ResponseProperties *properties,
-        void *callbackData )
+        void *callbackData)
     {
-        multipart_data_t *data = (multipart_data_t *)callbackData;
-        int seq = data->seq;
-        const char *etag = properties->eTag;
-        data->manager->etags[seq - 1] = strdup(etag);
         return S3StatusOK;
     }
 
+    static void mpuInitRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        S3Status *pStatus = &(((upload_manager_t*)callbackData)->status);
+        StoreAndLogStatus( status, error, pStatus );
+    }
+
+
+    /******************* Multipart Put Callbacks *****************************/
+    /* callbackData = multipart_data_t*                                      */
+
+    /* Upload data from the part, use the plain callback_data reader */
+    static int mpuPartPutDataCB (
+        int bufferSize,
+        char *buffer,
+        void *callbackData)
+    {
+        return putObjectDataCallback( bufferSize, buffer, &((multipart_data_t*)callbackData)->put_object_data );
+    }
+
+    static S3Status mpuPartRespPropCB (
+        const S3ResponseProperties *properties,
+        void *callbackData)
+    {
+        multipart_data_t *data = (multipart_data_t *)callbackData;
+         
+        int seq = data->seq;
+        const char *etag = properties->eTag;
+        data->manager->etags[seq - 1] = strdup(etag);
+
+        return S3StatusOK;
+    }
+
+    static void mpuPartRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        S3Status *pStatus = &(((multipart_data_t *)callbackData)->status);
+        StoreAndLogStatus( status, error, pStatus );
+    }
+
+    /******************* Multipart Commit Callbacks *****************************/
+    /* callbackData = upload_data_t *                                       */
+
     /* Uploading the multipart completion XML from our buffer */
-    static int mpuXMLReadCallback (
+    static int mpuCommitXmlCB (
         int bufferSize,
         char *buffer,
         void *callbackData )
@@ -570,18 +626,33 @@ extern "C" {
         return ret;
     }
 
+    static S3Status mpuCommitRespPropCB (
+        const S3ResponseProperties *properties,
+        void *callbackData)
+    {
+        return S3StatusOK;
+    }
+
+    static void mpuCommitRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        S3Status *pStatus = &(((upload_manager_t*)callbackData)->status);
+        StoreAndLogStatus( status, error, pStatus );
+    }
+
+
 #if defined(linux_platform)
     /* Multipart worker thread, grabs a job from the queue and uploads it */
     static void *mpuWorkerThread (
         void *param )
     {
         S3BucketContext bucketContext = *((S3BucketContext*)param);
-        S3PutObjectHandler putObjectHandler = {
-            {&MultipartResponseProperiesCallback, &responseCompleteCallback },
-            &putObjectDataCallback
-        };
         irods::error result;
     	
+        S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
+        rodsLog( LOG_ERROR, "Starting thread");
         /* Will break out when no work detected */
         while (1) {
             int seq;
@@ -604,8 +675,8 @@ extern "C" {
                 S3_upload_part(&bucketContext, mpuKey, NULL, &putObjectHandler, seq, mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
                 retry_cnt++;
                 rodsLog( LOG_ERROR, "Multipart:  End part" );
-            } while (retry_cnt < RETRY_COUNT);
-            if (statusG != S3StatusOK) {
+            } while ((partData.status != S3StatusOK) && (retry_cnt < RETRY_COUNT));
+            if (partData.status != S3StatusOK) {
                 std::stringstream msg;
                 msg << __FUNCTION__;
                 msg << " - Error putting the S3 object: \"";
@@ -613,12 +684,12 @@ extern "C" {
                 msg << "\"";
                 msg << " part ";
                 msg << seq;
-                if(statusG >= 0) {
+                if(partData.status >= 0) {
                     msg << " - \"";
-                    msg << S3_get_status_name((S3Status)statusG);
+                    msg << S3_get_status_name((S3Status)partData.status);
                     msg << "\"";
                 }
-                result = ERROR(statusG, msg.str());
+                result = ERROR(partData.status, msg.str());
                 rodsLog(LOG_ERROR,msg.str().c_str() );
             }
         }
@@ -695,7 +766,7 @@ extern "C" {
                                 result = ERROR(status, msg.str());
                             }
 
-                            if( S3StatusInternalError != statusG) {
+                            if( S3StatusInternalError != data.status ) {
                                 put_done_flg = true;
                             } else {
                                 retry_cnt++;
@@ -721,55 +792,35 @@ extern "C" {
                         multipart_data_t partData;
                         int partContentLength = 0;
 
-                        S3MultipartInitialHander handler = {
-                            {
-                                &responsePropertiesCallback,
-                                &responseCompleteCallback
-                            },
-                            &mpuInitialCallback    
-                        };
 
-                        S3PutObjectHandler putObjectHandler = {
-                            {&mpuPartResponseCallback, &responseCompleteCallback },
-                            &putObjectDataCallback
-                        };
-
-                        S3MultipartCommitHandler commit_handler = {
-                            {
-                                    &responsePropertiesCallback,&responseCompleteCallback
-                            },
-                            &mpuXMLReadCallback,
-                            0
-                        };
                         
                         manager.etags = (char**)malloc(sizeof(char*) * totalSeq);
 
                         retry_cnt = 0;
                         do {
-                            S3_initiate_multipart(&bucketContext,key.c_str(),0, &handler,0, &manager);
+                            // These expect a upload_manager_t* as cbdata
+                            S3MultipartInitialHander mpuInitialHandler = { {mpuInitRespPropCB, mpuInitRespCompCB }, mpuInitXmlCB };
+                            S3_initiate_multipart(&bucketContext,key.c_str(), NULL, &mpuInitialHandler, NULL, &manager);
                             retry_cnt++;
-                            char buff[256];
-                            sprintf(buff, "Multipart:  Initiate Multipart %d", (int)retry_cnt);
-                            rodsLog( LOG_ERROR, buff );
-                        } while (S3_status_is_retryable(statusG) && ( retry_cnt < RETRY_COUNT ));
-                        if (manager.upload_id == 0 || statusG != S3StatusOK) {
+                            printf("Multipart:  Initiate Multipart try %d\n", (int)retry_cnt);
+                        } while (S3_status_is_retryable(manager.status) && ( retry_cnt < RETRY_COUNT ));
+                        if (manager.upload_id == NULL || manager.status != S3StatusOK) {
                                 std::stringstream msg;
                                 msg << __FUNCTION__;
                                 msg << " - Error putting the S3 object: \"";
                                 msg << _s3ObjName;
                                 msg << "\"";
-                                if(statusG >= 0) {
+                                if(manager.status >= 0) {
                                     msg << " - \"";
-                                    msg << S3_get_status_name((S3Status)statusG);
+                                    msg << S3_get_status_name(manager.status);
                                     msg << "\"";
 //                                    status = S3_INIT_ERROR - statusG;
                                 }
-                                result = ERROR(statusG, msg.str());
+                                result = ERROR(manager.status, msg.str());
                             }
                    
                         rodsLog( LOG_ERROR, "Multipart: Ready to upload" );
 
-                upload: 
                         mpuNext = 0;
                         mpuLast = totalSeq;
                         mpuData = (multipart_data_t*)calloc(totalSeq, sizeof(multipart_data_t));
@@ -778,8 +829,8 @@ extern "C" {
                         }
                         mpuUploadId = manager.upload_id;
                         mpuKey = key.c_str();
-                        for(seq = 1/*manager.next_etags_pos+1*/ ; seq <= totalSeq ; seq ++) {
-                            memset(&partData, 0, sizeof(multipart_data_t));
+                        for(seq = 1; seq <= totalSeq ; seq ++) {
+                            memset(&partData, 0, sizeof(callback_data_t));
                             partData.manager = &manager;
                             partData.seq = seq;
                             partData.put_object_data = data;
@@ -790,13 +841,14 @@ extern "C" {
                             data.contentLength -= partContentLength;
                         }
 #if defined(linux_platform)
+                        rodsLog( LOG_ERROR, "using threads");
                         // Make the worker threads and start
                         pthread_mutex_init(&mpuLock, NULL);
 
                         int threads = s3GetMPUThreads(_prop_map);
                         pthread_t *thread = (pthread_t *)calloc(threads, sizeof(pthread_t));
                         for (int thr_id=0; thr_id<threads; thr_id++) {
-                            pthread_create(&thread[thr_id], NULL, MultipartWorkerThread, &bucketContext);
+                            pthread_create(&thread[thr_id], NULL, mpuWorkerThread, &bucketContext);
                         }
                         
                         // And wait for them to finish...
@@ -813,24 +865,25 @@ extern "C" {
                                 char buff[256];
                                 sprintf(buff, "Multipart:  Start part %d", (int)seq);
                                 rodsLog( LOG_ERROR, buff );
+                                // Pass in multipart_data_t as CBData
+                                S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
                                 S3_upload_part(&bucketContext, key.c_str(), NULL, &putObjectHandler, seq, mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
                                 retry_cnt++;
                                 rodsLog( LOG_ERROR, "Multipart:  End part" );
-
-                            } while (S3_status_is_retryable(statusG) && ( retry_cnt < RETRY_COUNT ));
-                            if (statusG != S3StatusOK) {
+                            } while (S3_status_is_retryable(partData.status) && ( retry_cnt < RETRY_COUNT ));
+                            if (partData.status != S3StatusOK) {
                                 std::stringstream msg;
                                 msg << __FUNCTION__;
                                 msg << " - Error putting the S3 object: \"";
                                 msg << _s3ObjName;
                                 msg << "\"";
-                                if(statusG >= 0) {
+                                if(partData.status >= 0) {
                                     msg << " - \"";
-                                    msg << S3_get_status_name((S3Status)statusG);
+                                    msg << S3_get_status_name((S3Status)partData.status);
                                     msg << "\"";
   //                                  status = S3_INIT_ERROR - statusG;
                                 }
-                                result = ERROR(statusG, msg.str());
+                                result = ERROR(partData.status, msg.str());
                             }
                             //data.contentLength -= partContentLength;
                         }
@@ -863,29 +916,30 @@ extern "C" {
                         rodsLog(LOG_ERROR, manager.xml);
                         retry_cnt = 0;
                         do {
-                            S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, 0,  &manager); 
+                            S3MultipartCommitHandler commit_handler = { {mpuCommitRespPropCB, mpuCommitRespCompCB }, mpuCommitXmlCB, NULL };
+                            S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, &manager); 
                             retry_cnt++;
-                        } while (S3_status_is_retryable(statusG) && ( retry_cnt < RETRY_COUNT ));
-                        if (statusG != S3StatusOK) {
+                        } while (S3_status_is_retryable(manager.status) && ( retry_cnt < RETRY_COUNT ));
+                        if (manager.status != S3StatusOK) {
                             std::stringstream msg;
                             msg << __FUNCTION__;
                             msg << " - Error putting the S3 object: \"";
                             msg << _s3ObjName;
                             msg << "\"";
-                            if(statusG >= 0) {
+                            if(manager.status >= 0) {
                                 msg << " - \"";
-                                msg << S3_get_status_name((S3Status)statusG);
+                                msg << S3_get_status_name(manager.status);
                                 msg << "\"";
 //                                status = S3_INIT_ERROR - statusG;
                             }
-                            result = ERROR(statusG, msg.str());
+                            result = ERROR(manager.status, msg.str());
                         }
 
 
 
                     }
-                         
-                    if( statusG != S3StatusOK ) {
+/*                         
+                    if( manager.status != S3StatusOK ) {
                         std::stringstream msg;
                         msg << "Error putting the S3 Object \""
                             << _s3ObjName
@@ -894,6 +948,7 @@ extern "C" {
                             << "\"";
                             result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
                     }
+*/
                     close(cache_fd);
                 }
             }
@@ -964,15 +1019,15 @@ extern "C" {
                     }
                     result = ERROR(status, msg.str());
                 }
-                else if( statusG != S3StatusOK ) {
+                else if( data.status != S3StatusOK ) {
                     std::stringstream msg;
                     msg << "Error copying the S3 Object \""
                         << _src_file << "\" to \""
                         << _dest_file 
                         << "\" with S3Status \""
-                        << S3_get_status_name( statusG )
+                        << S3_get_status_name( data.status )
                         << "\"";
-                    result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
+                    result = ERROR( S3_INIT_ERROR - data.status, msg.str() );
                 }
 
             }
