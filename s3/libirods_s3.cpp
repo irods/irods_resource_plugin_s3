@@ -669,7 +669,7 @@ extern "C" {
         S3AbortMultipartUploadHandler abortHandler = { { mpuCancelRespPropCB, mpuCancelRespCompCB } };
         S3Status status;
 
-        rodsLog( LOG_ERROR, "Aborting multipart upload");
+        printf("Aborting multipart upload:  key=%s, id=%s\n", key, upload_id);
         S3_abort_multipart_upload(bucketContext, key, upload_id, &abortHandler);
         if (status != S3StatusOK) {
             std::stringstream msg;
@@ -719,7 +719,6 @@ extern "C" {
                 S3_upload_part(&bucketContext, mpuKey, NULL, &putObjectHandler, seq, mpuUploadId, partData->put_object_data.contentLength, 0, partData);
                 retry_cnt++;
                 rodsLog( LOG_ERROR, "Multipart:  End part" );
-printf("seq %d, mpuabort: %d\n", seq, mpuAbort);
             } while ((partData->status != S3StatusOK) && (retry_cnt < RETRY_COUNT) && !mpuAbort);
             if (partData->status != S3StatusOK) {
                 std::stringstream msg;
@@ -853,7 +852,7 @@ printf("seq %d, mpuabort: %d\n", seq, mpuAbort);
                         multipart_data_t partData;
                         int partContentLength = 0;
 
-                        manager.etags = (char**)malloc(sizeof(char*) * totalSeq);
+                        manager.etags = (char**)calloc(sizeof(char*) * totalSeq, 1);
 
                         retry_cnt = 0;
                         do {
@@ -1003,10 +1002,10 @@ printf("seq %d, mpuabort: %d\n", seq, mpuAbort);
                             }
                         }
                         if (mpuAbort && manager.upload_id) {
-rodsLog(LOG_ERROR, "Cancelling u/l");
-                            mpuCancel( &bucketContext, _s3ObjName.c_str(), manager.upload_id );
+                            rodsLog(LOG_ERROR, "Cancelling u/l");
+                            mpuCancel( &bucketContext, key.c_str(), manager.upload_id );
                         }
-rodsLog(LOG_ERROR, "Freeing up memory"); 
+                        rodsLog(LOG_ERROR, "Freeing up memory"); 
                         // Clean up memory
                         if (manager.xml) free(manager.xml);
                         if (manager.upload_id) free(manager.upload_id);
