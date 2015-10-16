@@ -24,7 +24,7 @@ typedef struct s3Stat
 typedef struct callback_data
 {
     int fd;
-    off_t offset;       /* For multiple upload */
+    long offset;       /* For multiple upload */
     rodsLong_t contentLength, originalContentLength;
     S3Status status;
     int keyCount;
@@ -39,8 +39,8 @@ typedef struct upload_manager
 
     /* Below used for the upload completion command, need to send in XML */
     char *xml;
-    int remaining;
-    int offset;
+    long remaining;
+    long offset;
 
     S3Status status;
 } upload_manager_t;

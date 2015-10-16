@@ -1,5 +1,7 @@
 /* -*- mode: c++; fill-column: 132; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #define linux_platform
+#define _USE_FILE_OFFSET64
+
 #include "libirods_s3.hpp"
 
 // =-=-=-=-=-=-=-
@@ -172,18 +174,18 @@ extern "C" {
         void *callbackData)
     {
         callback_data_t *data = (callback_data_t *) callbackData;
-        int length;    
-        int ret = 0;
+        long length;    
+        long ret = 0;
         
         if (data->contentLength) {
             int length = ((data->contentLength > (unsigned) bufferSize) ?
                           (unsigned) bufferSize : data->contentLength);
             ret = pread(data->fd, buffer, length, data->offset);
-printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length, (int)data->offset);
+//printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length, (int)data->offset);
         }
         data->contentLength -= ret;
         data->offset += ret;
-        return ret;
+        return (long)ret;
     }
 
     S3Status listBucketCallback(
@@ -416,19 +418,19 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
         return S3ProtocolHTTPS;
     }
 
-    static ssize_t s3GetMPUChunksize (
+    static long s3GetMPUChunksize (
         irods::plugin_property_map& _prop_map )
     {
         irods::error ret;
         std::string chunk_str;
-        ssize_t chunk = 5 * 1024 * 1024; // 5MB default
+        long chunk = 5L * 1024L * 1024L; // 5MB default
         ret = _prop_map.get< std::string >(
                                    s3_mpu_chunk,
                                    chunk_str );
         if (ret.ok()) {
             int parse = atol(chunk_str.c_str());
             if ( (parse >= 5) && (parse <= 5000) )
-                chunk = parse * 1024 * 1024;
+                chunk = parse * 1024L * 1024L;
         }
         return chunk;
     }
@@ -601,6 +603,10 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
     {
         S3Status *pStatus = &(((multipart_data_t *)callbackData)->status);
         StoreAndLogStatus( status, error, pStatus );
+        if (status != S3StatusOK) {
+            mpuAbort = TRUE;
+            printf("set mpuabort!\n");
+        }
     }
 
     /******************* Multipart Commit Callbacks *****************************/
@@ -613,7 +619,7 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
         void *callbackData )
     {
         upload_manager_t *manager = (upload_manager_t *)callbackData;
-        int ret = 0;
+        long ret = 0;
         if (manager->remaining) {
             int toRead = ((manager->remaining > bufferSize) ?
                           bufferSize : manager->remaining);
@@ -623,7 +629,7 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
         manager->remaining -= ret;
         manager->offset += ret;
         
-        return ret;
+        return (int)ret;
     }
 
     static S3Status mpuCommitRespPropCB (
@@ -663,6 +669,7 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
         S3AbortMultipartUploadHandler abortHandler = { { mpuCancelRespPropCB, mpuCancelRespCompCB } };
         S3Status status;
 
+        rodsLog( LOG_ERROR, "Aborting multipart upload");
         S3_abort_multipart_upload(bucketContext, key, upload_id, &abortHandler);
         if (status != S3StatusOK) {
             std::stringstream msg;
@@ -700,20 +707,21 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
             }
             seq = mpuNext + 1;
             mpuNext++;
-            multipart_data_t partData = mpuData[seq-1];
+            multipart_data_t *partData = &mpuData[seq-1];
             pthread_mutex_unlock(&mpuLock);
 
-            printf("Sending Part Seq %d, length=%d\n", (int)seq, (int)partData.put_object_data.contentLength);
+            printf("Sending Part Seq %d, length=%d\n", (int)seq, (int)partData->put_object_data.contentLength);
             int retry_cnt = 0;
             do {
                 char buff[256];
-                sprintf(buff, "Multipart:  Start part %d, key %s, uploadid %s, len %d", (int)seq, mpuKey, mpuUploadId, (int)partData.put_object_data.contentLength);
+                sprintf(buff, "Multipart:  Start part %d, key %s, uploadid %s, offset %ld, len %d", (int)seq, mpuKey, mpuUploadId, (long)partData->put_object_data.offset, (int)partData->put_object_data.contentLength);
                 rodsLog( LOG_ERROR, buff );
-                S3_upload_part(&bucketContext, mpuKey, NULL, &putObjectHandler, seq, mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
+                S3_upload_part(&bucketContext, mpuKey, NULL, &putObjectHandler, seq, mpuUploadId, partData->put_object_data.contentLength, 0, partData);
                 retry_cnt++;
                 rodsLog( LOG_ERROR, "Multipart:  End part" );
-            } while ((partData.status != S3StatusOK) && (retry_cnt < RETRY_COUNT));
-            if (partData.status != S3StatusOK) {
+printf("seq %d, mpuabort: %d\n", seq, mpuAbort);
+            } while ((partData->status != S3StatusOK) && (retry_cnt < RETRY_COUNT) && !mpuAbort);
+            if (partData->status != S3StatusOK) {
                 std::stringstream msg;
                 msg << __FUNCTION__;
                 msg << " - Error putting the S3 object: \"";
@@ -721,12 +729,12 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
                 msg << "\"";
                 msg << " part ";
                 msg << seq;
-                if(partData.status >= 0) {
+                if(partData->status >= 0) {
                     msg << " - \"";
-                    msg << S3_get_status_name((S3Status)partData.status);
+                    msg << S3_get_status_name(partData->status);
                     msg << "\"";
                 }
-                result = ERROR(partData.status, msg.str());
+                result = ERROR(partData->status, msg.str());
                 rodsLog(LOG_ERROR,msg.str().c_str() );
                 mpuAbort = TRUE;
             }
@@ -760,7 +768,7 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
         std::string bucket;
         std::string key;
         int err_status = 0;
-        int chunksize = s3GetMPUChunksize( _prop_map );
+        long chunksize = s3GetMPUChunksize( _prop_map );
         size_t retry_cnt    = 0;
         
         ret = parseS3Path(_s3ObjName, bucket, key);
@@ -839,8 +847,8 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
                         sprintf(buff, "Multipart:  Begin key %s", key.c_str());
                         rodsLog( LOG_ERROR, buff );
                         
-                        int seq;
-                        int totalSeq = (data.contentLength + chunksize- 1)/ chunksize;
+                        long seq;
+                        long totalSeq = (data.contentLength + chunksize- 1)/ chunksize;
 
                         multipart_data_t partData;
                         int partContentLength = 0;
@@ -947,7 +955,6 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
                             //data.contentLength -= partContentLength;
                         }
 #endif
-                        rodsLog( LOG_ERROR, "XML:");
 
                         manager.remaining = 0;
                         manager.offset  = 0;
@@ -971,6 +978,7 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
                             strcat(manager.xml+manager.remaining, "</CompleteMultipartUpload>\n");
                             manager.remaining += strlen(manager.xml+manager.remaining); //size;
                             manager.offset = 0;
+                            rodsLog( LOG_ERROR, "XML:");
                             rodsLog(LOG_ERROR, manager.xml);
                             retry_cnt = 0;
                             do {
@@ -990,14 +998,15 @@ printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length,
                                     msg << "\"";
 //                                    status = S3_INIT_ERROR - manager.status;
                                 }
-                            result = ERROR(manager.status, msg.str());
-                            mpuAbort = TRUE;
+                                result = ERROR(manager.status, msg.str());
+                                mpuAbort = TRUE;
                             }
                         }
                         if (mpuAbort && manager.upload_id) {
+rodsLog(LOG_ERROR, "Cancelling u/l");
                             mpuCancel( &bucketContext, _s3ObjName.c_str(), manager.upload_id );
                         }
- 
+rodsLog(LOG_ERROR, "Freeing up memory"); 
                         // Clean up memory
                         if (manager.xml) free(manager.xml);
                         if (manager.upload_id) free(manager.upload_id);
