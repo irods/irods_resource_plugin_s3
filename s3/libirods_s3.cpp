@@ -181,7 +181,6 @@ extern "C" {
             int length = ((data->contentLength > (unsigned) bufferSize) ?
                           (unsigned) bufferSize : data->contentLength);
             ret = pread(data->fd, buffer, length, data->offset);
-//printf("%d = pread (%d, <ptr>, %d, %d)\n", (int)ret, (int)data->fd, (int)length, (int)data->offset);
         }
         data->contentLength -= ret;
         data->offset += ret;
@@ -548,7 +547,6 @@ extern "C" {
         const char* upload_id,
         void *callbackData )
     {
-        printf("upload_id: %s\n", upload_id);
         upload_manager_t *manager = (upload_manager_t *)callbackData;
         manager->upload_id = strdup(upload_id);
         return S3StatusOK;
@@ -605,7 +603,6 @@ extern "C" {
         StoreAndLogStatus( status, error, pStatus );
         if (status != S3StatusOK) {
             mpuAbort = TRUE;
-            printf("set mpuabort!\n");
         }
     }
 
@@ -669,7 +666,9 @@ extern "C" {
         S3AbortMultipartUploadHandler abortHandler = { { mpuCancelRespPropCB, mpuCancelRespCompCB } };
         S3Status status;
 
-        printf("Aborting multipart upload:  key=%s, id=%s\n", key, upload_id);
+        char buff[256];
+        snprintf(buff, 255, "Aborting multipart upload:  key=%s, id=%s\n", key, upload_id);
+        rodsLog(LOG_ERROR, buff);
         S3_abort_multipart_upload(bucketContext, key, upload_id, &abortHandler);
         if (status != S3StatusOK) {
             std::stringstream msg;
@@ -696,7 +695,7 @@ extern "C" {
         irods::error result;
     	
         S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
-        rodsLog( LOG_ERROR, "Starting thread");
+        rodsLog( LOG_NOTICE, "Starting thread");
         /* Will break out when no work detected */
         while (!mpuAbort) {
             int seq;
@@ -710,15 +709,15 @@ extern "C" {
             multipart_data_t *partData = &mpuData[seq-1];
             pthread_mutex_unlock(&mpuLock);
 
-            printf("Sending Part Seq %d, length=%d\n", (int)seq, (int)partData->put_object_data.contentLength);
             int retry_cnt = 0;
             do {
                 char buff[256];
-                sprintf(buff, "Multipart:  Start part %d, key %s, uploadid %s, offset %ld, len %d", (int)seq, mpuKey, mpuUploadId, (long)partData->put_object_data.offset, (int)partData->put_object_data.contentLength);
-                rodsLog( LOG_ERROR, buff );
+                snprintf(buff, 255, "Multipart:  Start part %d, key %s, uploadid %s, offset %ld, len %d", (int)seq, mpuKey, mpuUploadId, (long)partData->put_object_data.offset, (int)partData->put_object_data.contentLength);
+                rodsLog( LOG_NOTICE, buff );
                 S3_upload_part(&bucketContext, mpuKey, NULL, &putObjectHandler, seq, mpuUploadId, partData->put_object_data.contentLength, 0, partData);
                 retry_cnt++;
-                rodsLog( LOG_ERROR, "Multipart:  End part" );
+                snprintf(buff, 255, "Multipart:  End part %d, key %s, uploadid %s, offset %ld, len %d", (int)seq, mpuKey, mpuUploadId, (long)partData->put_object_data.offset, (int)partData->put_object_data.contentLength);
+                rodsLog( LOG_NOTICE, buff);
             } while ((partData->status != S3StatusOK) && (retry_cnt < RETRY_COUNT) && !mpuAbort);
             if (partData->status != S3StatusOK) {
                 std::stringstream msg;
@@ -843,8 +842,8 @@ extern "C" {
                         mpuAbort = FALSE;
 
                         char buff[256];
-                        sprintf(buff, "Multipart:  Begin key %s", key.c_str());
-                        rodsLog( LOG_ERROR, buff );
+                        snprintf(buff, 255, "Multipart:  Begin key %s", key.c_str());
+                        rodsLog( LOG_NOTICE, buff );
                         
                         long seq;
                         long totalSeq = (data.contentLength + chunksize- 1)/ chunksize;
@@ -857,7 +856,6 @@ extern "C" {
                         retry_cnt = 0;
                         do {
                             retry_cnt++;
-                            printf("Multipart:  Initiate Multipart try %d\n", (int)retry_cnt);
                             // These expect a upload_manager_t* as cbdata
                             S3MultipartInitialHander mpuInitialHandler = { {mpuInitRespPropCB, mpuInitRespCompCB }, mpuInitXmlCB };
                             S3_initiate_multipart(&bucketContext,key.c_str(), NULL, &mpuInitialHandler, NULL, &manager);
@@ -879,7 +877,7 @@ extern "C" {
                             mpuAbort = TRUE;
                         }
                    
-                        rodsLog( LOG_ERROR, "Multipart: Ready to upload" );
+                        rodsLog( LOG_NOTICE, "Multipart: Ready to upload" );
 
                         mpuNext = 0;
                         mpuLast = totalSeq;
@@ -901,7 +899,6 @@ extern "C" {
                         }
 #if defined(linux_platform)
                         if (!mpuAbort) {
-                            rodsLog( LOG_ERROR, "using threads");
                             // Make the worker threads and start
                             pthread_mutex_init(&mpuLock, NULL);
 
@@ -924,17 +921,17 @@ extern "C" {
                         // No threads, so sequentially upload the parts one at a time
                         for(seq = 1; !mpuAbort && seq <= totalSeq ; seq ++) {
                             partData = mpuData[seq-1];
-                            printf("Sending Part Seq %d, length=%d\n", (int)seq, (int)partData.put_object_data.contentLength);
                             retry_cnt = 0;
                             do {
                                 char buff[256];
-                                sprintf(buff, "Multipart:  Start part %d", (int)seq);
-                                rodsLog( LOG_ERROR, buff );
+                                snprintf(buff, 255, "Multipart:  Start part %d", (int)seq);
+                                rodsLog( LOG_NOTICE, buff );
                                 // Pass in multipart_data_t as CBData
                                 S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
                                 S3_upload_part(&bucketContext, key.c_str(), NULL, &putObjectHandler, seq, mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
                                 retry_cnt++;
-                                rodsLog( LOG_ERROR, "Multipart:  End part" );
+                                snprintf(buff, 255, "Multipart:  End part %d", (int)seq);
+                                rodsLog( LOG_NOTICE, buff);
                             } while (S3_status_is_retryable(partData.status) && ( retry_cnt < RETRY_COUNT ));
                             if (partData.status != S3StatusOK) {
                                 std::stringstream msg;
@@ -946,12 +943,10 @@ extern "C" {
                                     msg << " - \"";
                                     msg << S3_get_status_name((S3Status)partData.status);
                                     msg << "\"";
-  //                                  status = S3_INIT_ERROR - statusG;
                                 }
                                 result = ERROR(partData.status, msg.str());
                                 mpuAbort = TRUE;
                             }
-                            //data.contentLength -= partContentLength;
                         }
 #endif
 
@@ -977,8 +972,6 @@ extern "C" {
                             strcat(manager.xml+manager.remaining, "</CompleteMultipartUpload>\n");
                             manager.remaining += strlen(manager.xml+manager.remaining); //size;
                             manager.offset = 0;
-                            rodsLog( LOG_ERROR, "XML:");
-                            rodsLog(LOG_ERROR, manager.xml);
                             retry_cnt = 0;
                             do {
                                 S3MultipartCommitHandler commit_handler = { {mpuCommitRespPropCB, mpuCommitRespCompCB }, mpuCommitXmlCB, NULL };
@@ -1002,10 +995,9 @@ extern "C" {
                             }
                         }
                         if (mpuAbort && manager.upload_id) {
-                            rodsLog(LOG_ERROR, "Cancelling u/l");
+                            rodsLog(LOG_ERROR, "Cancelling multipart upload");
                             mpuCancel( &bucketContext, key.c_str(), manager.upload_id );
                         }
-                        rodsLog(LOG_ERROR, "Freeing up memory"); 
                         // Clean up memory
                         if (manager.xml) free(manager.xml);
                         if (manager.upload_id) free(manager.upload_id);
