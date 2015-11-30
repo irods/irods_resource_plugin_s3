@@ -100,8 +100,30 @@ extern "C" {
     //////////////////////////////////////////////////////////////////////
     // s3 specific functionality
     static bool S3Initialized = false; // so we only initialize the s3 library once
-//    static s3Auth_t S3Auth;            // authorization credentials for s3 operations?
-//    static S3Status statusG = S3StatusOK;
+    static std::vector<char *> g_hostname;
+    static int g_hostnameIdx = 0;
+#if defined(linux_platform)
+    static pthread_mutex_t g_hostnameIdxLock; // Init'd in s3Init
+#endif
+
+
+    // Increment through all specified hostnames in the list, locking in the case
+    // where we may be multithreaded
+    static const char *s3GetHostname()
+    {
+        if (g_hostname.empty())
+            return NULL; // Short-circuit default case
+#if defined(linux_platform)
+        pthread_mutex_lock(&g_hostnameIdxLock);
+#endif
+        char *ret = g_hostname[g_hostnameIdx];
+        g_hostnameIdx = (g_hostnameIdx + 1) % g_hostname.size();
+#if defined(linux_platform)
+        pthread_mutex_unlock(&g_hostnameIdxLock);
+#endif
+        return ret;
+    }
+
 
     // Callbacks for S3
     static void StoreAndLogStatus (
@@ -320,13 +342,24 @@ extern "C" {
         char *tmpPtr;
 
         if (!S3Initialized) {
-            std::string default_hostname;
+            // First, parse the default hostname (if present) into a list of hostnames separated on the definition line by commas (,)
+            std::string hostname_list;
             irods::error ret = _prop_map.get< std::string >( 
                                    s3_default_hostname,
-                                   default_hostname );
+                                   hostname_list );
             if( !ret.ok() ) {
                 // ok to fail
+                g_hostname.push_back(strdup(S3_DEFAULT_HOSTNAME)); // Default to Amazon
+            } else {
+                std::stringstream ss(hostname_list);
+                std::string item;
+                while (std::getline(ss, item, ',')) {
+                    g_hostname.push_back(strdup(item.c_str()));
+                }
             }
+#if defined(linux_platform)
+            pthread_mutex_init(&g_hostnameIdxLock, NULL);
+#endif
 
             size_t retry_count = 10;
             std::string retry_count_str;
@@ -364,7 +397,7 @@ extern "C" {
             while( ctr < retry_count ) {
                 int status = 0;
 
-                const char* host_name = !default_hostname.empty() ? default_hostname.c_str() : NULL;
+                const char* host_name = s3GetHostname();
                 status = S3_initialize( "s3", S3_INIT_ALL, host_name );
 
                 int err_status = S3_INIT_ERROR - status;
@@ -482,6 +515,7 @@ extern "C" {
                     data.fd = cache_fd;
                     data.contentLength = data.originalContentLength = _fileSize;
                     bzero (&bucketContext, sizeof (bucketContext));
+                    bucketContext.hostName = s3GetHostname();
                     bucketContext.bucketName = bucket.c_str();
                     bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
@@ -509,16 +543,6 @@ extern "C" {
                         }
                         result = ERROR(status, msg.str());
                     }
-/*                    else if( statusG != S3StatusOK ) {
-                        std::stringstream msg;
-                        msg << "Error getting the S3 Object \""
-                            << _s3ObjName
-                            << "\" with S3Status \""
-                            << S3_get_status_name( statusG )
-                            << "\"";
-                            result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
-                    }
-*/
                     close(cache_fd);
                 }
             }
@@ -607,8 +631,6 @@ extern "C" {
     }
 
     /******************* Multipart Commit Callbacks *****************************/
-    /* callbackData = upload_data_t *                                       */
-
     /* Uploading the multipart completion XML from our buffer */
     static int mpuCommitXmlCB (
         int bufferSize,
@@ -714,6 +736,7 @@ extern "C" {
                 char buff[256];
                 snprintf(buff, 255, "Multipart:  Start part %d, key %s, uploadid %s, offset %ld, len %d", (int)seq, mpuKey, mpuUploadId, (long)partData->put_object_data.offset, (int)partData->put_object_data.contentLength);
                 rodsLog( LOG_NOTICE, buff );
+                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
                 S3_upload_part(&bucketContext, mpuKey, NULL, &putObjectHandler, seq, mpuUploadId, partData->put_object_data.contentLength, 0, partData);
                 retry_cnt++;
                 snprintf(buff, 255, "Multipart:  End part %d, key %s, uploadid %s, offset %ld, len %d", (int)seq, mpuKey, mpuUploadId, (long)partData->put_object_data.offset, (int)partData->put_object_data.contentLength);
@@ -789,6 +812,7 @@ extern "C" {
                     data.contentLength = data.originalContentLength = _fileSize;
                 
                     bzero (&bucketContext, sizeof (bucketContext));
+                    bucketContext.hostName = s3GetHostname();
                     bucketContext.bucketName = bucket.c_str();
                     bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
@@ -857,8 +881,8 @@ extern "C" {
                         do {
                             retry_cnt++;
                             // These expect a upload_manager_t* as cbdata
-                            S3MultipartInitialHander mpuInitialHandler = { {mpuInitRespPropCB, mpuInitRespCompCB }, mpuInitXmlCB };
-                            S3_initiate_multipart(&bucketContext,key.c_str(), NULL, &mpuInitialHandler, NULL, &manager);
+                            S3MultipartInitialHandler mpuInitialHandler = { {mpuInitRespPropCB, mpuInitRespCompCB }, mpuInitXmlCB };
+                            S3_initiate_multipart(&bucketContext, key.c_str(), NULL, &mpuInitialHandler, NULL, &manager);
                         } while (S3_status_is_retryable(manager.status) && ( retry_cnt < RETRY_COUNT ));
                         if (manager.upload_id == NULL || manager.status != S3StatusOK) {
                             std::stringstream msg;
@@ -870,7 +894,6 @@ extern "C" {
                                 msg << " - \"";
                                 msg << S3_get_status_name(manager.status);
                                 msg << "\"";
-//                                status = S3_INIT_ERROR - statusG;
                             }
                             rodsLog( LOG_ERROR, msg.str().c_str() );
                             result = ERROR(manager.status, msg.str());
@@ -927,6 +950,7 @@ extern "C" {
                                 snprintf(buff, 255, "Multipart:  Start part %d", (int)seq);
                                 rodsLog( LOG_NOTICE, buff );
                                 // Pass in multipart_data_t as CBData
+                                bucketContext.hostName = s3GetHostname(); // Rotate through hosts for each part
                                 S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
                                 S3_upload_part(&bucketContext, key.c_str(), NULL, &putObjectHandler, seq, mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
                                 retry_cnt++;
@@ -988,7 +1012,6 @@ extern "C" {
                                     msg << " - \"";
                                     msg << S3_get_status_name(manager.status);
                                     msg << "\"";
-//                                    status = S3_INIT_ERROR - manager.status;
                                 }
                                 result = ERROR(manager.status, msg.str());
                                 mpuAbort = TRUE;
@@ -1048,6 +1071,7 @@ extern "C" {
 
                 bzero (&data, sizeof (data));
                 bzero (&bucketContext, sizeof (bucketContext));
+                bucketContext.hostName = s3GetHostname();
                 bucketContext.bucketName = src_bucket.c_str();
                 bucketContext.protocol = _proto;
                 bucketContext.uriStyle = S3UriStylePath;
@@ -1144,14 +1168,6 @@ extern "C" {
     {
         irods::error result = SUCCESS();
         irods::error ret;
-
-        std::string default_hostname;
-        ret = _prop_map.get< std::string >( 
-            s3_default_hostname, 
-            default_hostname );
-        if( !ret.ok() ) {
-            // ok to fail
-        }
 
         // Initialize the S3 library
         ret = s3Init( _prop_map );
@@ -1272,14 +1288,6 @@ extern "C" {
             if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                                      _object->physical_path().c_str())).ok()) {
 
-                std::string default_hostname;
-                ret = _ctx.prop_map().get< std::string >( 
-                    s3_default_hostname, 
-                    default_hostname );
-                if( !ret.ok() ) {
-                    // ok to fail
-                }
-
                 ret = s3Init( _ctx.prop_map() );
                 if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
@@ -1292,6 +1300,7 @@ extern "C" {
                         bzero (&data, sizeof (data));
 
                         bzero (&bucketContext, sizeof (bucketContext));
+                        bucketContext.hostName = s3GetHostname();
                         bucketContext.bucketName = bucket.c_str();
                         bucketContext.protocol = s3GetProto(_ctx.prop_map());
                         bucketContext.uriStyle = S3UriStylePath;
@@ -1589,14 +1598,6 @@ extern "C" {
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                         if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
-                            std::string default_hostname;
-                            ret = _ctx.prop_map().get< std::string >( 
-                                s3_default_hostname, 
-                                default_hostname );
-                            if( !ret.ok() ) {
-                                // ok to fail
-                            }
-
                             rodsLong_t mySize = statbuf.st_size;
                             ret = s3GetFile( _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
                             result = ASSERT_PASS(ret, "Failed to copy the S3 object: \"%s\" to the cache: \"%s\".",
@@ -1639,15 +1640,6 @@ extern "C" {
 
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                     if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
-
-                        std::string default_hostname;
-                        ret = _ctx.prop_map().get< std::string >( 
-                            s3_default_hostname, 
-                            default_hostname );
-                        if( !ret.ok() ) {
-                            // ok to fail
-                        }
-
 
                         rodsLong_t data_size = statbuf.st_size;
                         ret = s3PutFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
