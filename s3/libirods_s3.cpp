@@ -564,7 +564,6 @@ extern "C" {
     static volatile int mpuAbort = FALSE;   // TBD: On part upload failure, abort and destroy upload
 
     /******************* Multipart Initialization Callbacks *****************************/
-    /* callbackData = upload_manager_t*                                                 */
 
     /* Captures the upload_id returned and stores it away in our data structure */
     static S3Status mpuInitXmlCB (
@@ -594,7 +593,6 @@ extern "C" {
 
 
     /******************* Multipart Put Callbacks *****************************/
-    /* callbackData = multipart_data_t*                                      */
 
     /* Upload data from the part, use the plain callback_data reader */
     static int mpuPartPutDataCB (
@@ -739,7 +737,7 @@ extern "C" {
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
                 S3_upload_part(&bucketContext, mpuKey, NULL, &putObjectHandler, seq, mpuUploadId, partData->put_object_data.contentLength, 0, partData);
                 retry_cnt++;
-                snprintf(buff, 255, "Multipart:  End part %d, key %s, uploadid %s, offset %ld, len %d", (int)seq, mpuKey, mpuUploadId, (long)partData->put_object_data.offset, (int)partData->put_object_data.contentLength);
+                snprintf(buff, 255, "Multipart:  End part %d, key %s, uploadid %s, offset %ld", (int)seq, mpuKey, mpuUploadId, (long)partData->put_object_data.offset);
                 rodsLog( LOG_NOTICE, buff);
             } while ((partData->status != S3StatusOK) && (retry_cnt < RETRY_COUNT) && !mpuAbort);
             if (partData->status != S3StatusOK) {
@@ -982,6 +980,10 @@ extern "C" {
                         }
 
                         if (!mpuAbort) {
+                            char buff[256];
+                            snprintf(buff, 255, "Multipart:  Completing key %s", key.c_str());
+                            rodsLog( LOG_NOTICE, buff );
+
                             int i;
                             strcpy(manager.xml, "<CompleteMultipartUpload>\n");
                             manager.remaining = strlen(manager.xml);
