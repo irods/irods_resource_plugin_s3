@@ -101,7 +101,7 @@ extern "C" {
     static bool S3Initialized = false; // so we only initialize the s3 library once
     static std::vector<char *> g_hostname;
     static int g_hostnameIdx = 0;
-    static boost::mutex g_hostnameIdxLock; // Init'd in s3Init
+    static boost::mutex g_hostnameIdxLock;
 
 
     // Increment through all specified hostnames in the list, locking in the case
@@ -349,6 +349,11 @@ extern "C" {
                 while (std::getline(ss, item, ',')) {
                     g_hostname.push_back(strdup(item.c_str()));
                 }
+                // Because each resource operation is a new instance, randomize the starting
+                // hostname offset so we don't always hit the first in the list between different
+                // operations.
+                srand(time(NULL));
+                g_hostnameIdx = rand() % g_hostname.size();
             }
 
             size_t retry_count = 10;
