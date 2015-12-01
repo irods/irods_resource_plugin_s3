@@ -861,7 +861,29 @@ extern "C" {
                         multipart_data_t partData;
                         int partContentLength = 0;
 
+                        // Allocate all dynamic storage now, so we don't start a job we can't finish later
                         manager.etags = (char**)calloc(sizeof(char*) * totalSeq, 1);
+                        if (!manager.etags) {
+                            const char *msg = "Out of memory error in S3 multipart ETags allocation.";
+                            rodsLog( LOG_ERROR, msg );
+                            result = ERROR( RE_OUT_OF_MEMORY, msg );
+                            return result;
+                        }
+                        g_mpuData = (multipart_data_t*)calloc(totalSeq, sizeof(multipart_data_t));
+                        if (!g_mpuData) {
+                            const char *msg = "Out of memory error in S3 multipart g_mpuData allocation.";
+                            rodsLog( LOG_ERROR, msg );
+                            result = ERROR( RE_OUT_OF_MEMORY, msg );
+                            return result;
+                        }
+                        // Maximum XML completion length with extra space for the <complete...></complete...> tag
+                        manager.xml = (char *)malloc((totalSeq+2) * 256);
+                        if (manager.xml == NULL) {
+                            const char *msg = "Out of memory error in S3 multipart XML allocation.";
+                            rodsLog( LOG_ERROR, msg );
+                            result = ERROR( RE_OUT_OF_MEMORY, msg );
+                            return result;
+                        }
 
                         retry_cnt = 0;
                         do {
@@ -886,16 +908,9 @@ extern "C" {
                             return result; // Abort early
                         }
                    
-                        rodsLog( LOG_NOTICE, "Multipart: Ready to upload" );
 
                         g_mpuNext = 0;
                         g_mpuLast = totalSeq;
-                        g_mpuData = (multipart_data_t*)calloc(totalSeq, sizeof(multipart_data_t));
-                        if (!g_mpuData) {
-                            const char *msg = "Out of memory error in S3 resource g_mpuData allocation.";
-                            rodsLog( LOG_ERROR, msg );
-                            result = ERROR( RE_OUT_OF_MEMORY, msg );
-                        }
                         g_mpuUploadId = manager.upload_id;
                         g_mpuKey = key.c_str();
                         for(seq = 1; seq <= totalSeq ; seq ++) {
@@ -909,33 +924,30 @@ extern "C" {
                             g_mpuData[seq-1] = partData;
                             data.contentLength -= partContentLength;
                         }
-                        if (!g_mpuAbort) {
-                            // Make the worker threads and start
-                            int nThreads = s3GetMPUThreads(_prop_map);
 
-                            std::list<boost::thread*> threads;
-                            for (int thr_id=0; thr_id<nThreads; thr_id++) {
-                                boost::thread *thisThread = new boost::thread(mpuWorkerThread, &bucketContext);
-                                threads.push_back(thisThread);
-                            }
-                        
-                            // And wait for them to finish...
-                            while (!threads.empty()) {
-                                boost::thread *thisThread = threads.front();
-                                thisThread->join();
-                                delete thisThread;
-                                threads.pop_front();
-                            }
+                        rodsLog( LOG_NOTICE, "Multipart: Ready to upload" );
+
+                        // Make the worker threads and start
+                        int nThreads = s3GetMPUThreads(_prop_map);
+
+                        std::list<boost::thread*> threads;
+                        for (int thr_id=0; thr_id<nThreads; thr_id++) {
+                            boost::thread *thisThread = new boost::thread(mpuWorkerThread, &bucketContext);
+                            threads.push_back(thisThread);
+                        }
+                    
+                        // And wait for them to finish...
+                        while (!threads.empty()) {
+                            boost::thread *thisThread = threads.front();
+                            thisThread->join();
+                            delete thisThread;
+                            threads.pop_front();
                         }
 
                         manager.remaining = 0;
                         manager.offset  = 0;
-                        // Maximum length with extra for the <complete...></complete...> tag
-                        manager.xml = (char *)malloc((totalSeq+2) * 256);
-                        if (manager.xml == NULL) {
-                        }
 
-                        if (!g_mpuAbort) {
+                        if (!g_mpuAbort) { // If someone aborted, don't complete...
                             char buff[256];
                             snprintf(buff, 255, "Multipart:  Completing key %s", key.c_str());
                             rodsLog( LOG_NOTICE, buff );
@@ -976,6 +988,7 @@ extern "C" {
                             }
                         }
                         if (g_mpuAbort && manager.upload_id) {
+                            // Someone aborted after we started, delete the partial object on S3
                             rodsLog(LOG_ERROR, "Cancelling multipart upload");
                             mpuCancel( &bucketContext, key.c_str(), manager.upload_id );
                         }
