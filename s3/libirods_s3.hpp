@@ -52,6 +52,7 @@ typedef struct multipart_data
     upload_manager_t *manager;     /* To update w/the MD5 returned */
 
     S3Status status;
+    bool enable_md5;
 } multipart_data_t;
 
 #endif // _LIBEIRODS_S3_H_
