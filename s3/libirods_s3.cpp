@@ -585,6 +585,113 @@ extern "C" {
         return enable;
     }
 
+    static boost::mutex g_mrdLock; // Multirange download has a mutex-protected global work queue
+    static volatile int g_mrdNext = 0;
+    static int g_mrdLast = -1;
+    static multirange_data_t *g_mrdData = NULL;
+    static const char *g_mrdKey = NULL;
+    static volatile int g_mrdAbort = FALSE;
+
+    static S3Status mrdRangeGetDataCB (
+        int bufferSize,
+        const char *buffer,
+        void *callbackData)
+    {
+        multirange_data_t *mrd = (multirange_data_t *)callbackData;
+
+        // Can't override to use the default handler, we're doing pwrites in parallel
+        irods::error result = ASSERT_ERROR(bufferSize != 0 && buffer != NULL && callbackData != NULL,
+                                            SYS_INVALID_INPUT_PARAM, "Invalid input parameter.");
+        if(!result.ok()) {
+            irods::log(result);
+        }
+
+        int outfd = mrd->get_object_data.fd;
+
+        ssize_t wrote = pwrite(outfd, buffer, bufferSize, mrd->get_object_data.offset);
+        if (wrote>0) mrd->get_object_data.offset += wrote;
+
+        return ((wrote < (ssize_t) bufferSize) ?
+                S3StatusAbortedByCallback : S3StatusOK);
+//        return putObjectDataCallback( bufferSize, buffer, &((multipart_data_t*)callbackData)->put_object_data );
+    }
+
+    static S3Status mrdRangeRespPropCB (
+        const S3ResponseProperties *properties,
+        void *callbackData)
+    {
+        // Don't need to do anything here
+        return S3StatusOK;
+    }
+
+    static void mrdRangeRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        S3Status *pStatus = &(((multirange_data_t *)callbackData)->status);
+        StoreAndLogStatus( status, error, pStatus );
+        if (status != S3StatusOK) {
+            g_mrdAbort = TRUE;
+        }
+    }
+
+
+    static void mrdWorkerThread (
+        void *param )
+    {
+        S3BucketContext bucketContext = *((S3BucketContext*)param);
+        irods::error result;
+
+        S3GetObjectHandler getObjectHandler = { {mrdRangeRespPropCB, mrdRangeRespCompCB }, mrdRangeGetDataCB };
+        rodsLog( LOG_NOTICE, "Starting thread");
+        /* Will break out when no work detected */
+        while (!g_mrdAbort) {
+            int seq;
+            g_mrdLock.lock();
+            if (g_mrdNext >= g_mrdLast) {
+                g_mrdLock.unlock();
+                break;
+            }
+            seq = g_mrdNext + 1;
+            g_mrdNext++;
+            multirange_data_t *rangeData = &g_mrdData[seq-1];
+            g_mrdLock.unlock();
+
+            int retry_cnt = 0;
+            do {
+                char buff[256];
+                snprintf(buff, 255, "Multirange:  Start range %d, key %s, offset %ld, len %d", (int)seq, g_mrdKey, (long)rangeData->get_object_data.offset, (int)rangeData->get_object_data.contentLength);
+                rodsLog( LOG_NOTICE, buff );
+                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
+
+                S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData->get_object_data.offset, rangeData->get_object_data.contentLength, 0, &getObjectHandler, rangeData );
+
+                retry_cnt++;
+                snprintf(buff, 255, "Multirange:  End range %d, key %s, offset %ld", (int)seq, g_mrdKey, (long)rangeData->get_object_data.offset);
+                rodsLog( LOG_NOTICE, buff);
+            } while ((rangeData->status != S3StatusOK) && (retry_cnt < RETRY_COUNT) && !g_mrdAbort);
+            if (rangeData->status != S3StatusOK) {
+                std::stringstream msg;
+                msg << __FUNCTION__;
+                msg << " - Error getting the S3 object: \"";
+                msg << g_mrdKey;
+                msg << "\"";
+                msg << " range ";
+                msg << seq;
+                if(rangeData->status >= 0) {
+                    msg << " - \"";
+                    msg << S3_get_status_name(rangeData->status);
+                    msg << "\"";
+                }
+                result = ERROR(rangeData->status, msg.str());
+                rodsLog(LOG_ERROR,msg.str().c_str() );
+                g_mrdAbort = TRUE;
+            }
+        }
+    }
+
+
     irods::error s3GetFile(
         const std::string& _filename,
         const std::string& _s3ObjName,
@@ -622,28 +729,93 @@ extern "C" {
                     bucketContext.accessKeyId = _key_id.c_str();
                     bucketContext.secretAccessKey = _access_key.c_str();
 
-                    S3GetObjectHandler getObjectHandler = {
-                        { &responsePropertiesCallback, &responseCompleteCallback },
-                        &getObjectDataCallback
-                    };
+                    long chunksize = s3GetMPUChunksize( _prop_map );
 
-                    S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
-                    if (data.status != S3StatusOK) {
-                        int status = data.status;
-                        std::stringstream msg;
-                        msg << __FUNCTION__;
-                        msg << " - Error fetching the S3 object: \"";
-                        msg << _s3ObjName;
-                        msg << "\"";
-                        if(status >= 0) {
-                            msg << " - \"";
-                            msg << S3_get_status_name((S3Status)status);
+                    if ( _fileSize < chunksize ) {
+
+                        S3GetObjectHandler getObjectHandler = {
+                            { &responsePropertiesCallback, &responseCompleteCallback },
+                             &getObjectDataCallback
+                        };
+   
+                        S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
+                        if (data.status != S3StatusOK) {
+                            int status = data.status;
+                            std::stringstream msg;
+                            msg << __FUNCTION__;
+                            msg << " - Error fetching the S3 object: \"";
+                            msg << _s3ObjName;
                             msg << "\"";
-                            status = S3_INIT_ERROR - status;
+                            if(status >= 0) {
+                                msg << " - \"";
+                                msg << S3_get_status_name((S3Status)status);
+                                msg << "\"";
+                                status = S3_INIT_ERROR - status;
+                            }
+                            result = ERROR(status, msg.str());
                         }
-                        result = ERROR(status, msg.str());
+                        close(cache_fd);
+                    } else {
+                        // Multirange get
+                        g_mrdAbort = FALSE;
+
+                        char buff[256];
+                        snprintf(buff, 255, "Multirange:  Begin key %s", key.c_str());
+                        rodsLog( LOG_NOTICE, buff );
+                        
+                        long seq;
+                        long totalSeq = (data.contentLength + chunksize - 1) / chunksize;
+
+                        multirange_data_t rangeData;
+                        int rangeLength = 0;
+
+                        g_mrdData = (multirange_data_t*)calloc(totalSeq, sizeof(multirange_data_t));
+                        if (!g_mrdData) {
+                            const char *msg = "Out of memory error in S3 multirange g_mrdData allocation.";
+                            rodsLog( LOG_ERROR, msg );
+                            result = ERROR( RE_OUT_OF_MEMORY, msg );
+                            return result;
+                        }
+
+                        g_mrdNext = 0;
+                        g_mrdLast = totalSeq;
+                        g_mrdKey = key.c_str();
+                        for(seq = 0; seq < totalSeq ; seq ++) {
+                            memset(&rangeData, 0, sizeof(rangeData));
+                            rangeData.seq = seq;
+                            rangeData.get_object_data = data;
+                            rangeLength = (data.contentLength > chunksize)?chunksize:data.contentLength;
+                            rangeData.get_object_data.contentLength = rangeLength;
+                            rangeData.get_object_data.offset = seq * chunksize;
+                            g_mrdData[seq] = rangeData;
+                            data.contentLength -= rangeLength;
+                        }
+
+                        // Make the worker threads and start
+                        int nThreads = s3GetMPUThreads(_prop_map);
+
+                        std::list<boost::thread*> threads;
+                        for (int thr_id=0; thr_id<nThreads; thr_id++) {
+                            boost::thread *thisThread = new boost::thread(mrdWorkerThread, &bucketContext);
+                            threads.push_back(thisThread);
+                        }
+                    
+                        // And wait for them to finish...
+                        while (!threads.empty()) {
+                            boost::thread *thisThread = threads.front();
+                            thisThread->join();
+                            delete thisThread;
+                            threads.pop_front();
+                        }
+
+                        if (g_mrdAbort) {
+                            // Someone aborted after we started, delete the partial object on S3
+                            rodsLog(LOG_ERROR, "Cancelling multipart upload");
+                            ftruncate( cache_fd, 0 ); // 0-length the file, it's garbage
+                        }
+                        // Clean up memory
+                        if (g_mrdData) free(g_mrdData);
                     }
-                    close(cache_fd);
                 }
             }
         }
@@ -1044,7 +1216,7 @@ extern "C" {
                         g_mpuUploadId = manager.upload_id;
                         g_mpuKey = key.c_str();
                         for(seq = 1; seq <= totalSeq ; seq ++) {
-                            memset(&partData, 0, sizeof(callback_data_t));
+                            memset(&partData, 0, sizeof(partData));
                             partData.manager = &manager;
                             partData.seq = seq;
                             partData.put_object_data = data;
