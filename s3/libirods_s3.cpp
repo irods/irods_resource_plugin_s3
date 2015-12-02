@@ -38,11 +38,14 @@
 #include <string>
 #include <ctime>
 
+// =-=-=-=-=-=-=-
+// boost includes
 #include <boost/lexical_cast.hpp>
 #include <boost/thread.hpp>
 
 // =-=-=-=-=-=-=-
 // system includes
+#include <openssl/md5.h>
 #ifndef _WIN32
 #include <sys/file.h>
 #include <sys/param.h>
@@ -82,6 +85,7 @@ const std::string s3_wait_time_sec = "S3_WAIT_TIME_SEC";
 const std::string s3_proto = "S3_PROTO";
 const std::string s3_mpu_chunk = "S3_MPU_CHUNK";
 const std::string s3_mpu_threads = "S3_MPU_THREADS";
+const std::string s3_enable_md5 = "S3_ENABLE_MD5";
 
 const size_t RETRY_COUNT = 100;
 
@@ -104,6 +108,68 @@ extern "C" {
     static boost::mutex g_hostnameIdxLock;
 
 
+    // Return a malloc()'d C string containing the ASCII MD5 signature of the file
+    // from start through length bytes, using pread to not affect file pointers.
+    // The returned string needs to be free()d by the caller
+    static char *s3CalcMD5( int fd, off_t start, off_t length )
+    {
+        char *buff = (char *)malloc( 1024*1024 ); // 1MB chunk reads
+        unsigned char md5_bin[MD5_DIGEST_LENGTH];
+        MD5_CTX md5_ctx;
+        long pos = start;
+        long read;
+
+        buff = (char *)malloc( 1024*1024 ); // 1MB chunk reads
+        if ( buff == NULL ) {
+            rodsLog( LOG_ERROR, "Out of memory in S3 MD5 calculation, MD5 checksum will NOT be used for upload." );
+            return NULL;
+        }
+
+        MD5_Init( &md5_ctx );
+        for ( read=0; (read + 1024*1024) < length; read += 1024*1024 ) {
+            long ret = pread( fd, buff, 1024*1024, start );
+            if ( ret != 1024*1024 ) {
+                rodsLog( LOG_ERROR, "Error during MD5 pread of file, checksum will NOT be used for upload." );
+                free( buff );
+                return NULL;
+            }
+            MD5_Update( &md5_ctx, buff, 1024*1024 );
+            start += 1024 * 1024;
+        }
+        // Partial read for the last bit
+        long ret = pread( fd, buff, length-read, start );
+        if ( ret != length-read ) {
+            rodsLog( LOG_ERROR, "Error during MD5 pread of file, checksum will NOT be used for upload." );
+            free( buff );
+            return NULL;
+        }
+        MD5_Update( &md5_ctx, buff, length-read );
+        MD5_Final( md5_bin, &md5_ctx );
+        free( buff );
+
+        // Now we need to do BASE64 encoding of the MD5_BIN
+        BIO *bmem, *b64;
+        BUF_MEM *bptr;
+
+        b64 = BIO_new(BIO_f_base64());
+        bmem = BIO_new(BIO_s_mem());
+        b64 = BIO_push(b64, bmem);
+        BIO_write(b64, md5_bin, MD5_DIGEST_LENGTH);
+        BIO_flush(b64);
+        BIO_get_mem_ptr(b64, &bptr);
+
+        char *md5_b64 = (char*)malloc( bptr->length );
+        if ( md5_b64 == NULL ) {
+            rodsLog( LOG_ERROR, "Error during MD5 allocation, checksum will NOT be used for upload." );
+            free( buff );
+            return NULL;
+        }
+        memcpy( md5_b64, bptr->data, bptr->length-1 );
+        md5_b64[bptr->length-1] = 0;  // 0-terminate the string, not done by BIO_*
+        BIO_free_all(b64);
+
+        return md5_b64;
+    }
     // Increment through all specified hostnames in the list, locking in the case
     // where we may be multithreaded
     static const char *s3GetHostname()
@@ -480,6 +546,24 @@ extern "C" {
         return threads;
     }
 
+    static bool s3GetEnableMD5 (
+        irods::plugin_property_map& _prop_map )
+    {
+        irods::error ret;
+        std::string enable_str;
+        bool enable = false;
+
+        ret = _prop_map.get< std::string >(
+                                   s3_enable_md5,
+                                   enable_str );
+        if (ret.ok()) {
+            // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
+            int parse = atol(enable_str.c_str());
+            if (parse != 0)
+                enable = true;
+        }
+        return enable;
+    }
 
     irods::error s3GetFile(
         const std::string& _filename,
@@ -725,7 +809,18 @@ extern "C" {
                 snprintf(buff, 255, "Multipart:  Start part %d, key %s, uploadid %s, offset %ld, len %d", (int)seq, g_mpuKey, g_mpuUploadId, (long)partData->put_object_data.offset, (int)partData->put_object_data.contentLength);
                 rodsLog( LOG_NOTICE, buff );
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
-                S3_upload_part(&bucketContext, g_mpuKey, NULL, &putObjectHandler, seq, g_mpuUploadId, partData->put_object_data.contentLength, 0, partData);
+
+                S3PutProperties *putProps = NULL;
+                if ( partData->enable_md5 ) {
+                    putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
+                    putProps->md5 = s3CalcMD5( partData->put_object_data.fd, partData->put_object_data.offset, partData->put_object_data.contentLength );
+                }
+                S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId, partData->put_object_data.contentLength, 0, partData);
+                // Clear up the S3PutProperties, if it exists
+                if (putProps) {
+                    if (putProps->md5) free( (char*)putProps->md5 );
+                    free( putProps );
+                }
                 retry_cnt++;
                 snprintf(buff, 255, "Multipart:  End part %d, key %s, uploadid %s, offset %ld", (int)seq, g_mpuKey, g_mpuUploadId, (long)partData->put_object_data.offset);
                 rodsLog( LOG_NOTICE, buff);
@@ -777,6 +872,7 @@ extern "C" {
         int err_status = 0;
         long chunksize = s3GetMPUChunksize( _prop_map );
         size_t retry_cnt    = 0;
+        bool enable_md5 = s3GetEnableMD5 ( _prop_map );
         
         ret = parseS3Path(_s3ObjName, bucket, key);
         if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
@@ -805,6 +901,12 @@ extern "C" {
                     bucketContext.accessKeyId = _key_id.c_str();
                     bucketContext.secretAccessKey = _access_key.c_str();
 
+                    S3PutProperties *putProps = NULL;
+                    if ( enable_md5 ) {
+                        putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
+                        putProps->md5 = s3CalcMD5( cache_fd, 0, _fileSize );
+                    }
+
                     if ( data.contentLength < chunksize ) {
                         S3PutObjectHandler putObjectHandler = {
                             { &responsePropertiesCallback, &responseCompleteCallback },
@@ -814,7 +916,7 @@ extern "C" {
                         bool   put_done_flg = false;
 
                         while( !put_done_flg && ( retry_cnt < RETRY_COUNT ) ) {
-                            S3_put_object (&bucketContext, key.c_str(), _fileSize, NULL, 0, &putObjectHandler, &data);
+                            S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, &putObjectHandler, &data);
                             if (data.status != S3StatusOK) {
                                 int status = data.status;
                                 std::stringstream msg;
@@ -839,6 +941,11 @@ extern "C" {
                         
                         } // while
 
+                        // Clear up the S3PutProperties, if it exists
+                        if (putProps) {
+                            if (putProps->md5) free( (char*)putProps->md5 );
+                            free( putProps );
+                        }
                     } else {
                     	// Multi-part upload time, baby!
                         upload_manager_t manager;
@@ -921,6 +1028,7 @@ extern "C" {
                             partContentLength = (data.contentLength > chunksize)?chunksize:data.contentLength;
                             partData.put_object_data.contentLength = partContentLength;
                             partData.put_object_data.offset = (seq-1) * chunksize;
+                            partData.enable_md5 = s3GetEnableMD5( _prop_map );
                             g_mpuData[seq-1] = partData;
                             data.contentLength -= partContentLength;
                         }
