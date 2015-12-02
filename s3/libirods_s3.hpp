@@ -53,6 +53,7 @@ typedef struct multipart_data
 
     S3Status status;
     bool enable_md5;
+    bool server_encrypt;
 } multipart_data_t;
 
 #endif // _LIBEIRODS_S3_H_

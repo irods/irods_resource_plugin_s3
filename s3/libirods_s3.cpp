@@ -86,6 +86,7 @@ const std::string s3_proto = "S3_PROTO";
 const std::string s3_mpu_chunk = "S3_MPU_CHUNK";
 const std::string s3_mpu_threads = "S3_MPU_THREADS";
 const std::string s3_enable_md5 = "S3_ENABLE_MD5";
+const std::string s3_server_encrypt = "S3_SERVER_ENCRYPT";
 
 const size_t RETRY_COUNT = 100;
 
@@ -565,6 +566,25 @@ extern "C" {
         return enable;
     }
 
+    static bool s3GetServerEncrypt (
+        irods::plugin_property_map& _prop_map )
+    {
+        irods::error ret;
+        std::string enable_str;
+        bool enable = false;
+
+        ret = _prop_map.get< std::string >(
+                                   s3_server_encrypt,
+                                   enable_str );
+        if (ret.ok()) {
+            // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
+            int parse = atol(enable_str.c_str());
+            if (parse != 0)
+                enable = true;
+        }
+        return enable;
+    }
+
     irods::error s3GetFile(
         const std::string& _filename,
         const std::string& _s3ObjName,
@@ -811,10 +831,11 @@ extern "C" {
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
 
                 S3PutProperties *putProps = NULL;
-                if ( partData->enable_md5 ) {
-                    putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
+                putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
+                if ( partData->enable_md5 )
                     putProps->md5 = s3CalcMD5( partData->put_object_data.fd, partData->put_object_data.offset, partData->put_object_data.contentLength );
-                }
+                if ( partData->server_encrypt )
+                    putProps->useServerSideEncryption = true;
                 S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId, partData->put_object_data.contentLength, 0, partData);
                 // Clear up the S3PutProperties, if it exists
                 if (putProps) {
@@ -873,6 +894,7 @@ extern "C" {
         long chunksize = s3GetMPUChunksize( _prop_map );
         size_t retry_cnt    = 0;
         bool enable_md5 = s3GetEnableMD5 ( _prop_map );
+        bool server_encrypt = s3GetServerEncrypt ( _prop_map );
         
         ret = parseS3Path(_s3ObjName, bucket, key);
         if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
@@ -902,10 +924,11 @@ extern "C" {
                     bucketContext.secretAccessKey = _access_key.c_str();
 
                     S3PutProperties *putProps = NULL;
-                    if ( enable_md5 ) {
-                        putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
+                    putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
+                    if ( enable_md5 )
                         putProps->md5 = s3CalcMD5( cache_fd, 0, _fileSize );
-                    }
+                    if ( server_encrypt )
+                        putProps->useServerSideEncryption = true;
 
                     if ( data.contentLength < chunksize ) {
                         S3PutObjectHandler putObjectHandler = {
@@ -1029,6 +1052,7 @@ extern "C" {
                             partData.put_object_data.contentLength = partContentLength;
                             partData.put_object_data.offset = (seq-1) * chunksize;
                             partData.enable_md5 = s3GetEnableMD5( _prop_map );
+                            partData.server_encrypt = s3GetServerEncrypt( _prop_map );
                             g_mpuData[seq-1] = partData;
                             data.contentLength -= partContentLength;
                         }

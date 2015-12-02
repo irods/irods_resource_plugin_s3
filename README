@@ -43,3 +43,5 @@ To control multipart uploads, add the resource variables "S3_MPU_CHUNK" and "S3_
 To ensure end-to-end data integrity, MD5 checksums can be calculated and used for S3 uploads.  Note that this requires 2x the disk IO (because the file must first be read to calculate the MD5 before the S3 upload can start) and a corresponding increase in CPU usage
 S3_ENABLE_MD5=[0|1]  (default is 0, off)
 
+S3 server side encryption can be enabled using the parameter S3_SERVER_ENCRYPT=[0|1] (default=0=off).  This is not the same as HTTPS, and implies that the data will be stored on disk encrypted.  To encrypt during the network transport to S3, please use S3_PROTO=HTTPS (the default)
+
