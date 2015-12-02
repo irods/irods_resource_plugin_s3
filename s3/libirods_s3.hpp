@@ -23,20 +23,37 @@ typedef struct s3Stat
 
 typedef struct callback_data
 {
-    FILE *fd;
+    int fd;
+    long offset;       /* For multiple upload */
     rodsLong_t contentLength, originalContentLength;
-    int isTruncated;
-    char nextMarker[1024];
+    S3Status status;
     int keyCount;
-    int allDetails;
     s3Stat_t s3Stat;    /* should be a pointer if keyCount > 1 */
-    int status;
+    //int status;
 } callback_data_t;
 
-typedef struct put_object_callback_data
+typedef struct upload_manager
 {
-    FILE *infile;
-    uint64_t contentLength, originalContentLength;
-} put_object_callback_data;
+    char *upload_id;    /* Returned from S3 on MP begin */
+    char **etags;       /* Each upload part's MD5 */
+
+    /* Below used for the upload completion command, need to send in XML */
+    char *xml;
+    long remaining;
+    long offset;
+
+    S3Status status;
+} upload_manager_t;
+
+typedef struct multipart_data
+{
+    int seq;                       /* Sequence number, i.e. which part */
+    callback_data put_object_data; /* File being uploaded */
+    upload_manager_t *manager;     /* To update w/the MD5 returned */
+
+    S3Status status;
+    bool enable_md5;
+    bool server_encrypt;
+} multipart_data_t;
 
 #endif // _LIBEIRODS_S3_H_
