@@ -56,4 +56,12 @@ typedef struct multipart_data
     bool server_encrypt;
 } multipart_data_t;
 
+typedef struct multirange_data
+{
+    int seq;
+    callback_data get_object_data;
+    S3Status status;
+} multirange_data_t;
+
+
 #endif // _LIBEIRODS_S3_H_
