@@ -521,7 +521,7 @@ extern "C" {
     {
         irods::error ret;
         std::string chunk_str;
-        long chunk = 16L * 1024L * 1024L; // 16MB default
+        long chunk = 64L * 1024L * 1024L; // default to safe value
         ret = _prop_map.get< std::string >(
                                    s3_mpu_chunk,
                                    chunk_str );
