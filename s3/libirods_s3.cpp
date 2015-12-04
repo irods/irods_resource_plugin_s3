@@ -117,7 +117,6 @@ extern "C" {
         char *buff; // Temp buff to do MD5 calc on
         unsigned char md5_bin[MD5_DIGEST_LENGTH];
         MD5_CTX md5_ctx;
-        long pos = start;
         long read;
 
         buff = (char *)malloc( 1024*1024 ); // 1MB chunk reads
@@ -161,7 +160,10 @@ extern "C" {
      
         b64 = BIO_push(b64, bmem);
         BIO_write(b64, md5_bin, MD5_DIGEST_LENGTH);
-        BIO_flush(b64);
+        if (BIO_flush(b64) != 1) {
+            rodsLog( LOG_ERROR, "Error during Base64 computation, checksum will NOT be used for upload." );
+            return NULL;
+        }
         BIO_get_mem_ptr(b64, &bptr);
 
         char *md5_b64 = (char*)malloc( bptr->length );
@@ -260,7 +262,6 @@ extern "C" {
         void *callbackData)
     {
         callback_data_t *data = (callback_data_t *) callbackData;
-        long length;    
         long ret = 0;
         
         if (data->contentLength) {
@@ -364,6 +365,9 @@ extern "C" {
             }
             return result;
         }
+
+        result = ERROR( SYS_CONFIG_FILE_ERR, "Unknown error in authorization file." );
+        return result;
     }
 
     /// @brief Retrieves the auth info from either the environment or the resource's specified auth file and set the appropriate
@@ -403,7 +407,6 @@ extern "C" {
         irods::plugin_property_map& _prop_map ) 
     {
         irods::error result = SUCCESS();
-        char *tmpPtr;
 
         if (!S3Initialized) {
             // First, parse the default hostname (if present) into a list of hostnames separated on the definition line by commas (,)
@@ -466,7 +469,6 @@ extern "C" {
                 const char* host_name = s3GetHostname();
                 status = S3_initialize( "s3", S3_INIT_ALL, host_name );
 
-                int err_status = S3_INIT_ERROR - status;
                 std::stringstream msg;
                 if( status >= 0 ) {
                     msg << " - \"";
@@ -666,7 +668,7 @@ extern "C" {
             multirange_data_t *rangeData = &g_mrdData[seq-1];
             g_mrdLock.unlock();
 
-            int retry_cnt = 0;
+            unsigned int retry_cnt = 0;
             do {
                 msg.str( std::string() ); // Clear
                 msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset " << (long)rangeData->get_object_data.offset << ", len " << (int)rangeData->get_object_data.contentLength;
@@ -947,12 +949,15 @@ extern "C" {
         return S3StatusOK;
     }
 
+    // S3_abort_multipart_upload() does not allow a callbackData parameter, so pass the
+    // final operation status using this global.
+    static S3Status g_mpuCancelRespCompCB_status = S3StatusOK;
     static void mpuCancelRespCompCB (
         S3Status status,
         const S3ErrorDetails *error,
         void *callbackData)
     {
-        S3Status *pStatus = (S3Status*)callbackData;
+        S3Status *pStatus = (S3Status*)&g_mpuCancelRespCompCB_status;
         StoreAndLogStatus( status, error, pStatus );
         // Don't change the global error, we may want to retry at a higher level.
         // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
@@ -961,12 +966,14 @@ extern "C" {
     static void mpuCancel( S3BucketContext *bucketContext, const char *key, const char *upload_id )
     {
         S3AbortMultipartUploadHandler abortHandler = { { mpuCancelRespPropCB, mpuCancelRespCompCB } };
-        S3Status status;
         std::stringstream msg;
+        S3Status status;
 
         msg << "Cancelling multipart upload: key=\"" << key << "\", upload_id=\"" << upload_id << "\"";
         rodsLog( LOG_ERROR, msg.str().c_str() );
+        g_mpuCancelRespCompCB_status = S3StatusOK;
         S3_abort_multipart_upload(bucketContext, key, upload_id, &abortHandler);
+        status = g_mpuCancelRespCompCB_status;
         if (status != S3StatusOK) {
             msg.str( std::string() ); // Clear
             msg << __FUNCTION__ << " - Error cancelling the multipart upload of S3 object: \"" << key << "\"";
@@ -1006,7 +1013,7 @@ extern "C" {
             multipart_data_t *partData = &g_mpuData[seq-1];
             g_mpuLock.unlock();
 
-            int retry_cnt = 0;
+            unsigned int retry_cnt = 0;
             do {
                 msg.str( std::string() ); // Clear
                 msg << "Multipart:  Start part " << (int)seq << ", key \"" << g_mpuKey << "\", uploadid \"" << g_mpuUploadId << "\", offset "
@@ -1882,7 +1889,6 @@ extern "C" {
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                         if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
-                            rodsLong_t mySize = statbuf.st_size;
                             ret = s3GetFile( _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
                             result = ASSERT_PASS(ret, "Failed to copy the S3 object: \"%s\" to the cache: \"%s\".",
                                                  object->physical_path().c_str(), _cache_file_name);
@@ -1925,7 +1931,6 @@ extern "C" {
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                     if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
-                        rodsLong_t data_size = statbuf.st_size;
                         ret = s3PutFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
                         result = ASSERT_PASS(ret, "Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".",
                                              _cache_file_name, object->physical_path().c_str());
@@ -2199,7 +2204,7 @@ extern "C" {
     } // plugin_factory
 
 
-}; // extern "C" 
+} // extern "C" 
 
 
 
