@@ -1366,31 +1366,13 @@ extern "C" {
                     if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                 } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
                 if (data.status != S3StatusOK) {
-                    int status = data.status;
                     std::stringstream msg;
                     msg << __FUNCTION__;
-                    msg << " - Error copying the S3 object: \"";
-                    msg << _src_file;
-                    msg << "\" to S3 object: \"";
-                    msg << _dest_file;
-                    msg << "\"";
-                    if(status >= 0) {
-                        msg << " - \"";
-                        msg << S3_get_status_name((S3Status)status);
-                        msg << "\"";
-                        status = S3_INIT_ERROR - status;
+                    msg << " - Error copying the S3 object: \"" << _src_file << "\" to S3 object: \"" << _dest_file << "\"";
+                    if (data.status >= 0) {
+                        msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                     }
-                    result = ERROR(status, msg.str());
-                }
-                else if( data.status != S3StatusOK ) {
-                    std::stringstream msg;
-                    msg << "Error copying the S3 Object \""
-                        << _src_file << "\" to \""
-                        << _dest_file 
-                        << "\" with S3Status \""
-                        << S3_get_status_name( data.status )
-                        << "\"";
-                    result = ERROR( S3_INIT_ERROR - data.status, msg.str() );
+                    result = ERROR(S3_INIT_ERROR - data.status, msg.str());
                 }
 
             }
