@@ -668,28 +668,34 @@ extern "C" {
             }
             seq = g_mrdNext + 1;
             g_mrdNext++;
-            multirange_data_t *rangeData = &g_mrdData[seq-1];
             g_mrdLock.unlock();
 
             size_t retry_cnt = 0;
+            multirange_data_t rangeData;
             do {
+                // Work on a local copy of the structure in case an error occurs in the middle
+                // of an upload.  If we updated in-place, on a retry the part would start
+                // at the wrong offset and length.
+                rangeData = g_mrdData[seq-1];
+
                 msg.str( std::string() ); // Clear
-                msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset " << (long)rangeData->get_object_data.offset << ", len " << (int)rangeData->get_object_data.contentLength;
+                msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset " << (long)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength;
                 rodsLog( LOG_NOTICE, msg.str().c_str() );
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
 
-                S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData->get_object_data.offset, rangeData->get_object_data.contentLength, 0, &getObjectHandler, rangeData );
+                S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset, rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
 
                 msg << " -- END";
                 rodsLog( LOG_NOTICE, msg.str().c_str() );
-            } while ((rangeData->status != S3StatusOK) && S3_status_is_retryable(rangeData->status) && (++retry_cnt < g_retry_count));
-            if (rangeData->status != S3StatusOK) {
+                if (rangeData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+            } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt < g_retry_count));
+            if (rangeData.status != S3StatusOK) {
                 msg.str( std::string() ); // Clear
                 msg << __FUNCTION__ << " - Error getting the S3 object: \"" << g_mrdKey << "\" range " << seq;
-                if (rangeData->status >= 0) {
-                    msg << " - \"" << S3_get_status_name( rangeData->status ) << "\"";
+                if (rangeData.status >= 0) {
+                    msg << " - \"" << S3_get_status_name( rangeData.status ) << "\"";
                 }
-                result = ERROR( rangeData->status, msg.str() );
+                result = ERROR( rangeData.status, msg.str() );
                 rodsLog( LOG_ERROR, msg.str().c_str() );
                 g_mrdLock.lock();
                 g_mrdResult = result;
@@ -1008,24 +1014,29 @@ extern "C" {
             }
             seq = g_mpuNext + 1;
             g_mpuNext++;
-            multipart_data_t *partData = &g_mpuData[seq-1];
             g_mpuLock.unlock();
 
+            multipart_data_t partData;
             size_t retry_cnt = 0;
             do {
+                // Work on a local copy of the structure in case an error occurs in the middle
+                // of an upload.  If we updated in-place, on a retry the part would start 
+                // at the wrong offset and length.
+                partData = g_mpuData[seq-1];
+
                 msg.str( std::string() ); // Clear
                 msg << "Multipart:  Start part " << (int)seq << ", key \"" << g_mpuKey << "\", uploadid \"" << g_mpuUploadId << "\", offset "
-                    << (long)partData->put_object_data.offset << ", len " << (int)partData->put_object_data.contentLength;
+                    << (long)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength;
                 rodsLog( LOG_NOTICE, msg.str().c_str() );
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
 
                 S3PutProperties *putProps = NULL;
                 putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
-                if ( putProps && partData->enable_md5 )
-                    putProps->md5 = s3CalcMD5( partData->put_object_data.fd, partData->put_object_data.offset, partData->put_object_data.contentLength );
-                if ( putProps && partData->server_encrypt )
+                if ( putProps && partData.enable_md5 )
+                    putProps->md5 = s3CalcMD5( partData.put_object_data.fd, partData.put_object_data.offset, partData.put_object_data.contentLength );
+                if ( putProps && partData.server_encrypt )
                     putProps->useServerSideEncryption = true;
-                S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId, partData->put_object_data.contentLength, 0, partData);
+                S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
                 // Clear up the S3PutProperties, if it exists
                 if (putProps) {
                     if (putProps->md5) free( (char*)putProps->md5 );
@@ -1033,15 +1044,15 @@ extern "C" {
                 }
                 msg << " -- END";
                 rodsLog( LOG_NOTICE, msg.str().c_str() );
-                if (partData->status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-            } while ((partData->status != S3StatusOK) && S3_status_is_retryable(partData->status) && (++retry_cnt < g_retry_count));
-            if (partData->status != S3StatusOK) {
+                if (partData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+            } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt < g_retry_count));
+            if (partData.status != S3StatusOK) {
                 msg.str( std::string() ); // Clear
                 msg << __FUNCTION__ << " - Error putting the S3 object: \"" << g_mpuKey << "\"" << " part " << seq;
-                if(partData->status >= 0) {
-                    msg << " - \"" << S3_get_status_name(partData->status) << "\"";
+                if(partData.status >= 0) {
+                    msg << " - \"" << S3_get_status_name(partData.status) << "\"";
                 }
-                result = ERROR( partData->status, msg.str() );
+                result = ERROR( partData.status, msg.str() );
                 rodsLog( LOG_ERROR, msg.str().c_str() );
                 g_mpuResult = result;
             }
@@ -1127,7 +1138,7 @@ extern "C" {
                             free( putProps );
                         }
                     } else {
-                    	// Multi-part upload time, baby!
+                    	// Multi-part upload
                         upload_manager_t manager;
                         memset(&manager, 0, sizeof(manager));
 
