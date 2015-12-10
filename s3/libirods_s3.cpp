@@ -91,6 +91,19 @@ const std::string s3_server_encrypt = "S3_SERVER_ENCRYPT";
 size_t g_retry_count = 10;
 size_t g_retry_wait = 1;
 
+// Callback error injection
+// If defined(ERROR_INJECT), then the specified pread/write below will fail.
+// Only 1 failure happens, but this is OK since for every irods command we
+// actually restart from 0 since the .SO is reloaded
+// Pairing this with LIBS3 error injection will exercise the error recovery
+// and retry code paths.
+static boost::mutex g_error_mutex;
+static long g_werr = 0; // counter
+static long g_rerr = 0; // counter
+static long g_merr = 0; // counter
+static const long g_werr_idx = 4; // Which # pwrite to fail
+static const long g_rerr_idx = 4; // Which # pread to fail
+static const long g_merr_idx = 4; // Which part of Multipart Finish XML to fail
 
 
 extern "C" {
@@ -102,7 +115,6 @@ extern "C" {
     static std::vector<char *> g_hostname;
     static int g_hostnameIdx = 0;
     static boost::mutex g_hostnameIdxLock;
-
 
     static void s3_sleep(
             int _s,
@@ -247,15 +259,27 @@ extern "C" {
         const char *buffer,
         void *callbackData)
     {
+        callback_data_t *cb = (callback_data_t *)callbackData;
+
         irods::error result = ASSERT_ERROR(bufferSize != 0 && buffer != NULL && callbackData != NULL,
                                             SYS_INVALID_INPUT_PARAM, "Invalid input parameter.");
         if(!result.ok()) {
             irods::log(result);
         }
 
-        int outfd = ((callback_data_t *)callbackData)->fd;
+        ssize_t wrote = pwrite(cb->fd, buffer, bufferSize, cb->offset);
+        if (wrote>0) cb->offset += wrote;
 
-        ssize_t wrote = write(outfd, buffer, bufferSize);
+#ifdef ERROR_INJECT
+        g_error_mutex.lock();
+        g_werr++;
+        if (g_werr == g_werr_idx) {
+            rodsLog(LOG_ERROR, "Injecting a PWRITE error during S3 callback");
+            g_error_mutex.unlock();
+            return S3StatusAbortedByCallback;
+        }
+        g_error_mutex.unlock();
+#endif
 
         return ((wrote < (ssize_t) bufferSize) ?
                 S3StatusAbortedByCallback : S3StatusOK);
@@ -276,6 +300,17 @@ extern "C" {
         }
         data->contentLength -= ret;
         data->offset += ret;
+
+#ifdef ERROR_INJECT
+        g_error_mutex.lock();
+        g_rerr++;
+        if (g_rerr == g_rerr_idx) {
+            rodsLog(LOG_ERROR, "Injecting pread error in S3 callback");
+            ret = -1;
+        }
+        g_error_mutex.unlock();
+#endif
+
         return (long)ret;
     }
 
@@ -606,22 +641,7 @@ extern "C" {
         const char *buffer,
         void *callbackData)
     {
-        multirange_data_t *mrd = (multirange_data_t *)callbackData;
-
-        // Can't override to use the default handler, we're doing pwrites in parallel
-        irods::error result = ASSERT_ERROR(bufferSize != 0 && buffer != NULL && callbackData != NULL,
-                                            SYS_INVALID_INPUT_PARAM, "Invalid input parameter.");
-        if (!result.ok()) {
-            irods::log(result);
-            return S3StatusAbortedByCallback;
-        }
-
-        int outfd = mrd->get_object_data.fd;
-
-        ssize_t wrote = pwrite(outfd, buffer, bufferSize, mrd->get_object_data.offset);
-        if (wrote>0) mrd->get_object_data.offset += wrote;
-
-        return ((wrote < (ssize_t) bufferSize) ? S3StatusAbortedByCallback : S3StatusOK);
+        return getObjectDataCallback( bufferSize, buffer, &((multirange_data_t*)callbackData)->get_object_data );
     }
 
     static S3Status mrdRangeRespPropCB (
@@ -695,7 +715,7 @@ extern "C" {
                 if (rangeData.status >= 0) {
                     msg << " - \"" << S3_get_status_name( rangeData.status ) << "\"";
                 }
-                result = ERROR( rangeData.status, msg.str() );
+                result = ERROR( S3_GET_ERROR, msg.str() );
                 rodsLog( LOG_ERROR, msg.str().c_str() );
                 g_mrdLock.lock();
                 g_mrdResult = result;
@@ -761,10 +781,15 @@ extern "C" {
                             if (data.status >= 0) {
                                 msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                             }
-                            result = ERROR(S3_INIT_ERROR - data.status, msg.str());
+                            result = ERROR(S3_GET_ERROR, msg.str());
                         }
                     } else {
                         std::stringstream msg;
+
+                        // Only the FD part of this will be constant 
+                        bzero (&data, sizeof (data));
+                        data.fd = cache_fd;
+                        data.contentLength = data.originalContentLength = _fileSize;
 
                         // Multirange get
                         g_mrdResult = SUCCESS();
@@ -782,7 +807,7 @@ extern "C" {
                         if (!g_mrdData) {
                             const char *msg = "Out of memory error in S3 multirange g_mrdData allocation.";
                             rodsLog( LOG_ERROR, msg );
-                            result = ERROR( RE_OUT_OF_MEMORY, msg );
+                            result = ERROR( SYS_MALLOC_ERR, msg );
                             return result;
                         }
 
@@ -924,6 +949,17 @@ extern "C" {
         }
         manager->remaining -= ret;
         manager->offset += ret;
+
+#ifdef ERROR_INJECT
+        g_error_mutex.lock();
+        g_merr++;
+        if (g_merr == g_merr_idx) {
+            rodsLog(LOG_ERROR, "Injecting a XML upload error during S3 callback");
+            g_error_mutex.unlock();
+            ret = -1;
+        }
+        g_error_mutex.unlock();
+#endif
         
         return (int)ret;
     }
@@ -1052,7 +1088,7 @@ extern "C" {
                 if(partData.status >= 0) {
                     msg << " - \"" << S3_get_status_name(partData.status) << "\"";
                 }
-                result = ERROR( partData.status, msg.str() );
+                result = ERROR( S3_PUT_ERROR, msg.str() );
                 rodsLog( LOG_ERROR, msg.str().c_str() );
                 g_mpuResult = result;
             }
@@ -1109,7 +1145,7 @@ extern "C" {
                     if ( putProps && server_encrypt )
                         putProps->useServerSideEncryption = true;
 
-                    if ( data.contentLength < chunksize ) {
+                    if ( _fileSize < chunksize ) {
                         S3PutObjectHandler putObjectHandler = {
                             { &responsePropertiesCallback, &responseCompleteCallback },
                             &putObjectDataCallback
@@ -1129,7 +1165,7 @@ extern "C" {
                             if ( data.status >= 0 ) {
                                 msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                             }
-                            result = ERROR(S3_INIT_ERROR - data.status, msg.str());
+                            result = ERROR(S3_PUT_ERROR, msg.str());
                         }
 
                         // Clear up the S3PutProperties, if it exists
@@ -1154,10 +1190,14 @@ extern "C" {
                         rodsLog( LOG_NOTICE, msg.str().c_str() );
                         
                         long seq;
-                        long totalSeq = (data.contentLength + chunksize - 1) / chunksize;
+                        long totalSeq = (_fileSize + chunksize - 1) / chunksize;
 
                         multipart_data_t partData;
                         int partContentLength = 0;
+
+                        bzero (&data, sizeof (data));
+                        data.fd = cache_fd;
+                        data.contentLength = data.originalContentLength = _fileSize;
 
                         // Allocate all dynamic storage now, so we don't start a job we can't finish later
                         manager.etags = (char**)calloc(sizeof(char*) * totalSeq, 1);
@@ -1169,7 +1209,7 @@ extern "C" {
                             }
                             const char *msg = "Out of memory error in S3 multipart ETags allocation.";
                             rodsLog( LOG_ERROR, msg );
-                            result = ERROR( RE_OUT_OF_MEMORY, msg );
+                            result = ERROR( SYS_MALLOC_ERR, msg );
                             return result;
                         }
                         g_mpuData = (multipart_data_t*)calloc(totalSeq, sizeof(multipart_data_t));
@@ -1181,7 +1221,7 @@ extern "C" {
                             }
                             const char *msg = "Out of memory error in S3 multipart g_mpuData allocation.";
                             rodsLog( LOG_ERROR, msg );
-                            result = ERROR( RE_OUT_OF_MEMORY, msg );
+                            result = ERROR( SYS_MALLOC_ERR, msg );
                             return result;
                         }
                         // Maximum XML completion length with extra space for the <complete...></complete...> tag
@@ -1194,7 +1234,7 @@ extern "C" {
                             }
                             const char *msg = "Out of memory error in S3 multipart XML allocation.";
                             rodsLog( LOG_ERROR, msg );
-                            result = ERROR( RE_OUT_OF_MEMORY, msg );
+                            result = ERROR( SYS_MALLOC_ERR, msg );
                             return result;
                         }
 
@@ -1217,7 +1257,7 @@ extern "C" {
                                 msg << " - \"" << S3_get_status_name(manager.status) << "\"";
                             }
                             rodsLog( LOG_ERROR, msg.str().c_str() );
-                            result = ERROR( manager.status, msg.str() );
+                            result = ERROR( S3_PUT_ERROR, msg.str() );
                             return result; // Abort early
                         }
 
@@ -1295,7 +1335,7 @@ extern "C" {
                                 if(manager.status >= 0) {
                                     msg << " - \"" << S3_get_status_name( manager.status ) << "\"";
                                 }
-                                g_mpuResult = ERROR( manager.status, msg.str() );
+                                g_mpuResult = ERROR( S3_PUT_ERROR, msg.str() );
                             }
                         }
                         if ( !g_mpuResult.ok() && manager.upload_id ) {
@@ -1386,7 +1426,7 @@ extern "C" {
                     if (data.status >= 0) {
                         msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                     }
-                    result = ERROR(S3_INIT_ERROR - data.status, msg.str());
+                    result = ERROR(S3_FILE_COPY_ERR, msg.str());
                 }
 
             }
@@ -1589,19 +1629,17 @@ extern "C" {
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
 
                         if (data.status != S3StatusOK) {
-                            int status = data.status;
                             std::stringstream msg;
                             msg << __FUNCTION__;
                             msg << " - Error unlinking the S3 object: \"";
                             msg << _object->physical_path();
                             msg << "\"";
-                            if(status >= 0) {
+                            if(data.status >= 0) {
                                 msg << " - \"";
-                                msg << S3_get_status_name((S3Status)status);
+                                msg << S3_get_status_name((S3Status)data.status);
                                 msg << "\"";
-                                status = S3_INIT_ERROR - status;
                             }
-                            result = ERROR(status, msg.str());
+                            result = ERROR(S3_FILE_UNLINK_ERR, msg.str());
                         }
                     }
                 }
@@ -1681,7 +1719,7 @@ extern "C" {
                                 if (data.status >= 0) {
                                     msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                                 }
-                                result = ERROR(S3_FILE_STAT_ERR - data.status, msg.str());
+                                result = ERROR(S3_FILE_STAT_ERR, msg.str());
                             }
 
                             else if(data.keyCount > 0) {
