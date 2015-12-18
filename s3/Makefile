@@ -22,7 +22,7 @@ DEPFILE = .depends
 OBJS = $(patsubst %.cpp, ${OBJDIR}/%.o, ${SRCS})
 DEPS = $(patsubst %.cpp, ${DEPDIR}/%.d, ${SRCS})
 
-GCC = g++ -DRODS_SERVER -DERROR_INJECT
+GCC = g++ -DRODS_SERVER
 
 INC = -I/usr/include/irods/boost -I/usr/include/irods -I/usr/include/openssl ${EXTRAINCS}
 
