@@ -123,6 +123,13 @@ extern "C" {
         usleep( us );
     }
 
+    // Returns timestamp in usec for delta-t comparisons
+    static unsigned long long usNow() {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        unsigned long long us = (tv.tv_sec) * 1000000LL + tv.tv_usec;
+        return us;
+    }
 
     // Return a malloc()'d C string containing the ASCII MD5 signature of the file
     // from start through length bytes, using pread to not affect file pointers.
@@ -217,9 +224,9 @@ extern "C" {
 
         *pStatus = status;
         if( status != S3StatusOK ) {
-                rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
+            rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
         }
-        if ( function ) rodsLog( LOG_ERROR, "  Function: %s\n", function );
+        if (status != S3StatusOK && function ) rodsLog( LOG_ERROR, "  Function: %s\n", function );
         if (error && error->message) {
             rodsLog( LOG_ERROR, "  Message: %s\n", error->message);
         }
@@ -698,14 +705,18 @@ extern "C" {
                 // at the wrong offset and length.
                 rangeData = g_mrdData[seq-1];
 
-                msg.str( std::string() ); // Clear
-                msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset " << (long)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength;
-                rodsLog( LOG_NOTICE, msg.str().c_str() );
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
 
-                S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset, rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
+                msg.str( std::string() ); // Clear
+                msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset " << (long)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength
+                    << ", host " << bucketContext.hostName;
+                rodsLog( LOG_NOTICE, msg.str().c_str() );
 
-                msg << " -- END";
+                unsigned long long usStart = usNow();
+                S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset, rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
+                unsigned long long usEnd = usNow();
+                double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                msg << " -- END -- BW=" << bw << " MB/s";
                 rodsLog( LOG_NOTICE, msg.str().c_str() );
                 if (rangeData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
             } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt < g_retry_count));
@@ -772,7 +783,11 @@ extern "C" {
                             bzero (&data, sizeof (data));
                             data.fd = cache_fd;
                             data.contentLength = data.originalContentLength = _fileSize;
+                            unsigned long long usStart = usNow();
                             S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
+                            unsigned long long usEnd = usNow();
+                            double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                            rodsLog( LOG_NOTICE, "BW=%lf", bw);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
                         if (data.status != S3StatusOK) {
@@ -828,6 +843,7 @@ extern "C" {
                         // Make the worker threads and start
                         int nThreads = s3GetMPUThreads(_prop_map);
 
+                        unsigned long long usStart = usNow();
                         std::list<boost::thread*> threads;
                         for (int thr_id=0; thr_id<nThreads; thr_id++) {
                             boost::thread *thisThread = new boost::thread(mrdWorkerThread, &bucketContext);
@@ -841,11 +857,16 @@ extern "C" {
                             delete thisThread;
                             threads.pop_front();
                         }
+                        unsigned long long usEnd = usNow();
+                        double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                        rodsLog( LOG_NOTICE, "BW=%lf", bw);
 
                         if (!g_mrdResult.ok()) {
                             // Someone aborted after we started, delete the partial object on S3
                             rodsLog(LOG_ERROR, "Cancelling multipart download");
-                            ftruncate( cache_fd, 0 ); // 0-length the file, it's garbage
+                            // 0-length the file, it's garbage
+                            if (ftruncate( cache_fd, 0 ))
+                                rodsLog(LOG_ERROR, "Unable to 0-length the result file");
                             result = g_mrdResult;
                         }
                         // Clean up memory
@@ -1060,11 +1081,12 @@ extern "C" {
                 // at the wrong offset and length.
                 partData = g_mpuData[seq-1];
 
+                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
+
                 msg.str( std::string() ); // Clear
                 msg << "Multipart:  Start part " << (int)seq << ", key \"" << g_mpuKey << "\", uploadid \"" << g_mpuUploadId << "\", offset "
-                    << (long)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength;
+                    << (long)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength << ", Host " << bucketContext.hostName;
                 rodsLog( LOG_NOTICE, msg.str().c_str() );
-                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
 
                 S3PutProperties *putProps = NULL;
                 putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
@@ -1072,13 +1094,16 @@ extern "C" {
                     putProps->md5 = s3CalcMD5( partData.put_object_data.fd, partData.put_object_data.offset, partData.put_object_data.contentLength );
                 if ( putProps && partData.server_encrypt )
                     putProps->useServerSideEncryption = true;
+                unsigned long long usStart = usNow();
                 S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
+                unsigned long long usEnd = usNow();
+                double bw = (g_mpuData[seq-1].put_object_data.contentLength / (1024.0 * 1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                 // Clear up the S3PutProperties, if it exists
                 if (putProps) {
                     if (putProps->md5) free( (char*)putProps->md5 );
                     free( putProps );
                 }
-                msg << " -- END";
+                msg << " -- END -- BW=" << bw << " MB/s";
                 rodsLog( LOG_NOTICE, msg.str().c_str() );
                 if (partData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
             } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt < g_retry_count));
@@ -1156,7 +1181,11 @@ extern "C" {
                             data.fd = cache_fd;
                             data.contentLength = data.originalContentLength = _fileSize;
 
+                            unsigned long long usStart = usNow();
                             S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, &putObjectHandler, &data);
+                            unsigned long long usEnd = usNow();
+                            double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                            rodsLog( LOG_NOTICE, "BW=%lf", bw);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
                         if (data.status != S3StatusOK) {
@@ -1280,6 +1309,7 @@ extern "C" {
                         }
 
                         rodsLog( LOG_NOTICE, "Multipart: Ready to upload" );
+                        unsigned long long usStart = usNow();
 
                         // Make the worker threads and start
                         int nThreads = s3GetMPUThreads(_prop_map);
@@ -1297,6 +1327,10 @@ extern "C" {
                             delete thisThread;
                             threads.pop_front();
                         }
+
+                        unsigned long long usEnd = usNow();
+                        double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                        rodsLog( LOG_NOTICE, "BW=%lf", bw);
 
                         manager.remaining = 0;
                         manager.offset  = 0;
