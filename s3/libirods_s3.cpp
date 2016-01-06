@@ -511,7 +511,7 @@ extern "C" {
             while( ctr < g_retry_count ) {
                 int status = 0;
 
-                const char* host_name = s3GetHostname();
+                const char* host_name = s3GetHostname();  // Iterate through on each try
                 status = S3_initialize( "s3", S3_INIT_ALL, host_name );
 
                 std::stringstream msg;
@@ -705,7 +705,6 @@ extern "C" {
                 // at the wrong offset and length.
                 rangeData = g_mrdData[seq-1];
 
-                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
 
                 msg.str( std::string() ); // Clear
                 msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset " << (long)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength
@@ -713,6 +712,7 @@ extern "C" {
                 rodsLog( LOG_NOTICE, msg.str().c_str() );
 
                 unsigned long long usStart = usNow();
+                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
                 S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset, rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
                 unsigned long long usEnd = usNow();
                 double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
@@ -763,7 +763,6 @@ extern "C" {
                     S3BucketContext bucketContext;
 
                     bzero (&bucketContext, sizeof (bucketContext));
-                    bucketContext.hostName = s3GetHostname();
                     bucketContext.bucketName = bucket.c_str();
                     bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
@@ -784,6 +783,7 @@ extern "C" {
                             data.fd = cache_fd;
                             data.contentLength = data.originalContentLength = _fileSize;
                             unsigned long long usStart = usNow();
+                            bucketContext.hostName = s3GetHostname();  // Iterate different one on each try
                             S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
                             unsigned long long usEnd = usNow();
                             double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
@@ -1081,7 +1081,6 @@ extern "C" {
                 // at the wrong offset and length.
                 partData = g_mpuData[seq-1];
 
-                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
 
                 msg.str( std::string() ); // Clear
                 msg << "Multipart:  Start part " << (int)seq << ", key \"" << g_mpuKey << "\", uploadid \"" << g_mpuUploadId << "\", offset "
@@ -1095,6 +1094,7 @@ extern "C" {
                 if ( putProps && partData.server_encrypt )
                     putProps->useServerSideEncryption = true;
                 unsigned long long usStart = usNow();
+                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
                 S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
                 unsigned long long usEnd = usNow();
                 double bw = (g_mpuData[seq-1].put_object_data.contentLength / (1024.0 * 1024.0)) / ( (usEnd - usStart) / 1000000.0 );
@@ -1156,7 +1156,6 @@ extern "C" {
                     S3BucketContext bucketContext;
                 
                     bzero (&bucketContext, sizeof (bucketContext));
-                    bucketContext.hostName = s3GetHostname();
                     bucketContext.bucketName = bucket.c_str();
                     bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
@@ -1182,6 +1181,7 @@ extern "C" {
                             data.contentLength = data.originalContentLength = _fileSize;
 
                             unsigned long long usStart = usNow();
+                            bucketContext.hostName = s3GetHostname();
                             S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, &putObjectHandler, &data);
                             unsigned long long usEnd = usNow();
                             double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
@@ -1271,6 +1271,7 @@ extern "C" {
                         // These expect a upload_manager_t* as cbdata
                         S3MultipartInitialHandler mpuInitialHandler = { {mpuInitRespPropCB, mpuInitRespCompCB }, mpuInitXmlCB };
                         do {
+                            bucketContext.hostName = s3GetHostname();
                             S3_initiate_multipart(&bucketContext, key.c_str(), NULL, &mpuInitialHandler, NULL, &manager);
                             if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
@@ -1360,6 +1361,7 @@ extern "C" {
                                 // On partial error, need to restart XML send from the beginning
                                 manager.remaining = manager_remaining;
                                 manager.offset = 0; 
+                                bucketContext.hostName = s3GetHostname();
                                 S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, &manager); 
                                 if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                             } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
@@ -1432,7 +1434,6 @@ extern "C" {
                 char eTag[256];
 
                 bzero (&bucketContext, sizeof (bucketContext));
-                bucketContext.hostName = s3GetHostname();
                 bucketContext.bucketName = src_bucket.c_str();
                 bucketContext.protocol = _proto;
                 bucketContext.uriStyle = S3UriStylePath;
@@ -1444,11 +1445,10 @@ extern "C" {
                     &responseCompleteCallback
                 };
 
-                // TBD: This should probably be converted into something we do ourselves to parallelize things
-                // but for now it's functionally correct, if slower.
                 size_t retry_cnt = 0;
                 do {
                     bzero (&data, sizeof (data));
+                    bucketContext.hostName = s3GetHostname();
                     S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), NULL, &lastModified, sizeof(eTag), eTag, 0,
                                    &responseHandler, &data);
                     if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
@@ -1647,7 +1647,6 @@ extern "C" {
                         S3BucketContext bucketContext;
 
                         bzero (&bucketContext, sizeof (bucketContext));
-                        bucketContext.hostName = s3GetHostname();
                         bucketContext.bucketName = bucket.c_str();
                         bucketContext.protocol = s3GetProto(_ctx.prop_map());
                         bucketContext.uriStyle = S3UriStylePath;
@@ -1658,6 +1657,7 @@ extern "C" {
                         size_t retry_cnt = 0;
                         do {
                             bzero (&data, sizeof (data));
+                            bucketContext.hostName = s3GetHostname();
                             S3_delete_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
@@ -1743,6 +1743,7 @@ extern "C" {
                             size_t retry_cnt = 0;
                             do {
                                 bzero (&data, sizeof (data));
+                                bucketContext.hostName = s3GetHostname();
                                 S3_list_bucket(&bucketContext, key.c_str(), NULL, NULL, 1, 0, &listBucketHandler, &data);
                                 if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                             } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
