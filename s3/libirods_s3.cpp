@@ -218,6 +218,7 @@ extern "C" {
         S3Status status,
         const S3ErrorDetails *error, 
         const char *function, 
+        const S3BucketContext *pCtx,
         S3Status *pStatus )
     {
         int i;
@@ -225,17 +226,16 @@ extern "C" {
         *pStatus = status;
         if( status != S3StatusOK ) {
             rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
+            rodsLog( LOG_ERROR, "    S3Host: %s", pCtx->hostName );
         }
-        if (status != S3StatusOK && function ) rodsLog( LOG_ERROR, "  Function: %s\n", function );
-        if (error && error->message) {
+        if (status != S3StatusOK && function ) 
+            rodsLog( LOG_ERROR, "  Function: %s\n", function );
+        if (error && error->message)
             rodsLog( LOG_ERROR, "  Message: %s\n", error->message);
-        }
-        if (error && error->resource) {
+        if (error && error->resource)
             rodsLog( LOG_ERROR, "  Resource: %s\n", error->resource);
-        }
-        if (error && error->furtherDetails) {
+        if (error && error->furtherDetails)
             rodsLog( LOG_ERROR, "  Further Details: %s\n", error->furtherDetails);
-        }
         if (error && error->extraDetailsCount) {
             rodsLog( LOG_ERROR, "%s", "  Extra Details:\n");
             
@@ -250,8 +250,8 @@ extern "C" {
         const S3ErrorDetails *error,
         void *callbackData)
     {
-        S3Status *pStatus = &(((callback_data_t*)callbackData)->status);
-        StoreAndLogStatus( status, error, __FUNCTION__, pStatus );
+        callback_data_t *data = (callback_data_t*)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
     }
 
     static S3Status responsePropertiesCallback(
@@ -648,7 +648,8 @@ extern "C" {
         const char *buffer,
         void *callbackData)
     {
-        return getObjectDataCallback( bufferSize, buffer, &((multirange_data_t*)callbackData)->get_object_data );
+        multirange_data_t *data = (multirange_data_t*)callbackData;
+        return getObjectDataCallback( bufferSize, buffer, &(data->get_object_data) );
     }
 
     static S3Status mrdRangeRespPropCB (
@@ -664,8 +665,8 @@ extern "C" {
         const S3ErrorDetails *error,
         void *callbackData)
     {
-        S3Status *pStatus = &(((multirange_data_t *)callbackData)->status);
-        StoreAndLogStatus( status, error, __FUNCTION__, pStatus );
+        multirange_data_t *data = (multirange_data_t*)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
         // Don't change the global error, we may want to retry at a higher level.
         // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
     }
@@ -704,20 +705,21 @@ extern "C" {
                 // of an upload.  If we updated in-place, on a retry the part would start
                 // at the wrong offset and length.
                 rangeData = g_mrdData[seq-1];
-
+                rangeData.pCtx = &bucketContext;
 
                 msg.str( std::string() ); // Clear
-                msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset " << (long)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength
-                    << ", host " << bucketContext.hostName;
-                rodsLog( LOG_NOTICE, msg.str().c_str() );
+                msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset "
+                    << (long)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength;
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
 
                 unsigned long long usStart = usNow();
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
-                S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset, rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
+                S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset,
+                               rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
                 unsigned long long usEnd = usNow();
                 double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                 msg << " -- END -- BW=" << bw << " MB/s";
-                rodsLog( LOG_NOTICE, msg.str().c_str() );
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
                 if (rangeData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
             } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt < g_retry_count));
             if (rangeData.status != S3StatusOK) {
@@ -784,10 +786,11 @@ extern "C" {
                             data.contentLength = data.originalContentLength = _fileSize;
                             unsigned long long usStart = usNow();
                             bucketContext.hostName = s3GetHostname();  // Iterate different one on each try
+                            data.pCtx = &bucketContext;
                             S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
                             unsigned long long usEnd = usNow();
                             double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
-                            rodsLog( LOG_NOTICE, "BW=%lf", bw);
+                            rodsLog( LOG_NOTICE, "GETBW=%lf", bw);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
                         if (data.status != S3StatusOK) {
@@ -809,9 +812,6 @@ extern "C" {
                         // Multirange get
                         g_mrdResult = SUCCESS();
 
-                        msg << "Multirange:  Begin key \"" << key.c_str() << "\"";
-                        rodsLog( LOG_NOTICE, msg.str().c_str() );
-                        
                         long seq;
                         long totalSeq = (data.contentLength + chunksize - 1) / chunksize;
 
@@ -859,7 +859,7 @@ extern "C" {
                         }
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
-                        rodsLog( LOG_NOTICE, "BW=%lf", bw);
+                        rodsLog( LOG_STATUS, "MultirangeBW=%lf", bw);
 
                         if (!g_mrdResult.ok()) {
                             // Someone aborted after we started, delete the partial object on S3
@@ -911,8 +911,8 @@ extern "C" {
         const S3ErrorDetails *error,
         void *callbackData)
     {
-        S3Status *pStatus = &(((upload_manager_t*)callbackData)->status);
-        StoreAndLogStatus( status, error, __FUNCTION__, pStatus );
+        upload_manager_t *data = (upload_manager_t*)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
         // Don't change the global error, we may want to retry at a higher level.
         // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
     }
@@ -947,8 +947,8 @@ extern "C" {
         const S3ErrorDetails *error,
         void *callbackData)
     {
-        S3Status *pStatus = &(((multipart_data_t *)callbackData)->status);
-        StoreAndLogStatus( status, error, __FUNCTION__, pStatus );
+        multipart_data_t *data = (multipart_data_t *)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->put_object_data.pCtx, &(data->status) );
         // Don't change the global error, we may want to retry at a higher level.
         // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
     }
@@ -997,8 +997,8 @@ extern "C" {
         const S3ErrorDetails *error,
         void *callbackData)
     {
-        S3Status *pStatus = &(((upload_manager_t*)callbackData)->status);
-        StoreAndLogStatus( status, error, __FUNCTION__, pStatus );
+        upload_manager_t *data = (upload_manager_t*)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
         // Don't change the global error, we may want to retry at a higher level.
         // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
     }
@@ -1013,13 +1013,14 @@ extern "C" {
     // S3_abort_multipart_upload() does not allow a callbackData parameter, so pass the
     // final operation status using this global.
     static S3Status g_mpuCancelRespCompCB_status = S3StatusOK;
+    static S3BucketContext *g_mpuCancelRespCompCB_pCtx = NULL;
     static void mpuCancelRespCompCB (
         S3Status status,
         const S3ErrorDetails *error,
         void *callbackData)
     {
         S3Status *pStatus = (S3Status*)&g_mpuCancelRespCompCB_status;
-        StoreAndLogStatus( status, error, __FUNCTION__, pStatus );
+        StoreAndLogStatus( status, error, __FUNCTION__, g_mpuCancelRespCompCB_pCtx, pStatus );
         // Don't change the global error, we may want to retry at a higher level.
         // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
     }
@@ -1033,6 +1034,7 @@ extern "C" {
         msg << "Cancelling multipart upload: key=\"" << key << "\", upload_id=\"" << upload_id << "\"";
         rodsLog( LOG_ERROR, msg.str().c_str() );
         g_mpuCancelRespCompCB_status = S3StatusOK;
+        g_mpuCancelRespCompCB_pCtx = bucketContext;
         S3_abort_multipart_upload(bucketContext, key, upload_id, &abortHandler);
         status = g_mpuCancelRespCompCB_status;
         if (status != S3StatusOK) {
@@ -1080,12 +1082,12 @@ extern "C" {
                 // of an upload.  If we updated in-place, on a retry the part would start 
                 // at the wrong offset and length.
                 partData = g_mpuData[seq-1];
-
+                partData.put_object_data.pCtx = &bucketContext;
 
                 msg.str( std::string() ); // Clear
                 msg << "Multipart:  Start part " << (int)seq << ", key \"" << g_mpuKey << "\", uploadid \"" << g_mpuUploadId << "\", offset "
-                    << (long)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength << ", Host " << bucketContext.hostName;
-                rodsLog( LOG_NOTICE, msg.str().c_str() );
+                    << (long)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength;
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
 
                 S3PutProperties *putProps = NULL;
                 putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
@@ -1104,7 +1106,7 @@ extern "C" {
                     free( putProps );
                 }
                 msg << " -- END -- BW=" << bw << " MB/s";
-                rodsLog( LOG_NOTICE, msg.str().c_str() );
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
                 if (partData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
             } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt < g_retry_count));
             if (partData.status != S3StatusOK) {
@@ -1179,6 +1181,7 @@ extern "C" {
                             bzero (&data, sizeof (data));
                             data.fd = cache_fd;
                             data.contentLength = data.originalContentLength = _fileSize;
+                            data.pCtx = &bucketContext;
 
                             unsigned long long usStart = usNow();
                             bucketContext.hostName = s3GetHostname();
@@ -1215,8 +1218,6 @@ extern "C" {
                         g_mpuResult = SUCCESS();
 
                         msg.str( std::string() ); // Clear
-                        msg << "Multipart:  Begin key \"" << key.c_str() << "\"";
-                        rodsLog( LOG_NOTICE, msg.str().c_str() );
                         
                         long seq;
                         long totalSeq = (_fileSize + chunksize - 1) / chunksize;
@@ -1272,6 +1273,7 @@ extern "C" {
                         S3MultipartInitialHandler mpuInitialHandler = { {mpuInitRespPropCB, mpuInitRespCompCB }, mpuInitXmlCB };
                         do {
                             bucketContext.hostName = s3GetHostname();
+                            manager.pCtx = &bucketContext;
                             S3_initiate_multipart(&bucketContext, key.c_str(), NULL, &mpuInitialHandler, NULL, &manager);
                             if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
@@ -1309,7 +1311,6 @@ extern "C" {
                             data.contentLength -= partContentLength;
                         }
 
-                        rodsLog( LOG_NOTICE, "Multipart: Ready to upload" );
                         unsigned long long usStart = usNow();
 
                         // Make the worker threads and start
@@ -1331,7 +1332,7 @@ extern "C" {
 
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
-                        rodsLog( LOG_NOTICE, "BW=%lf", bw);
+                        rodsLog( LOG_STATUS, "MultipartBW=%lf", bw);
 
                         manager.remaining = 0;
                         manager.offset  = 0;
@@ -1339,7 +1340,7 @@ extern "C" {
                         if (g_mpuResult.ok()) { // If someone aborted, don't complete...
                             msg.str( std::string() ); // Clear
                             msg << "Multipart:  Completing key \"" << key.c_str() << "\"";
-                            rodsLog( LOG_NOTICE, msg.str().c_str() );
+                            rodsLog( LOG_DEBUG, msg.str().c_str() );
 
                             int i;
                             strcpy(manager.xml, "<CompleteMultipartUpload>\n");
@@ -1362,6 +1363,7 @@ extern "C" {
                                 manager.remaining = manager_remaining;
                                 manager.offset = 0; 
                                 bucketContext.hostName = s3GetHostname();
+                                manager.pCtx = &bucketContext;
                                 S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, &manager); 
                                 if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                             } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
@@ -1449,6 +1451,7 @@ extern "C" {
                 do {
                     bzero (&data, sizeof (data));
                     bucketContext.hostName = s3GetHostname();
+                    data.pCtx = &bucketContext;
                     S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), NULL, &lastModified, sizeof(eTag), eTag, 0,
                                    &responseHandler, &data);
                     if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
@@ -1658,6 +1661,7 @@ extern "C" {
                         do {
                             bzero (&data, sizeof (data));
                             bucketContext.hostName = s3GetHostname();
+                            data.pCtx = &bucketContext;
                             S3_delete_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
@@ -1744,6 +1748,7 @@ extern "C" {
                             do {
                                 bzero (&data, sizeof (data));
                                 bucketContext.hostName = s3GetHostname();
+                                data.pCtx = &bucketContext;
                                 S3_list_bucket(&bucketContext, key.c_str(), NULL, NULL, 1, 0, &listBucketHandler, &data);
                                 if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                             } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );

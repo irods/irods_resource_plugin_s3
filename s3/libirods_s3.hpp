@@ -29,7 +29,8 @@ typedef struct callback_data
     S3Status status;
     int keyCount;
     s3Stat_t s3Stat;    /* should be a pointer if keyCount > 1 */
-    //int status;
+
+    S3BucketContext *pCtx; /* To enable more detailed error messages */
 } callback_data_t;
 
 typedef struct upload_manager
@@ -41,6 +42,8 @@ typedef struct upload_manager
     char *xml;
     long remaining;
     long offset;
+
+    S3BucketContext *pCtx; /* To enable more detailed error messages */
 
     S3Status status;
 } upload_manager_t;
@@ -61,6 +64,8 @@ typedef struct multirange_data
     int seq;
     callback_data get_object_data;
     S3Status status;
+
+    S3BucketContext *pCtx; /* To enable more detailed error messages */
 } multirange_data_t;
 
 
