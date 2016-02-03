@@ -17,6 +17,10 @@
 %requires curl
 %endif
 
+# =-=-=-=-=-=-=-
+# variables for configuring the install
+# =-=-=-=-=-=-=-
+$OS_IRODS_HOME_DIR=/var/lib/irods
 
 # =-=-=-=-=-=-=-
 # preinstall
@@ -31,16 +35,16 @@ if [ "$$DETECTED_VERSION" != "$$REQUIRED_VERSION" ] ; then
 fi
 END_PREINSTALL
 
+%postinstall << END_POSTINSTALL
+. /etc/irods/service_account.config 2> /dev/null
+chown $$IRODS_SERVICE_ACCOUNT_NAME:$$IRODS_SERVICE_GROUP_NAME ${OS_IRODS_HOME_DIR}/plugins/resources/libs3.so
+chown $$IRODS_SERVICE_ACCOUNT_NAME:$$IRODS_SERVICE_GROUP_NAME ${OS_IRODS_HOME_DIR}/tests/pydevtest/test_irods_resource_plugin_s3.py
+END_POSTINSTALL
 
-# =-=-=-=-=-=-=-
-# variables for configuring the install
-# =-=-=-=-=-=-=-
-$OS_IRODS_ACCT=irods
-$OS_IRODS_HOME_DIR=/var/lib/irods
 
 # =-=-=-=-=-=-=-
 # full file listing
 # =-=-=-=-=-=-=-
 
-f 644 $OS_IRODS_ACCT $OS_IRODS_ACCT ${OS_IRODS_HOME_DIR}/plugins/resources/libs3.so ./libs3.so
-f 644 $OS_IRODS_ACCT $OS_IRODS_ACCT ${OS_IRODS_HOME_DIR}/tests/pydevtest/test_irods_resource_plugin_s3.py ./packaging/test_irods_resource_plugin_s3.py
+f 644 root root ${OS_IRODS_HOME_DIR}/plugins/resources/libs3.so ./libs3.so
+f 644 root root ${OS_IRODS_HOME_DIR}/tests/pydevtest/test_irods_resource_plugin_s3.py ./packaging/test_irods_resource_plugin_s3.py
