@@ -306,9 +306,10 @@ extern "C" {
 
         if (!S3Initialized) {
             std::string default_hostname;
-            irods::error ret = _prop_map.get< std::string >( 
-                                   s3_default_hostname,
-                                   default_hostname );
+            irods::error ret;
+            ret = _prop_map.get< std::string >(
+                      s3_default_hostname,
+                      default_hostname );
             if( !ret.ok() ) {
                 // ok to fail
             }
@@ -424,6 +425,13 @@ extern "C" {
                 cache_file = fopen(_filename.c_str(), "w+");
                 if((result = ASSERT_ERROR(cache_file != NULL, UNIX_FILE_OPEN_ERR, "Failed to open the cache file: \"%s\".",
                                           _filename.c_str())).ok()) {
+                    std::string default_hostname;
+                    irods::error ret = _prop_map.get< std::string >(
+                                           s3_default_hostname,
+                                           default_hostname );
+                    if( !ret.ok() ) {
+                        return PASS(ret);
+                    }
 
                     callback_data_t data;
                     S3BucketContext bucketContext;
@@ -432,6 +440,7 @@ extern "C" {
                     data.fd = cache_file;
                     data.contentLength = data.originalContentLength = _fileSize;
                     bzero (&bucketContext, sizeof (bucketContext));
+                    bucketContext.hostName = default_hostname.c_str();
                     bucketContext.bucketName = bucket.c_str();
                     bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
@@ -697,22 +706,24 @@ extern "C" {
         irods::error ret;
 
         std::string default_hostname;
-        ret = _prop_map.get< std::string >( 
-            s3_default_hostname, 
+        ret = _prop_map.get< std::string >(
+            s3_default_hostname,
             default_hostname );
         if( !ret.ok() ) {
             // ok to fail
         }
 
         // Initialize the S3 library
-        ret = s3Init( _prop_map );
-        if((result = ASSERT_PASS(ret, "Failed to initialize the S3 library.")).ok()) {
-
+        // only call s3Init within a given operation in order to not conflict with
+        // other instances of S3 resources.  leaving the code here as there is still
+        // an open issue regarding iRODS connection reuse with the option to use
+        // another S3 resource which will cause an error.
+        //ret = s3Init( _prop_map );
+        //if((result = ASSERT_PASS(ret, "Failed to initialize the S3 library.")).ok()) {
             // Retrieve the auth info and set the appropriate fields in the property map
             ret = s3ReadAuthInfo(_prop_map);
             result = ASSERT_PASS(ret, "Failed to read S3 auth info.");
-        }
-
+        //}
         return result;
     }
 
@@ -824,8 +835,8 @@ extern "C" {
                                      _object->physical_path().c_str())).ok()) {
 
                 std::string default_hostname;
-                ret = _ctx.prop_map().get< std::string >( 
-                    s3_default_hostname, 
+                ret = _ctx.prop_map().get< std::string >(
+                    s3_default_hostname,
                     default_hostname );
                 if( !ret.ok() ) {
                     // ok to fail
@@ -1142,8 +1153,8 @@ extern "C" {
                         if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
                             std::string default_hostname;
-                            ret = _ctx.prop_map().get< std::string >( 
-                                s3_default_hostname, 
+                            ret = _ctx.prop_map().get< std::string >(
+                                s3_default_hostname,
                                 default_hostname );
                             if( !ret.ok() ) {
                                 // ok to fail
@@ -1193,8 +1204,8 @@ extern "C" {
                     if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
                         std::string default_hostname;
-                        ret = _ctx.prop_map().get< std::string >( 
-                            s3_default_hostname, 
+                        ret = _ctx.prop_map().get< std::string >(
+                            s3_default_hostname,
                             default_hostname );
                         if( !ret.ok() ) {
                             // ok to fail
