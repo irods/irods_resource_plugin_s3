@@ -116,10 +116,21 @@ extern "C" {
     static int g_hostnameIdx = 0;
     static boost::mutex g_hostnameIdxLock;
 
+    // Sleep for *at least* the given time, plus some up to 1s additional
+    // The random addition ensures that threads don't all cluster up and retry
+    // at the same time (dogpile effect)
     static void s3_sleep(
             int _s,
             int _ms ) {
-        useconds_t us = ( _s * 1000000 ) + ( _ms * 1000 );
+        // We're the only user of libc rand(), so if we mutex around calls we can
+        // use the thread-unsafe rand() safely and randomly...if this is changed
+        // in the future, need to use rand_r and init a static seed in this function
+        static boost::mutex randMutex;
+        randMutex.lock();
+        int random = rand();
+        randMutex.unlock();
+        int addl = (int)(((double)random / (double)RAND_MAX) * 1000.0); // Add up to 1000 ms (1 sec)
+        useconds_t us = ( _s * 1000000 ) + ( (_ms + addl) * 1000 );
         usleep( us );
     }
 
@@ -1259,6 +1270,7 @@ extern "C" {
                                 if (putProps->md5) free( (char*)putProps->md5 );
                                 free( putProps );
                             }
+                            free(manager.etags);
                             const char *msg = "Out of memory error in S3 multipart g_mpuData allocation.";
                             rodsLog( LOG_ERROR, msg );
                             result = ERROR( SYS_MALLOC_ERR, msg );
@@ -1272,6 +1284,8 @@ extern "C" {
                                 if (putProps->md5) free( (char*)putProps->md5 );
                                 free( putProps );
                             }
+                            free(g_mpuData);
+                            free(manager.etags);
                             const char *msg = "Out of memory error in S3 multipart XML allocation.";
                             rodsLog( LOG_ERROR, msg );
                             result = ERROR( SYS_MALLOC_ERR, msg );
