@@ -1270,7 +1270,6 @@ extern "C" {
                                 if (putProps->md5) free( (char*)putProps->md5 );
                                 free( putProps );
                             }
-                            free(manager.etags);
                             const char *msg = "Out of memory error in S3 multipart g_mpuData allocation.";
                             rodsLog( LOG_ERROR, msg );
                             result = ERROR( SYS_MALLOC_ERR, msg );
@@ -1284,8 +1283,6 @@ extern "C" {
                                 if (putProps->md5) free( (char*)putProps->md5 );
                                 free( putProps );
                             }
-                            free(g_mpuData);
-                            free(manager.etags);
                             const char *msg = "Out of memory error in S3 multipart XML allocation.";
                             rodsLog( LOG_ERROR, msg );
                             result = ERROR( SYS_MALLOC_ERR, msg );
