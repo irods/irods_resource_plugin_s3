@@ -18,11 +18,15 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
     def setUp(self):
         hostname = lib.get_hostname()
         with lib.make_session_for_existing_admin() as admin_session:
-            keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+#           keypairfile='/var/lib/irods/oracle_cloud_storage-CI.keypair'
+#           s3hostname='irodsconsorshtrial.storage.oraclecloud.com'
+            keypairfile='/var/lib/irods/amazon_web_services-CI.keypair'
+            s3hostname='s3-us-west-1.amazonaws.com'
+            bucketname='indiving-norcal'
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
             admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' "+hostname+":/var/lib/irods/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
-            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/irods-ci/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE='+keypairfile+';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1"', 'STDOUT_SINGLELINE', 'archiveResc')
+            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+bucketname+'/irods/Vault "S3_DEFAULT_HOSTNAME='+s3hostname+';S3_AUTH_FILE='+keypairfile+';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_STSDATE=DATE"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
         super(Test_Compound_with_S3_Resource, self).setUp()
