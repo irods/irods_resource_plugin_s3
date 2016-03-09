@@ -78,6 +78,7 @@ const std::string s3_access_key = "S3_SECRET_ACCESS_KEY";
 const std::string s3_retry_count = "S3_RETRY_COUNT";
 const std::string s3_wait_time_sec = "S3_WAIT_TIME_SEC";
 const std::string s3_proto = "S3_PROTO";
+const std::string s3_stsdate = "S3_STSDATE";
 
 const size_t RETRY_COUNT = 100;
 
@@ -403,6 +404,25 @@ extern "C" {
         return S3ProtocolHTTPS;
     }
 
+    static S3STSDate s3GetSTSDate( irods::plugin_property_map& _prop_map)
+    {
+        irods::error ret;
+        std::string stsdate_str;
+        ret = _prop_map.get< std::string >(
+                                   s3_stsdate,
+                                   stsdate_str );
+        if (!ret.ok()) { // Default to original behavior
+            return S3STSAmzOnly;
+        }
+        if (!strcasecmp(stsdate_str.c_str(), "date")) {
+            return S3STSDateOnly;
+        }
+        if (!strcasecmp(stsdate_str.c_str(), "both")) {
+            return S3STSAmzAndDate;
+        }
+        return S3STSAmzOnly;
+    }
+
     irods::error s3GetFile(
         const std::string& _filename,
         const std::string& _s3ObjName,
@@ -443,6 +463,7 @@ extern "C" {
                     bucketContext.hostName = default_hostname.c_str();
                     bucketContext.bucketName = bucket.c_str();
                     bucketContext.protocol = s3GetProto(_prop_map);
+                    bucketContext.stsDate = s3GetSTSDate(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
                     bucketContext.accessKeyId = _key_id.c_str();
                     bucketContext.secretAccessKey = _access_key.c_str();
@@ -522,6 +543,7 @@ extern "C" {
                     bzero (&bucketContext, sizeof (bucketContext));
                     bucketContext.bucketName = bucket.c_str();
                     bucketContext.protocol = s3GetProto(_prop_map);
+                    bucketContext.stsDate = s3GetSTSDate(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
                     bucketContext.accessKeyId = _key_id.c_str();
                     bucketContext.secretAccessKey = _access_key.c_str();
@@ -582,7 +604,8 @@ extern "C" {
         const std::string& _dest_file,
         const std::string& _key_id,
         const std::string& _access_key,
-        const S3Protocol _proto)
+        const S3Protocol _proto,
+        const S3STSDate _stsDate)
     {
         irods::error result = SUCCESS();
         irods::error ret;
@@ -610,6 +633,7 @@ extern "C" {
                 bzero (&bucketContext, sizeof (bucketContext));
                 bucketContext.bucketName = src_bucket.c_str();
                 bucketContext.protocol = _proto;
+		bucketContext.stsDate = _stsDate;
                 bucketContext.uriStyle = S3UriStylePath;
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
@@ -856,6 +880,7 @@ extern "C" {
                         bzero (&bucketContext, sizeof (bucketContext));
                         bucketContext.bucketName = bucket.c_str();
                         bucketContext.protocol = s3GetProto(_ctx.prop_map());
+                        bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
                         bucketContext.uriStyle = S3UriStylePath;
                         bucketContext.accessKeyId = key_id.c_str();
                         bucketContext.secretAccessKey = access_key.c_str();
@@ -937,6 +962,7 @@ extern "C" {
                             bzero (&bucketContext, sizeof (bucketContext));
                             bucketContext.bucketName = bucket.c_str();
                             bucketContext.protocol = s3GetProto(_ctx.prop_map());
+	                    bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
                             bucketContext.uriStyle = S3UriStylePath;
                             bucketContext.accessKeyId = key_id.c_str();
                             bucketContext.secretAccessKey = access_key.c_str();
@@ -1079,17 +1105,16 @@ extern "C" {
             irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
         
             // copy the file to the new location
-            ret = s3CopyFile(object->physical_path(), _new_file_name, key_id, access_key, s3GetProto(_ctx.prop_map()));
+            ret = s3CopyFile(object->physical_path(), _new_file_name, key_id, access_key,
+                  s3GetProto(_ctx.prop_map()),s3GetSTSDate(_ctx.prop_map()));
             if((result = ASSERT_PASS(ret, "Failed to copy file from: \"%s\" to \"%s\".",
                                      object->physical_path().c_str(), _new_file_name)).ok()) {
-        
                 // delete the old file
                 ret = s3FileUnlinkPlugin(_ctx);
                 result = ASSERT_PASS(ret, "FAiled to unlink old S3 file: \"%s\".",
                                      object->physical_path().c_str());
             }
         }
-        
         return result;
     } // s3FileRenamePlugin
 
