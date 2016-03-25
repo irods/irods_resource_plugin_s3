@@ -26,7 +26,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
             admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' "+hostname+":/var/lib/irods/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
-            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
+            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
         super(Test_Compound_with_S3_Resource, self).setUp()
