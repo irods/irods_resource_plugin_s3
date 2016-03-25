@@ -1,5 +1,9 @@
 /* -*- mode: c++; fill-column: 132; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
+// =-=-=-=-=-=-=-
+// Needed to support pread with > 2GB offsets
+#define _USE_FILE_OFFSET64
+
 #include "libirods_s3.hpp"
 
 // =-=-=-=-=-=-=-
@@ -34,10 +38,14 @@
 #include <string>
 #include <ctime>
 
+// =-=-=-=-=-=-=-
+// boost includes
 #include <boost/lexical_cast.hpp>
+#include <boost/thread.hpp>
 
 // =-=-=-=-=-=-=-
 // system includes
+#include <openssl/md5.h>
 #ifndef _WIN32
 #include <sys/file.h>
 #include <sys/param.h>
@@ -64,9 +72,6 @@
 #if defined(solaris_platform)
 #include <sys/statvfs.h>
 #endif
-#if defined(linux_platform)
-#include <sys/vfs.h>
-#endif
 #include <sys/stat.h>
 
 #include <string.h>
@@ -78,15 +83,27 @@ const std::string s3_access_key = "S3_SECRET_ACCESS_KEY";
 const std::string s3_retry_count = "S3_RETRY_COUNT";
 const std::string s3_wait_time_sec = "S3_WAIT_TIME_SEC";
 const std::string s3_proto = "S3_PROTO";
+const std::string s3_mpu_chunk = "S3_MPU_CHUNK";
+const std::string s3_mpu_threads = "S3_MPU_THREADS";
+const std::string s3_enable_md5 = "S3_ENABLE_MD5";
+const std::string s3_server_encrypt = "S3_SERVER_ENCRYPT";
 
-const size_t RETRY_COUNT = 100;
+size_t g_retry_count = 10;
+size_t g_retry_wait = 1;
 
-static void s3_sleep(
-        int _s,
-        int _ms ) {
-    useconds_t us = ( _s * 1000000 ) + ( _ms * 1000 );
-    usleep( us );
-}
+// Callback error injection
+// If defined(ERROR_INJECT), then the specified pread/write below will fail.
+// Only 1 failure happens, but this is OK since for every irods command we
+// actually restart from 0 since the .SO is reloaded
+// Pairing this with LIBS3 error injection will exercise the error recovery
+// and retry code paths.
+static boost::mutex g_error_mutex;
+static long g_werr = 0; // counter
+static long g_rerr = 0; // counter
+static long g_merr = 0; // counter
+static const long g_werr_idx = 4; // Which # pwrite to fail
+static const long g_rerr_idx = 4; // Which # pread to fail
+static const long g_merr_idx = 4; // Which part of Multipart Finish XML to fail
 
 
 extern "C" {
@@ -95,30 +112,141 @@ extern "C" {
     //////////////////////////////////////////////////////////////////////
     // s3 specific functionality
     static bool S3Initialized = false; // so we only initialize the s3 library once
-//    static s3Auth_t S3Auth;            // authorization credentials for s3 operations?
-    static S3Status statusG = S3StatusOK;
+    static std::vector<char *> g_hostname;
+    static int g_hostnameIdx = 0;
+    static boost::mutex g_hostnameIdxLock;
+
+    // Sleep for *at least* the given time, plus some up to 1s additional
+    // The random addition ensures that threads don't all cluster up and retry
+    // at the same time (dogpile effect)
+    static void s3_sleep(
+            int _s,
+            int _ms ) {
+        // We're the only user of libc rand(), so if we mutex around calls we can
+        // use the thread-unsafe rand() safely and randomly...if this is changed
+        // in the future, need to use rand_r and init a static seed in this function
+        static boost::mutex randMutex;
+        randMutex.lock();
+        int random = rand();
+        randMutex.unlock();
+        int addl = (int)(((double)random / (double)RAND_MAX) * 1000.0); // Add up to 1000 ms (1 sec)
+        useconds_t us = ( _s * 1000000 ) + ( (_ms + addl) * 1000 );
+        usleep( us );
+    }
+
+    // Returns timestamp in usec for delta-t comparisons
+    static unsigned long long usNow() {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        unsigned long long us = (tv.tv_sec) * 1000000LL + tv.tv_usec;
+        return us;
+    }
+
+    // Return a malloc()'d C string containing the ASCII MD5 signature of the file
+    // from start through length bytes, using pread to not affect file pointers.
+    // The returned string needs to be free()d by the caller
+    static char *s3CalcMD5( int fd, off_t start, off_t length )
+    {
+        char *buff; // Temp buff to do MD5 calc on
+        unsigned char md5_bin[MD5_DIGEST_LENGTH];
+        MD5_CTX md5_ctx;
+        long read;
+
+        buff = (char *)malloc( 1024*1024 ); // 1MB chunk reads
+        if ( buff == NULL ) {
+            rodsLog( LOG_ERROR, "Out of memory in S3 MD5 calculation, MD5 checksum will NOT be used for upload." );
+            return NULL;
+        }
+
+        MD5_Init( &md5_ctx );
+        for ( read=0; (read + 1024*1024) < length; read += 1024*1024 ) {
+            long ret = pread( fd, buff, 1024*1024, start );
+            if ( ret != 1024*1024 ) {
+                rodsLog( LOG_ERROR, "Error during MD5 pread of file, checksum will NOT be used for upload." );
+                free( buff );
+                return NULL;
+            }
+            MD5_Update( &md5_ctx, buff, 1024*1024 );
+            start += 1024 * 1024;
+        }
+        // Partial read for the last bit
+        long ret = pread( fd, buff, length-read, start );
+        if ( ret != length-read ) {
+            rodsLog( LOG_ERROR, "Error during MD5 pread of file, checksum will NOT be used for upload." );
+            free( buff );
+            return NULL;
+        }
+        MD5_Update( &md5_ctx, buff, length-read );
+        MD5_Final( md5_bin, &md5_ctx );
+        free( buff );
+
+        // Now we need to do BASE64 encoding of the MD5_BIN
+        BIO *bmem, *b64;
+        BUF_MEM *bptr;
+
+        b64 = BIO_new(BIO_f_base64());
+        bmem = BIO_new(BIO_s_mem());
+        if ( (b64 == NULL) || (bmem == NULL) ) {
+            rodsLog( LOG_ERROR, "Error during Base64 allocation, checksum will NOT be used for upload." );
+            return NULL;
+        }
+     
+        b64 = BIO_push(b64, bmem);
+        BIO_write(b64, md5_bin, MD5_DIGEST_LENGTH);
+        if (BIO_flush(b64) != 1) {
+            rodsLog( LOG_ERROR, "Error during Base64 computation, checksum will NOT be used for upload." );
+            return NULL;
+        }
+        BIO_get_mem_ptr(b64, &bptr);
+
+        char *md5_b64 = (char*)malloc( bptr->length );
+        if ( md5_b64 == NULL ) {
+            rodsLog( LOG_ERROR, "Error during MD5 allocation, checksum will NOT be used for upload." );
+            return NULL;
+        }
+        memcpy( md5_b64, bptr->data, bptr->length-1 );
+        md5_b64[bptr->length-1] = 0;  // 0-terminate the string, not done by BIO_*
+        BIO_free_all(b64);
+
+        return md5_b64;
+    }
+    // Increment through all specified hostnames in the list, locking in the case
+    // where we may be multithreaded
+    static const char *s3GetHostname()
+    {
+        if (g_hostname.empty())
+            return NULL; // Short-circuit default case
+        g_hostnameIdxLock.lock();
+        char *ret = g_hostname[g_hostnameIdx];
+        g_hostnameIdx = (g_hostnameIdx + 1) % g_hostname.size();
+        g_hostnameIdxLock.unlock();
+        return ret;
+    }
+
 
     // Callbacks for S3
-    static void responseCompleteCallback(
+    static void StoreAndLogStatus (
         S3Status status,
         const S3ErrorDetails *error, 
-        void *callbackData)
+        const char *function, 
+        const S3BucketContext *pCtx,
+        S3Status *pStatus )
     {
         int i;
-        
-        statusG = status;
+
+        *pStatus = status;
         if( status != S3StatusOK ) {
-                rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
+            rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
+            rodsLog( LOG_ERROR, "    S3Host: %s", pCtx->hostName );
         }
-        if (error && error->message) {
+        if (status != S3StatusOK && function ) 
+            rodsLog( LOG_ERROR, "  Function: %s\n", function );
+        if (error && error->message)
             rodsLog( LOG_ERROR, "  Message: %s\n", error->message);
-        }
-        if (error && error->resource) {
+        if (error && error->resource)
             rodsLog( LOG_ERROR, "  Resource: %s\n", error->resource);
-        }
-        if (error && error->furtherDetails) {
+        if (error && error->furtherDetails)
             rodsLog( LOG_ERROR, "  Further Details: %s\n", error->furtherDetails);
-        }
         if (error && error->extraDetailsCount) {
             rodsLog( LOG_ERROR, "%s", "  Extra Details:\n");
             
@@ -126,6 +254,15 @@ extern "C" {
                 rodsLog( LOG_ERROR, "    %s: %s\n", error->extraDetails[i].name, error->extraDetails[i].value);
             }
         }
+    }
+
+    static void responseCompleteCallback(
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        callback_data_t *data = (callback_data_t*)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
     }
 
     static S3Status responsePropertiesCallback(
@@ -140,17 +277,29 @@ extern "C" {
         const char *buffer,
         void *callbackData)
     {
+        callback_data_t *cb = (callback_data_t *)callbackData;
+
         irods::error result = ASSERT_ERROR(bufferSize != 0 && buffer != NULL && callbackData != NULL,
                                             SYS_INVALID_INPUT_PARAM, "Invalid input parameter.");
         if(!result.ok()) {
             irods::log(result);
         }
 
-        FILE *outfile = ((callback_data_t *)callbackData)->fd;
+        ssize_t wrote = pwrite(cb->fd, buffer, bufferSize, cb->offset);
+        if (wrote>0) cb->offset += wrote;
 
-        size_t wrote = fwrite(buffer, 1, bufferSize, outfile);
+#ifdef ERROR_INJECT
+        g_error_mutex.lock();
+        g_werr++;
+        if (g_werr == g_werr_idx) {
+            rodsLog(LOG_ERROR, "Injecting a PWRITE error during S3 callback");
+            g_error_mutex.unlock();
+            return S3StatusAbortedByCallback;
+        }
+        g_error_mutex.unlock();
+#endif
 
-        return ((wrote < (size_t) bufferSize) ?
+        return ((wrote < (ssize_t) bufferSize) ?
                 S3StatusAbortedByCallback : S3StatusOK);
     }
 
@@ -159,17 +308,28 @@ extern "C" {
         char *buffer,
         void *callbackData)
     {
-        put_object_callback_data *data = (put_object_callback_data *) callbackData;
-        int length;    
-        int ret = 0;
+        callback_data_t *data = (callback_data_t *) callbackData;
+        long ret = 0;
         
         if (data->contentLength) {
             int length = ((data->contentLength > (unsigned) bufferSize) ?
                           (unsigned) bufferSize : data->contentLength);
-            ret = fread(buffer, 1, length, data->infile);
+            ret = pread(data->fd, buffer, length, data->offset);
         }
         data->contentLength -= ret;
-        return ret;
+        data->offset += ret;
+
+#ifdef ERROR_INJECT
+        g_error_mutex.lock();
+        g_rerr++;
+        if (g_rerr == g_rerr_idx) {
+            rodsLog(LOG_ERROR, "Injecting pread error in S3 callback");
+            ret = -1;
+        }
+        g_error_mutex.unlock();
+#endif
+
+        return (long)ret;
     }
 
     S3Status listBucketCallback(
@@ -263,6 +423,9 @@ extern "C" {
             }
             return result;
         }
+
+        result = ERROR( SYS_CONFIG_FILE_ERR, "Unknown error in authorization file." );
+        return result;
     }
 
     /// @brief Retrieves the auth info from either the environment or the resource's specified auth file and set the appropriate
@@ -302,26 +465,38 @@ extern "C" {
         irods::plugin_property_map& _prop_map ) 
     {
         irods::error result = SUCCESS();
-        char *tmpPtr;
 
         if (!S3Initialized) {
-            std::string default_hostname;
+            // First, parse the default hostname (if present) into a list of
+            // hostnames separated on the definition line by commas (,)
+            std::string hostname_list;
             irods::error ret;
-            ret = _prop_map.get< std::string >(
+            ret = _prop_map.get< std::string >( 
                       s3_default_hostname,
-                      default_hostname );
+                      hostname_list );
             if( !ret.ok() ) {
                 // ok to fail
+                g_hostname.push_back(strdup(S3_DEFAULT_HOSTNAME)); // Default to Amazon
+            } else {
+                std::stringstream ss(hostname_list);
+                std::string item;
+                while (std::getline(ss, item, ',')) {
+                    g_hostname.push_back(strdup(item.c_str()));
+                }
+                // Because each resource operation is a new instance, randomize the starting
+                // hostname offset so we don't always hit the first in the list between different
+                // operations.
+                srand(time(NULL));
+                g_hostnameIdx = rand() % g_hostname.size();
             }
 
-            size_t retry_count = 10;
             std::string retry_count_str;
             ret = _prop_map.get< std::string >( 
                                    s3_retry_count,
                                    retry_count_str );
             if( ret.ok() ) {
                 try {
-                    retry_count = boost::lexical_cast<int>( retry_count_str );
+                    g_retry_count = boost::lexical_cast<int>( retry_count_str );
                 } catch ( const boost::bad_lexical_cast& ) {
                     rodsLog(
                         LOG_ERROR,
@@ -330,30 +505,28 @@ extern "C" {
                 }
             }
 
-            size_t wait_time_sec = 3;
             std::string wait_time_str;
             ret = _prop_map.get< std::string >( 
                                    s3_wait_time_sec,
                                    wait_time_str );
             if( ret.ok() ) {
                 try {
-                    wait_time_sec = boost::lexical_cast<int>( wait_time_str );
+                    g_retry_wait = boost::lexical_cast<int>( wait_time_str );
                 } catch ( const boost::bad_lexical_cast& ) {
                     rodsLog(
                         LOG_ERROR,
                         "failed to cast wait time [%s] to an int",
-                        retry_count_str.c_str() );
+                        wait_time_str.c_str() );
                 }
             }
 
             size_t ctr = 0;
-            while( ctr < retry_count ) {
+            while( ctr < g_retry_count ) {
                 int status = 0;
 
-                const char* host_name = !default_hostname.empty() ? default_hostname.c_str() : NULL;
+                const char* host_name = s3GetHostname();  // Iterate through on each try
                 status = S3_initialize( "s3", S3_INIT_ALL, host_name );
 
-                int err_status = S3_INIT_ERROR - status;
                 std::stringstream msg;
                 if( status >= 0 ) {
                     msg << " - \"";
@@ -369,12 +542,12 @@ extern "C" {
 
                 ctr++;
 
-                s3_sleep( wait_time_sec, 0 );
+                s3_sleep( g_retry_wait, 0 );
 
                 rodsLog(
                     LOG_NOTICE,
                     "s3Init - Error in connection, retry count %d",
-                    retry_count );
+                    ctr );
 
             } // while
 
@@ -403,6 +576,181 @@ extern "C" {
         return S3ProtocolHTTPS;
     }
 
+    static long s3GetMPUChunksize (
+        irods::plugin_property_map& _prop_map )
+    {
+        irods::error ret;
+        std::string chunk_str;
+        long chunk = 64L * 1024L * 1024L; // default to safe value
+        ret = _prop_map.get< std::string >(
+                                   s3_mpu_chunk,
+                                   chunk_str );
+        if (ret.ok()) {
+            // S3 allows from 5MB ... 5GB partsize.  Smaller or larger specified use default.
+            long parse = atol(chunk_str.c_str());
+            if ( (parse >= 5) && (parse <= 5000) )
+                chunk = parse * 1024L * 1024L;
+        }
+        return chunk;
+    }
+
+    static ssize_t s3GetMPUThreads (
+        irods::plugin_property_map& _prop_map )
+    {
+        irods::error ret;
+        std::string threads_str;
+        int threads = 10; // 10 upload threads by default
+        ret = _prop_map.get< std::string >(
+                                   s3_mpu_threads,
+                                   threads_str );
+        if (ret.ok()) {
+            int parse = atol(threads_str.c_str());
+            if ( (parse >= 1) && (parse <= 100) )
+                threads = parse;
+        }
+        return threads;
+    }
+
+    static bool s3GetEnableMD5 (
+        irods::plugin_property_map& _prop_map )
+    {
+        irods::error ret;
+        std::string enable_str;
+        bool enable = false;
+
+        ret = _prop_map.get< std::string >(
+                                   s3_enable_md5,
+                                   enable_str );
+        if (ret.ok()) {
+            // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
+            int parse = atol(enable_str.c_str());
+            if (parse != 0)
+                enable = true;
+        }
+        return enable;
+    }
+
+    static bool s3GetServerEncrypt (
+        irods::plugin_property_map& _prop_map )
+    {
+        irods::error ret;
+        std::string enable_str;
+        bool enable = false;
+
+        ret = _prop_map.get< std::string >(
+                                   s3_server_encrypt,
+                                   enable_str );
+        if (ret.ok()) {
+            // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
+            int parse = atol(enable_str.c_str());
+            if (parse != 0)
+                enable = true;
+        }
+        return enable;
+    }
+
+    static boost::mutex g_mrdLock; // Multirange download has a mutex-protected global work queue
+    static volatile int g_mrdNext = 0;
+    static int g_mrdLast = -1;
+    static multirange_data_t *g_mrdData = NULL;
+    static const char *g_mrdKey = NULL;
+    static irods::error g_mrdResult;  // Last thread reporting an error wins, mutex protected
+
+    static S3Status mrdRangeGetDataCB (
+        int bufferSize,
+        const char *buffer,
+        void *callbackData)
+    {
+        multirange_data_t *data = (multirange_data_t*)callbackData;
+        return getObjectDataCallback( bufferSize, buffer, &(data->get_object_data) );
+    }
+
+    static S3Status mrdRangeRespPropCB (
+        const S3ResponseProperties *properties,
+        void *callbackData)
+    {
+        // Don't need to do anything here
+        return S3StatusOK;
+    }
+
+    static void mrdRangeRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        multirange_data_t *data = (multirange_data_t*)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
+        // Don't change the global error, we may want to retry at a higher level.
+        // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
+    }
+
+
+    static void mrdWorkerThread (
+        void *param )
+    {
+        S3BucketContext bucketContext = *((S3BucketContext*)param);
+        irods::error result;
+        std::stringstream msg;
+        S3GetObjectHandler getObjectHandler = { {mrdRangeRespPropCB, mrdRangeRespCompCB }, mrdRangeGetDataCB };
+
+        /* Will break out when no work detected */
+        while (1) {
+            // Pointer is probably safe w/o mutex, but JIK...
+            g_mrdLock.lock();
+            bool ok = (g_mrdResult.ok());
+            g_mrdLock.unlock();
+            if (!ok) break;
+
+            int seq;
+            g_mrdLock.lock();
+            if (g_mrdNext >= g_mrdLast) {
+                g_mrdLock.unlock();
+                break;
+            }
+            seq = g_mrdNext + 1;
+            g_mrdNext++;
+            g_mrdLock.unlock();
+
+            size_t retry_cnt = 0;
+            multirange_data_t rangeData;
+            do {
+                // Work on a local copy of the structure in case an error occurs in the middle
+                // of an upload.  If we updated in-place, on a retry the part would start
+                // at the wrong offset and length.
+                rangeData = g_mrdData[seq-1];
+                rangeData.pCtx = &bucketContext;
+
+                msg.str( std::string() ); // Clear
+                msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset "
+                    << (long)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength;
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
+
+                unsigned long long usStart = usNow();
+                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
+                S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset,
+                               rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
+                unsigned long long usEnd = usNow();
+                double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                msg << " -- END -- BW=" << bw << " MB/s";
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
+                if (rangeData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+            } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt < g_retry_count));
+            if (rangeData.status != S3StatusOK) {
+                msg.str( std::string() ); // Clear
+                msg << __FUNCTION__ << " - Error getting the S3 object: \"" << g_mrdKey << "\" range " << seq;
+                if (rangeData.status >= 0) {
+                    msg << " - \"" << S3_get_status_name( rangeData.status ) << "\"";
+                }
+                result = ERROR( S3_GET_ERROR, msg.str() );
+                rodsLog( LOG_ERROR, msg.str().c_str() );
+                g_mrdLock.lock();
+                g_mrdResult = result;
+                g_mrdLock.unlock();
+            }
+        }
+    }
+
+
     irods::error s3GetFile(
         const std::string& _filename,
         const std::string& _s3ObjName,
@@ -413,7 +761,7 @@ extern "C" {
     {
         irods::error result = SUCCESS();
         irods::error ret;
-        FILE* cache_file = NULL;
+        int cache_fd = -1;
         std::string bucket;
         std::string key;
         ret = parseS3Path(_s3ObjName, bucket, key);
@@ -422,67 +770,377 @@ extern "C" {
             ret = s3Init( _prop_map );
             if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
-                cache_file = fopen(_filename.c_str(), "w+");
-                if((result = ASSERT_ERROR(cache_file != NULL, UNIX_FILE_OPEN_ERR, "Failed to open the cache file: \"%s\".",
+                cache_fd = open(_filename.c_str(), O_RDWR|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
+                if((result = ASSERT_ERROR(cache_fd != -1, UNIX_FILE_OPEN_ERR, "Failed to open the cache file: \"%s\".",
                                           _filename.c_str())).ok()) {
+
                     std::string default_hostname;
                     irods::error ret = _prop_map.get< std::string >(
                                            s3_default_hostname,
                                            default_hostname );
                     if( !ret.ok() ) {
                         return PASS(ret);
-                    }
+                    } 
 
                     callback_data_t data;
                     S3BucketContext bucketContext;
 
-                    bzero (&data, sizeof (data));
-                    data.fd = cache_file;
-                    data.contentLength = data.originalContentLength = _fileSize;
                     bzero (&bucketContext, sizeof (bucketContext));
-                    bucketContext.hostName = default_hostname.c_str();
                     bucketContext.bucketName = bucket.c_str();
                     bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
                     bucketContext.accessKeyId = _key_id.c_str();
                     bucketContext.secretAccessKey = _access_key.c_str();
 
-                    S3GetObjectHandler getObjectHandler = {
-                        { &responsePropertiesCallback, &responseCompleteCallback },
-                        &getObjectDataCallback
-                    };
+                    long chunksize = s3GetMPUChunksize( _prop_map );
 
-                    S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
-                    if (data.status != S3StatusOK) {
-                        int status = data.status;
-                        std::stringstream msg;
-                        msg << __FUNCTION__;
-                        msg << " - Error fetching the S3 object: \"";
-                        msg << _s3ObjName;
-                        msg << "\"";
-                        if(status >= 0) {
-                            msg << " - \"";
-                            msg << S3_get_status_name((S3Status)status);
-                            msg << "\"";
-                            status = S3_INIT_ERROR - status;
+                    if ( _fileSize < chunksize ) {
+                        S3GetObjectHandler getObjectHandler = {
+                            { &responsePropertiesCallback, &responseCompleteCallback },
+                             &getObjectDataCallback
+                        };
+
+                        size_t retry_cnt = 0;
+                        do {
+                            bzero (&data, sizeof (data));
+                            data.fd = cache_fd;
+                            data.contentLength = data.originalContentLength = _fileSize;
+                            unsigned long long usStart = usNow();
+                            bucketContext.hostName = s3GetHostname();  // Iterate different one on each try
+                            data.pCtx = &bucketContext;
+                            S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
+                            unsigned long long usEnd = usNow();
+                            double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                            rodsLog( LOG_NOTICE, "GETBW=%lf", bw);
+                            if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+                        } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
+                        if (data.status != S3StatusOK) {
+                            std::stringstream msg;
+                            msg << __FUNCTION__ << " - Error fetching the S3 object: \"" << _s3ObjName << "\"";
+                            if (data.status >= 0) {
+                                msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+                            }
+                            result = ERROR(S3_GET_ERROR, msg.str());
                         }
-                        result = ERROR(status, msg.str());
-                    }
-                    else if( statusG != S3StatusOK ) {
+                    } else {
                         std::stringstream msg;
-                        msg << "Error getting the S3 Object \""
-                            << _s3ObjName
-                            << "\" with S3Status \""
-                            << S3_get_status_name( statusG )
-                            << "\"";
-                            result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
-                    }
 
-                    fclose(cache_file);
+                        // Only the FD part of this will be constant 
+                        bzero (&data, sizeof (data));
+                        data.fd = cache_fd;
+                        data.contentLength = data.originalContentLength = _fileSize;
+
+                        // Multirange get
+                        g_mrdResult = SUCCESS();
+
+                        long seq;
+                        long totalSeq = (data.contentLength + chunksize - 1) / chunksize;
+
+                        multirange_data_t rangeData;
+                        int rangeLength = 0;
+
+                        g_mrdData = (multirange_data_t*)calloc(totalSeq, sizeof(multirange_data_t));
+                        if (!g_mrdData) {
+                            const char *msg = "Out of memory error in S3 multirange g_mrdData allocation.";
+                            rodsLog( LOG_ERROR, msg );
+                            result = ERROR( SYS_MALLOC_ERR, msg );
+                            return result;
+                        }
+
+                        g_mrdNext = 0;
+                        g_mrdLast = totalSeq;
+                        g_mrdKey = key.c_str();
+                        for(seq = 0; seq < totalSeq ; seq ++) {
+                            memset(&rangeData, 0, sizeof(rangeData));
+                            rangeData.seq = seq;
+                            rangeData.get_object_data = data;
+                            rangeLength = (data.contentLength > chunksize)?chunksize:data.contentLength;
+                            rangeData.get_object_data.contentLength = rangeLength;
+                            rangeData.get_object_data.offset = seq * chunksize;
+                            g_mrdData[seq] = rangeData;
+                            data.contentLength -= rangeLength;
+                        }
+
+                        // Make the worker threads and start
+                        int nThreads = s3GetMPUThreads(_prop_map);
+
+                        unsigned long long usStart = usNow();
+                        std::list<boost::thread*> threads;
+                        for (int thr_id=0; thr_id<nThreads; thr_id++) {
+                            boost::thread *thisThread = new boost::thread(mrdWorkerThread, &bucketContext);
+                            threads.push_back(thisThread);
+                        }
+                    
+                        // And wait for them to finish...
+                        while (!threads.empty()) {
+                            boost::thread *thisThread = threads.front();
+                            thisThread->join();
+                            delete thisThread;
+                            threads.pop_front();
+                        }
+                        unsigned long long usEnd = usNow();
+                        double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                        rodsLog( LOG_STATUS, "MultirangeBW=%lf", bw);
+
+                        if (!g_mrdResult.ok()) {
+                            // Someone aborted after we started, delete the partial object on S3
+                            rodsLog(LOG_ERROR, "Cancelling multipart download");
+                            // 0-length the file, it's garbage
+                            if (ftruncate( cache_fd, 0 ))
+                                rodsLog(LOG_ERROR, "Unable to 0-length the result file");
+                            result = g_mrdResult;
+                        }
+                        // Clean up memory
+                        if (g_mrdData) free(g_mrdData);
+                    }
+                    close(cache_fd);
                 }
             }
         }
         return result;
+    }
+
+    static boost::mutex g_mpuLock; // Multipart upload has a mutex-protected global work queue
+    static volatile int g_mpuNext = 0;
+    static int g_mpuLast = -1;
+    static multipart_data_t *g_mpuData = NULL; 
+    static char *g_mpuUploadId = NULL;
+    static const char *g_mpuKey = NULL;
+    static irods::error g_mpuResult;  // Last thread error written wins, mutex protected
+
+    /******************* Multipart Initialization Callbacks *****************************/
+
+    /* Captures the upload_id returned and stores it away in our data structure */
+    static S3Status mpuInitXmlCB (
+        const char* upload_id,
+        void *callbackData )
+    {
+        upload_manager_t *manager = (upload_manager_t *)callbackData;
+        manager->upload_id = strdup(upload_id);
+        return S3StatusOK;
+    }
+
+    static S3Status mpuInitRespPropCB (
+        const S3ResponseProperties *properties,
+        void *callbackData)
+    {
+        return S3StatusOK;
+    }
+
+    static void mpuInitRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        upload_manager_t *data = (upload_manager_t*)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
+        // Don't change the global error, we may want to retry at a higher level.
+        // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
+    }
+
+
+    /******************* Multipart Put Callbacks *****************************/
+
+    /* Upload data from the part, use the plain callback_data reader */
+    static int mpuPartPutDataCB (
+        int bufferSize,
+        char *buffer,
+        void *callbackData)
+    {
+        return putObjectDataCallback( bufferSize, buffer, &((multipart_data_t*)callbackData)->put_object_data );
+    }
+
+    static S3Status mpuPartRespPropCB (
+        const S3ResponseProperties *properties,
+        void *callbackData)
+    {
+        multipart_data_t *data = (multipart_data_t *)callbackData;
+         
+        int seq = data->seq;
+        const char *etag = properties->eTag;
+        data->manager->etags[seq - 1] = strdup(etag);
+
+        return S3StatusOK;
+    }
+
+    static void mpuPartRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        multipart_data_t *data = (multipart_data_t *)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->put_object_data.pCtx, &(data->status) );
+        // Don't change the global error, we may want to retry at a higher level.
+        // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
+    }
+
+    /******************* Multipart Commit Callbacks *****************************/
+    /* Uploading the multipart completion XML from our buffer */
+    static int mpuCommitXmlCB (
+        int bufferSize,
+        char *buffer,
+        void *callbackData )
+    {
+        upload_manager_t *manager = (upload_manager_t *)callbackData;
+        long ret = 0;
+        if (manager->remaining) {
+            int toRead = ((manager->remaining > bufferSize) ?
+                          bufferSize : manager->remaining);
+            memcpy(buffer, manager->xml+manager->offset, toRead);
+            ret = toRead;
+        }
+        manager->remaining -= ret;
+        manager->offset += ret;
+
+#ifdef ERROR_INJECT
+        g_error_mutex.lock();
+        g_merr++;
+        if (g_merr == g_merr_idx) {
+            rodsLog(LOG_ERROR, "Injecting a XML upload error during S3 callback");
+            g_error_mutex.unlock();
+            ret = -1;
+        }
+        g_error_mutex.unlock();
+#endif
+        
+        return (int)ret;
+    }
+
+    static S3Status mpuCommitRespPropCB (
+        const S3ResponseProperties *properties,
+        void *callbackData)
+    {
+        return S3StatusOK;
+    }
+
+    static void mpuCommitRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        upload_manager_t *data = (upload_manager_t*)callbackData;
+        StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
+        // Don't change the global error, we may want to retry at a higher level.
+        // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
+    }
+
+    static S3Status mpuCancelRespPropCB (
+        const S3ResponseProperties *properties,
+        void *callbackData)
+    {
+        return S3StatusOK;
+    }
+
+    // S3_abort_multipart_upload() does not allow a callbackData parameter, so pass the
+    // final operation status using this global.
+    static S3Status g_mpuCancelRespCompCB_status = S3StatusOK;
+    static S3BucketContext *g_mpuCancelRespCompCB_pCtx = NULL;
+    static void mpuCancelRespCompCB (
+        S3Status status,
+        const S3ErrorDetails *error,
+        void *callbackData)
+    {
+        S3Status *pStatus = (S3Status*)&g_mpuCancelRespCompCB_status;
+        StoreAndLogStatus( status, error, __FUNCTION__, g_mpuCancelRespCompCB_pCtx, pStatus );
+        // Don't change the global error, we may want to retry at a higher level.
+        // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
+    }
+
+    static void mpuCancel( S3BucketContext *bucketContext, const char *key, const char *upload_id )
+    {
+        S3AbortMultipartUploadHandler abortHandler = { { mpuCancelRespPropCB, mpuCancelRespCompCB } };
+        std::stringstream msg;
+        S3Status status;
+
+        msg << "Cancelling multipart upload: key=\"" << key << "\", upload_id=\"" << upload_id << "\"";
+        rodsLog( LOG_ERROR, msg.str().c_str() );
+        g_mpuCancelRespCompCB_status = S3StatusOK;
+        g_mpuCancelRespCompCB_pCtx = bucketContext;
+        S3_abort_multipart_upload(bucketContext, key, upload_id, &abortHandler);
+        status = g_mpuCancelRespCompCB_status;
+        if (status != S3StatusOK) {
+            msg.str( std::string() ); // Clear
+            msg << __FUNCTION__ << " - Error cancelling the multipart upload of S3 object: \"" << key << "\"";
+            if (status >= 0) {
+                msg << " - \"" << S3_get_status_name(status) << "\"";
+            }
+            rodsLog( LOG_ERROR, msg.str().c_str() );
+        }
+    }
+
+
+    /* Multipart worker thread, grabs a job from the queue and uploads it */
+    static void mpuWorkerThread (
+        void *param )
+    {
+        S3BucketContext bucketContext = *((S3BucketContext*)param);
+        irods::error result;
+        std::stringstream msg;
+        S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
+
+        /* Will break out when no work detected */
+        while (1) {
+            // Pointer is probably safe w/o mutex, but JIK...
+            g_mpuLock.lock();
+            bool ok = (g_mpuResult.ok());
+            g_mpuLock.unlock();
+            if (!ok) break;
+
+            int seq;
+            g_mpuLock.lock();
+            if (g_mpuNext >= g_mpuLast) {
+                g_mpuLock.unlock();
+                break;
+            }
+            seq = g_mpuNext + 1;
+            g_mpuNext++;
+            g_mpuLock.unlock();
+
+            multipart_data_t partData;
+            size_t retry_cnt = 0;
+            do {
+                // Work on a local copy of the structure in case an error occurs in the middle
+                // of an upload.  If we updated in-place, on a retry the part would start 
+                // at the wrong offset and length.
+                partData = g_mpuData[seq-1];
+                partData.put_object_data.pCtx = &bucketContext;
+
+                msg.str( std::string() ); // Clear
+                msg << "Multipart:  Start part " << (int)seq << ", key \"" << g_mpuKey << "\", uploadid \"" << g_mpuUploadId << "\", offset "
+                    << (long)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength;
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
+
+                S3PutProperties *putProps = NULL;
+                putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
+                if ( putProps && partData.enable_md5 )
+                    putProps->md5 = s3CalcMD5( partData.put_object_data.fd, partData.put_object_data.offset, partData.put_object_data.contentLength );
+                if ( putProps && partData.server_encrypt )
+                    putProps->useServerSideEncryption = true;
+                unsigned long long usStart = usNow();
+                bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
+                S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
+                unsigned long long usEnd = usNow();
+                double bw = (g_mpuData[seq-1].put_object_data.contentLength / (1024.0 * 1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                // Clear up the S3PutProperties, if it exists
+                if (putProps) {
+                    if (putProps->md5) free( (char*)putProps->md5 );
+                    free( putProps );
+                }
+                msg << " -- END -- BW=" << bw << " MB/s";
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
+                if (partData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+            } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt < g_retry_count));
+            if (partData.status != S3StatusOK) {
+                msg.str( std::string() ); // Clear
+                msg << __FUNCTION__ << " - Error putting the S3 object: \"" << g_mpuKey << "\"" << " part " << seq;
+                if(partData.status >= 0) {
+                    msg << " - \"" << S3_get_status_name(partData.status) << "\"";
+                }
+                result = ERROR( S3_PUT_ERROR, msg.str() );
+                rodsLog( LOG_ERROR, msg.str().c_str() );
+                g_mpuResult = result;
+            }
+        }
     }
 
     irods::error s3PutFile(
@@ -495,10 +1153,15 @@ extern "C" {
     {
         irods::error result = SUCCESS();
         irods::error ret;
-        FILE* cache_file = NULL;
+        int cache_fd = -1;
         std::string bucket;
         std::string key;
         int err_status = 0;
+        long chunksize = s3GetMPUChunksize( _prop_map );
+        size_t retry_cnt    = 0;
+        bool enable_md5 = s3GetEnableMD5 ( _prop_map );
+        bool server_encrypt = s3GetServerEncrypt ( _prop_map );
+        std::stringstream msg;
         
         ret = parseS3Path(_s3ObjName, bucket, key);
         if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
@@ -507,17 +1170,13 @@ extern "C" {
             ret = s3Init( _prop_map );
             if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
-                cache_file = fopen(_filename.c_str(), "r");
+                cache_fd = open(_filename.c_str(), O_RDONLY);
                 err_status = UNIX_FILE_OPEN_ERR - errno;
-                if((result = ASSERT_ERROR(cache_file  != NULL, err_status, "Failed to open the cache file: \"%s\".",
+                if((result = ASSERT_ERROR(cache_fd  != -1, err_status, "Failed to open the cache file: \"%s\".",
                                           _filename.c_str())).ok()) {
 
                     callback_data_t data;
                     S3BucketContext bucketContext;
-
-                    bzero (&data, sizeof (data));
-                    data.fd = cache_file;
-                    data.contentLength = data.originalContentLength = _fileSize;
                 
                     bzero (&bucketContext, sizeof (bucketContext));
                     bucketContext.bucketName = bucket.c_str();
@@ -526,50 +1185,241 @@ extern "C" {
                     bucketContext.accessKeyId = _key_id.c_str();
                     bucketContext.secretAccessKey = _access_key.c_str();
 
-                    S3PutObjectHandler putObjectHandler = {
-                        { &responsePropertiesCallback, &responseCompleteCallback },
-                        &putObjectDataCallback
-                    };
+                    S3PutProperties *putProps = NULL;
+                    putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
+                    if ( putProps && enable_md5 )
+                        putProps->md5 = s3CalcMD5( cache_fd, 0, _fileSize );
+                    if ( putProps && server_encrypt )
+                        putProps->useServerSideEncryption = true;
 
-                    bool   put_done_flg = false;
-                    size_t retry_cnt    = 0;
+                    if ( _fileSize < chunksize ) {
+                        S3PutObjectHandler putObjectHandler = {
+                            { &responsePropertiesCallback, &responseCompleteCallback },
+                            &putObjectDataCallback
+                        };
 
-                    while( !put_done_flg && ( retry_cnt < RETRY_COUNT ) ) {
-                        S3_put_object (&bucketContext, key.c_str(), _fileSize, NULL, 0, &putObjectHandler, &data);
+                        do {
+                            bzero (&data, sizeof (data));
+                            data.fd = cache_fd;
+                            data.contentLength = data.originalContentLength = _fileSize;
+                            data.pCtx = &bucketContext;
+
+                            unsigned long long usStart = usNow();
+                            bucketContext.hostName = s3GetHostname();
+                            S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, &putObjectHandler, &data);
+                            unsigned long long usEnd = usNow();
+                            double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                            rodsLog( LOG_NOTICE, "BW=%lf", bw);
+                            if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+                        } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
                         if (data.status != S3StatusOK) {
-                            int status = data.status;
                             std::stringstream msg;
-                            msg << __FUNCTION__;
-                            msg << " - Error putting the S3 object: \"";
-                            msg << _s3ObjName;
-                            msg << "\"";
-                            if(status >= 0) {
-                                msg << " - \"";
-                                msg << S3_get_status_name((S3Status)status);
-                                msg << "\"";
-                                status = S3_INIT_ERROR - status;
+                            msg << __FUNCTION__ << " - Error putting the S3 object: \"" << _s3ObjName << "\"";
+                            if ( data.status >= 0 ) {
+                                msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                             }
-                            result = ERROR(status, msg.str());
+                            result = ERROR(S3_PUT_ERROR, msg.str());
                         }
 
-                        if( S3StatusInternalError != statusG) {
-                            put_done_flg = true;
-                        } else {
-                            retry_cnt++;
+                        // Clear up the S3PutProperties, if it exists
+                        if (putProps) {
+                            if (putProps->md5) free( (char*)putProps->md5 );
+                            free( putProps );
                         }
+                    } else {
+                    	// Multi-part upload
+                        upload_manager_t manager;
+                        memset(&manager, 0, sizeof(manager));
+
+                        manager.upload_id = NULL;
+                        manager.remaining = 0;
+                        manager.offset  = 0;
+                        manager.xml = NULL;
                         
-                    } // while
-                         
-                    if( statusG != S3StatusOK ) {
-                        std::stringstream msg;
-                        msg << "Error putting the S3 Object \""
-                            << _s3ObjName
-                            << "\" with S3Status \""
-                            << S3_get_status_name( statusG )
-                            << "\"";
-                            result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
+                        g_mpuResult = SUCCESS();
+
+                        msg.str( std::string() ); // Clear
+                        
+                        long seq;
+                        long totalSeq = (_fileSize + chunksize - 1) / chunksize;
+
+                        multipart_data_t partData;
+                        int partContentLength = 0;
+
+                        bzero (&data, sizeof (data));
+                        data.fd = cache_fd;
+                        data.contentLength = data.originalContentLength = _fileSize;
+
+                        // Allocate all dynamic storage now, so we don't start a job we can't finish later
+                        manager.etags = (char**)calloc(sizeof(char*) * totalSeq, 1);
+                        if (!manager.etags) {
+                            // Clear up the S3PutProperties, if it exists
+                            if (putProps) {
+                                if (putProps->md5) free( (char*)putProps->md5 );
+                                free( putProps );
+                            }
+                            const char *msg = "Out of memory error in S3 multipart ETags allocation.";
+                            rodsLog( LOG_ERROR, msg );
+                            result = ERROR( SYS_MALLOC_ERR, msg );
+                            return result;
+                        }
+                        g_mpuData = (multipart_data_t*)calloc(totalSeq, sizeof(multipart_data_t));
+                        if (!g_mpuData) {
+                            // Clear up the S3PutProperties, if it exists
+                            if (putProps) {
+                                if (putProps->md5) free( (char*)putProps->md5 );
+                                free( putProps );
+                            }
+                            const char *msg = "Out of memory error in S3 multipart g_mpuData allocation.";
+                            rodsLog( LOG_ERROR, msg );
+                            result = ERROR( SYS_MALLOC_ERR, msg );
+                            return result;
+                        }
+                        // Maximum XML completion length with extra space for the <complete...></complete...> tag
+                        manager.xml = (char *)malloc((totalSeq+2) * 256);
+                        if (manager.xml == NULL) {
+                            // Clear up the S3PutProperties, if it exists
+                            if (putProps) {
+                                if (putProps->md5) free( (char*)putProps->md5 );
+                                free( putProps );
+                            }
+                            const char *msg = "Out of memory error in S3 multipart XML allocation.";
+                            rodsLog( LOG_ERROR, msg );
+                            result = ERROR( SYS_MALLOC_ERR, msg );
+                            return result;
+                        }
+
+                        retry_cnt = 0;
+                        // These expect a upload_manager_t* as cbdata
+                        S3MultipartInitialHandler mpuInitialHandler = { {mpuInitRespPropCB, mpuInitRespCompCB }, mpuInitXmlCB };
+                        do {
+                            bucketContext.hostName = s3GetHostname();
+                            manager.pCtx = &bucketContext;
+                            S3_initiate_multipart(&bucketContext, key.c_str(), NULL, &mpuInitialHandler, NULL, &manager);
+                            if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+                        } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
+                        if (manager.upload_id == NULL || manager.status != S3StatusOK) {
+                            // Clear up the S3PutProperties, if it exists
+                            if (putProps) {
+                                if (putProps->md5) free( (char*)putProps->md5 );
+                                free( putProps );
+                            }
+                            msg.str( std::string() ); // Clear
+                            msg << __FUNCTION__ << " - Error initiating multipart upload of the S3 object: \"" << _s3ObjName << "\"";
+                            if(manager.status >= 0) {
+                                msg << " - \"" << S3_get_status_name(manager.status) << "\"";
+                            }
+                            rodsLog( LOG_ERROR, msg.str().c_str() );
+                            result = ERROR( S3_PUT_ERROR, msg.str() );
+                            return result; // Abort early
+                        }
+
+                        g_mpuNext = 0;
+                        g_mpuLast = totalSeq;
+                        g_mpuUploadId = manager.upload_id;
+                        g_mpuKey = key.c_str();
+                        for(seq = 1; seq <= totalSeq ; seq ++) {
+                            memset(&partData, 0, sizeof(partData));
+                            partData.manager = &manager;
+                            partData.seq = seq;
+                            partData.put_object_data = data;
+                            partContentLength = (data.contentLength > chunksize)?chunksize:data.contentLength;
+                            partData.put_object_data.contentLength = partContentLength;
+                            partData.put_object_data.offset = (seq-1) * chunksize;
+                            partData.enable_md5 = s3GetEnableMD5( _prop_map );
+                            partData.server_encrypt = s3GetServerEncrypt( _prop_map );
+                            g_mpuData[seq-1] = partData;
+                            data.contentLength -= partContentLength;
+                        }
+
+                        unsigned long long usStart = usNow();
+
+                        // Make the worker threads and start
+                        int nThreads = s3GetMPUThreads(_prop_map);
+
+                        std::list<boost::thread*> threads;
+                        for (int thr_id=0; thr_id<nThreads; thr_id++) {
+                            boost::thread *thisThread = new boost::thread(mpuWorkerThread, &bucketContext);
+                            threads.push_back(thisThread);
+                        }
+                    
+                        // And wait for them to finish...
+                        while (!threads.empty()) {
+                            boost::thread *thisThread = threads.front();
+                            thisThread->join();
+                            delete thisThread;
+                            threads.pop_front();
+                        }
+
+                        unsigned long long usEnd = usNow();
+                        double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
+                        rodsLog( LOG_STATUS, "MultipartBW=%lf", bw);
+
+                        manager.remaining = 0;
+                        manager.offset  = 0;
+
+                        if (g_mpuResult.ok()) { // If someone aborted, don't complete...
+                            msg.str( std::string() ); // Clear
+                            msg << "Multipart:  Completing key \"" << key.c_str() << "\"";
+                            rodsLog( LOG_DEBUG, msg.str().c_str() );
+
+                            int i;
+                            strcpy(manager.xml, "<CompleteMultipartUpload>\n");
+                            manager.remaining = strlen(manager.xml);
+                            char buf[256];
+                            int n;
+                            for ( i = 0; i < totalSeq; i++ ) {
+                                n = snprintf( buf, 256, "<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>\n", i + 1, manager.etags[i] );
+                                strcpy( manager.xml+manager.remaining, buf );
+                                manager.remaining += n;
+                            }
+                            strcat( manager.xml + manager.remaining, "</CompleteMultipartUpload>\n" );
+                            manager.remaining += strlen( manager.xml+manager.remaining );
+                            int manager_remaining = manager.remaining;
+                            manager.offset = 0;
+                            retry_cnt = 0;
+                            S3MultipartCommitHandler commit_handler = { {mpuCommitRespPropCB, mpuCommitRespCompCB }, mpuCommitXmlCB, NULL };
+                            do {
+                                // On partial error, need to restart XML send from the beginning
+                                manager.remaining = manager_remaining;
+                                manager.offset = 0; 
+                                bucketContext.hostName = s3GetHostname();
+                                manager.pCtx = &bucketContext;
+                                S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, &manager); 
+                                if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+                            } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
+                            if (manager.status != S3StatusOK) {
+                                msg.str( std::string() ); // Clear
+                                msg << __FUNCTION__ << " - Error putting the S3 object: \"" << _s3ObjName << "\"";
+                                if(manager.status >= 0) {
+                                    msg << " - \"" << S3_get_status_name( manager.status ) << "\"";
+                                }
+                                g_mpuResult = ERROR( S3_PUT_ERROR, msg.str() );
+                            }
+                        }
+                        if ( !g_mpuResult.ok() && manager.upload_id ) {
+                            // Someone aborted after we started, delete the partial object on S3
+                            rodsLog(LOG_ERROR, "Cancelling multipart upload");
+                            mpuCancel( &bucketContext, key.c_str(), manager.upload_id );
+                            // Return the error
+                            result = g_mpuResult;
+                        }
+                        // Clean up memory
+                        if (manager.xml) free(manager.xml);
+                        if (manager.upload_id) free(manager.upload_id);
+                        for (int i=0; manager.etags && i<totalSeq; i++) {
+                            if (manager.etags[i]) free(manager.etags[i]);
+                        }
+                        if (manager.etags) free(manager.etags);
+                        if (g_mpuData) free(g_mpuData);
+                        // Clear up the S3PutProperties, if it exists
+                        if (putProps) {
+                            if (putProps->md5) free( (char*)putProps->md5 );
+                            free( putProps );
+                        }
                     }
-                    fclose(cache_file);
+
+                    close(cache_fd);
                 }
             }
         }
@@ -606,48 +1456,35 @@ extern "C" {
                 int64_t lastModified;
                 char eTag[256];
 
-                bzero (&data, sizeof (data));
                 bzero (&bucketContext, sizeof (bucketContext));
                 bucketContext.bucketName = src_bucket.c_str();
                 bucketContext.protocol = _proto;
                 bucketContext.uriStyle = S3UriStylePath;
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
-   
 
                 S3ResponseHandler responseHandler = {
                     &responsePropertiesCallback,
                     &responseCompleteCallback
                 };
 
-                S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), NULL, &lastModified, sizeof(eTag), eTag, 0,
-                               &responseHandler, &data);
+                size_t retry_cnt = 0;
+                do {
+                    bzero (&data, sizeof (data));
+                    bucketContext.hostName = s3GetHostname();
+                    data.pCtx = &bucketContext;
+                    S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), NULL, &lastModified, sizeof(eTag), eTag, 0,
+                                   &responseHandler, &data);
+                    if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+                } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
                 if (data.status != S3StatusOK) {
-                    int status = data.status;
                     std::stringstream msg;
                     msg << __FUNCTION__;
-                    msg << " - Error copying the S3 object: \"";
-                    msg << _src_file;
-                    msg << "\" to S3 object: \"";
-                    msg << _dest_file;
-                    msg << "\"";
-                    if(status >= 0) {
-                        msg << " - \"";
-                        msg << S3_get_status_name((S3Status)status);
-                        msg << "\"";
-                        status = S3_INIT_ERROR - status;
+                    msg << " - Error copying the S3 object: \"" << _src_file << "\" to S3 object: \"" << _dest_file << "\"";
+                    if (data.status >= 0) {
+                        msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                     }
-                    result = ERROR(status, msg.str());
-                }
-                else if( statusG != S3StatusOK ) {
-                    std::stringstream msg;
-                    msg << "Error copying the S3 Object \""
-                        << _src_file << "\" to \""
-                        << _dest_file 
-                        << "\" with S3Status \""
-                        << S3_get_status_name( statusG )
-                        << "\"";
-                    result = ERROR( S3_INIT_ERROR - statusG, msg.str() );
+                    result = ERROR(S3_FILE_COPY_ERR, msg.str());
                 }
 
             }
@@ -705,14 +1542,6 @@ extern "C" {
         irods::error result = SUCCESS();
         irods::error ret;
 
-        std::string default_hostname;
-        ret = _prop_map.get< std::string >(
-            s3_default_hostname,
-            default_hostname );
-        if( !ret.ok() ) {
-            // ok to fail
-        }
-
         // Initialize the S3 library
         // only call s3Init within a given operation in order to not conflict with
         // other instances of S3 resources.  leaving the code here as there is still
@@ -724,6 +1553,7 @@ extern "C" {
             ret = s3ReadAuthInfo(_prop_map);
             result = ASSERT_PASS(ret, "Failed to read S3 auth info.");
         //}
+
         return result;
     }
 
@@ -834,14 +1664,6 @@ extern "C" {
             if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                                      _object->physical_path().c_str())).ok()) {
 
-                std::string default_hostname;
-                ret = _ctx.prop_map().get< std::string >(
-                    s3_default_hostname,
-                    default_hostname );
-                if( !ret.ok() ) {
-                    // ok to fail
-                }
-
                 ret = s3Init( _ctx.prop_map() );
                 if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
@@ -851,8 +1673,6 @@ extern "C" {
                         callback_data_t data;
                         S3BucketContext bucketContext;
 
-                        bzero (&data, sizeof (data));
-
                         bzero (&bucketContext, sizeof (bucketContext));
                         bucketContext.bucketName = bucket.c_str();
                         bucketContext.protocol = s3GetProto(_ctx.prop_map());
@@ -860,26 +1680,28 @@ extern "C" {
                         bucketContext.accessKeyId = key_id.c_str();
                         bucketContext.secretAccessKey = access_key.c_str();
 
-                        S3ResponseHandler responseHandler = {
-                            0, &responseCompleteCallback
-                        };
-
-                        S3_delete_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
+                        S3ResponseHandler responseHandler = { 0, &responseCompleteCallback };
+                        size_t retry_cnt = 0;
+                        do {
+                            bzero (&data, sizeof (data));
+                            bucketContext.hostName = s3GetHostname();
+                            data.pCtx = &bucketContext;
+                            S3_delete_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
+                            if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+                        } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
 
                         if (data.status != S3StatusOK) {
-                            int status = data.status;
                             std::stringstream msg;
                             msg << __FUNCTION__;
                             msg << " - Error unlinking the S3 object: \"";
                             msg << _object->physical_path();
                             msg << "\"";
-                            if(status >= 0) {
+                            if(data.status >= 0) {
                                 msg << " - \"";
-                                msg << S3_get_status_name((S3Status)status);
+                                msg << S3_get_status_name((S3Status)data.status);
                                 msg << "\"";
-                                status = S3_INIT_ERROR - status;
                             }
-                            result = ERROR(status, msg.str());
+                            result = ERROR(S3_FILE_UNLINK_ERR, msg.str());
                         }
                     }
                 }
@@ -932,8 +1754,6 @@ extern "C" {
                             callback_data_t data;
                             S3BucketContext bucketContext;
 
-                            bzero (&data, sizeof (data));
-
                             bzero (&bucketContext, sizeof (bucketContext));
                             bucketContext.bucketName = bucket.c_str();
                             bucketContext.protocol = s3GetProto(_ctx.prop_map());
@@ -947,25 +1767,23 @@ extern "C" {
                             };
 
                             data.keyCount = 0;
-                            data.allDetails = 1;
 
-                            S3_list_bucket(&bucketContext, key.c_str(), NULL,
-                                           NULL, 1, 0, &listBucketHandler, &data);
+                            size_t retry_cnt = 0;
+                            do {
+                                bzero (&data, sizeof (data));
+                                bucketContext.hostName = s3GetHostname();
+                                data.pCtx = &bucketContext;
+                                S3_list_bucket(&bucketContext, key.c_str(), NULL, NULL, 1, 0, &listBucketHandler, &data);
+                                if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
+                            } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
 
                             if (data.status != S3StatusOK) {
-                                int status = data.status;
                                 std::stringstream msg;
-                                msg << __FUNCTION__;
-                                msg << " - Error stat'ing the S3 object: \"";
-                                msg << _object->physical_path();
-                                msg << "\"";
-                                if(status >= 0) {
-                                    msg << " - \"";
-                                    msg << S3_get_status_name((S3Status)status);
-                                    msg << "\"";
-                                    status = S3_FILE_STAT_ERR - status;
+                                msg << __FUNCTION__ << " - Error stat'ing the S3 object: \"" << _object->physical_path() << "\"";
+                                if (data.status >= 0) {
+                                    msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                                 }
-                                result = ERROR(status, msg.str());
+                                result = ERROR(S3_FILE_STAT_ERR, msg.str());
                             }
 
                             else if(data.keyCount > 0) {
@@ -1085,7 +1903,7 @@ extern "C" {
         
                 // delete the old file
                 ret = s3FileUnlinkPlugin(_ctx);
-                result = ASSERT_PASS(ret, "FAiled to unlink old S3 file: \"%s\".",
+                result = ASSERT_PASS(ret, "Failed to unlink old S3 file: \"%s\".",
                                      object->physical_path().c_str());
             }
         }
@@ -1152,15 +1970,6 @@ extern "C" {
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                         if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
-                            std::string default_hostname;
-                            ret = _ctx.prop_map().get< std::string >(
-                                s3_default_hostname,
-                                default_hostname );
-                            if( !ret.ok() ) {
-                                // ok to fail
-                            }
-
-                            rodsLong_t mySize = statbuf.st_size;
                             ret = s3GetFile( _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
                             result = ASSERT_PASS(ret, "Failed to copy the S3 object: \"%s\" to the cache: \"%s\".",
                                                  object->physical_path().c_str(), _cache_file_name);
@@ -1203,16 +2012,6 @@ extern "C" {
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                     if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
-                        std::string default_hostname;
-                        ret = _ctx.prop_map().get< std::string >(
-                            s3_default_hostname,
-                            default_hostname );
-                        if( !ret.ok() ) {
-                            // ok to fail
-                        }
-
-
-                        rodsLong_t data_size = statbuf.st_size;
                         ret = s3PutFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
                         result = ASSERT_PASS(ret, "Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".",
                                              _cache_file_name, object->physical_path().c_str());
@@ -1486,7 +2285,7 @@ extern "C" {
     } // plugin_factory
 
 
-}; // extern "C" 
+} // extern "C" 
 
 
 
