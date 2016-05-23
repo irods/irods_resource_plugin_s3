@@ -8,12 +8,12 @@
 
 // =-=-=-=-=-=-=-
 // irods includes
-#include <msParam.hpp>
+#include <msParam.h>
 #include <reGlobalsExtern.hpp>
-#include <rcConnect.hpp>
-#include <rodsLog.hpp>
-#include <rodsErrorTable.hpp>
-#include <objInfo.hpp>
+#include <rcConnect.h>
+#include <rodsLog.h>
+#include <rodsErrorTable.h>
+#include <objInfo.h>
 
 #ifdef USING_JSON
 #include <json/json.h>
@@ -28,7 +28,6 @@
 #include "irods_string_tokenize.hpp"
 #include "irods_hierarchy_parser.hpp"
 #include "irods_resource_redirect.hpp"
-#include "irods_stacktrace.hpp"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -42,6 +41,7 @@
 // boost includes
 #include <boost/lexical_cast.hpp>
 #include <boost/thread.hpp>
+#include <boost/algorithm/string.hpp>
 
 // =-=-=-=-=-=-=-
 // system includes
@@ -1451,7 +1451,7 @@ extern "C" {
         return result;
     }
 
-    /// @brief Function to copy the specifed src file to the specified dest file
+    /// @brief Function to copy the specified src file to the specified dest file
     irods::error s3CopyFile(
         const std::string& _src_file,
         const std::string& _dest_file,
@@ -1920,11 +1920,25 @@ extern "C" {
         std::string key_id;
         std::string access_key;
 
+        // retrieve archive naming policy from resource plugin context
+        std::string archive_naming_policy = CONSISTENT_NAMING; // default
+        ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+        if(!ret.ok()) {
+            irods::log(ret);
+        }
+        boost::to_lower(archive_naming_policy);
+
+		irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+        // if archive naming policy is decoupled we're done
+        if (archive_naming_policy == DECOUPLED_NAMING) {
+           object->file_descriptor(ENOSYS);
+			return SUCCESS();
+        }
+
         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
         if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
-            irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
-        
             // copy the file to the new location
             ret = s3CopyFile(object->physical_path(), _new_file_name, key_id, access_key,
                   s3GetProto(_ctx.prop_map()),s3GetSTSDate(_ctx.prop_map()));
@@ -2040,9 +2054,47 @@ extern "C" {
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                     if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
 
+                        std::string default_hostname;
+                        ret = _ctx.prop_map().get< std::string >(
+                            s3_default_hostname,
+                            default_hostname );
+                        if( !ret.ok() ) {
+                            irods::log(ret);
+                        }
+
+                        // retrieve archive naming policy from resource plugin context
+                        std::string archive_naming_policy = CONSISTENT_NAMING; // default
+                        ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+                        if(!ret.ok()) {
+                            irods::log(ret);
+                        }
+                        boost::to_lower(archive_naming_policy);
+
+                        // if archive naming policy is decoupled
+                        // we use the object's reversed id as S3 key name prefix
+                        if (archive_naming_policy == DECOUPLED_NAMING) {
+                            // extract object name and bucket name from physical path
+                            std::vector< std::string > tokens;
+                            irods::string_tokenize(object->physical_path(), "/", tokens);
+                            std::string bucket_name = tokens.front();
+                            std::string object_name = tokens.back();
+
+                            // reverse object id
+                            std::string obj_id = boost::lexical_cast<std::string>(object->id());
+                            std::reverse(obj_id.begin(), obj_id.end());
+
+                            // make S3 key name
+                            std::ostringstream s3_key_name;
+                            s3_key_name << "/" << bucket_name << "/" << obj_id << "/" << object_name;
+
+                            // update physical path
+                            object->physical_path(s3_key_name.str());
+                        }
+
                         ret = s3PutFile(_cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
                         result = ASSERT_PASS(ret, "Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".",
                                              _cache_file_name, object->physical_path().c_str());
+
                     }
                 }
             }

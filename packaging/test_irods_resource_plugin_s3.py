@@ -18,15 +18,19 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
     def setUp(self):
         hostname = lib.get_hostname()
         with lib.make_session_for_existing_admin() as admin_session:
+            self.archive_naming_policy='decoupled'
             keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
-            s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
-            s3stsdate=''
-            s3params='S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE='+keypairfile+';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE='+s3stsdate
+            self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
+            s3stsdate='date'
+            s3params=( 'S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=' +  keypairfile +
+                       ';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE=' + s3stsdate +
+                       ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+            )
             s3params=os.environ.get('S3PARAMS', s3params);
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
             admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' "+hostname+":/var/lib/irods/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
-            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
+            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
         super(Test_Compound_with_S3_Resource, self).setUp()
@@ -267,3 +271,48 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
         # local cleanup
         output = commands.getstatusoutput( 'rm '+filepath )
+
+    def test_decoupled_naming_policy(self):
+        if self.archive_naming_policy != 'decoupled':
+            self.skipTest("Archive naming policy is not set to 'decoupled'")
+
+        # local setup
+        filename = "testfile.txt"
+        filepath = os.path.abspath(filename)
+        f = open(filepath,'wb')
+        f.write("TESTFILE -- ["+filepath+"]")
+        f.close()
+
+        # run as regular user
+        session = self.user0
+        collection = session.session_collection
+
+        # iquest to get the object id of the replica on the S3 archive
+        id_query = ( "select DATA_ID where COLL_NAME =" + "'" + collection + "'" +
+                       " and DATA_NAME =" + "'" + filename + "'" +
+                       " and DATA_REPL_NUM ='1'" )
+
+        # iquest to get the pysical path of the replica on the S3 archive
+        path_query = ( "select DATA_PATH where COLL_NAME =" + "'" + collection + "'" +
+                       " and DATA_NAME =" + "'" + filename + "'" +
+                       " and DATA_REPL_NUM ='1'" )
+
+        # assertions
+        session.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
+        session.assert_icommand("iput "+filename) # put file
+
+        # get object id
+        object_id = session.run_icommand('iquest "%s" ' + '"' + id_query + '"')[1].strip()
+
+        # physical path we expect to see: /{bucket_name}/{reversed_id}/{obj_name}
+        target_path = '/' + self.s3bucketname + '/' + object_id[::-1] + '/' + filename
+
+        # get object path
+        physical_path = session.run_icommand('iquest "%s" ' + '"' + path_query + '"')[1].strip()
+
+        # verify object path
+        self.assertEqual(target_path, physical_path)
+
+        # cleanup
+        session.run_icommand('irm -f ' + filename)
+        os.unlink(filepath)

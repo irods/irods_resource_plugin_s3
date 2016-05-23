@@ -1,13 +1,16 @@
 /* -*- mode: c++; fill-column: 132; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
-#ifndef _LIBEIRODS_S3_H_
-#define _LIBEIRODS_S3_H_
+#ifndef _LIBIRODS_S3_HPP_
+#define _LIBIRODS_S3_HPP_
 
-#include <rodsType.hpp>
+#include <rodsType.h>
 #include <rodsDef.h>
 #include <libs3.h>
 
 #define S3_AUTH_FILE "s3Auth"
+#define ARCHIVE_NAMING_POLICY_KW    "ARCHIVE_NAMING_POLICY"
+#define CONSISTENT_NAMING           "consistent"
+#define DECOUPLED_NAMING            "decoupled"
 
 typedef struct S3Auth {
     char accessKeyId[MAX_NAME_LEN];
@@ -69,4 +72,4 @@ typedef struct multirange_data
 } multirange_data_t;
 
 
-#endif // _LIBEIRODS_S3_H_
+#endif // _LIBIRODS_S3_HPP_
