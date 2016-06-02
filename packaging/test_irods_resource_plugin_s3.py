@@ -19,7 +19,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         hostname = lib.get_hostname()
         with lib.make_session_for_existing_admin() as admin_session:
             keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
-            bucketname=os.environ.get('S3BUCKET', 'irods-ci')
+            s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
             s3stsdate=''
             s3params='S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE='+keypairfile+';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE='+s3stsdate
             s3params=os.environ.get('S3PARAMS', s3params);
