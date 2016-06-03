@@ -54,6 +54,9 @@ typedef struct upload_manager
 typedef struct multipart_data
 {
     int seq;                       /* Sequence number, i.e. which part */
+    int mode;                      /* PUT or COPY */
+    S3BucketContext *pSrcCtx;      /* Source bucket context, ignored in a PUT */
+    const char *srcKey;            /* Source key, ignored in a PUT */
     callback_data put_object_data; /* File being uploaded */
     upload_manager_t *manager;     /* To update w/the MD5 returned */
 
