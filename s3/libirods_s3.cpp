@@ -835,7 +835,7 @@ extern "C" {
                             S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
                             unsigned long long usEnd = usNow();
                             double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
-                            rodsLog( LOG_NOTICE, "GETBW=%lf", bw);
+                            rodsLog( LOG_DEBUG, "GETBW=%lf", bw);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
                         if (data.status != S3StatusOK) {
@@ -904,7 +904,7 @@ extern "C" {
                         }
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
-                        rodsLog( LOG_STATUS, "MultirangeBW=%lf", bw);
+                        rodsLog( LOG_DEBUG, "MultirangeBW=%lf", bw);
 
                         if (!g_mrdResult.ok()) {
                             // Someone aborted after we started, delete the partial object on S3
@@ -1148,7 +1148,7 @@ extern "C" {
                     S3ResponseHandler copyResponseHandler = {mpuInitRespPropCB /*Do nothing*/, mpuPartRespCompCB};
                     int64_t lastModified;
                     // The default copy callback tries to set this for us, need to allocate here
-                    partData.manager->etags[seq-1] = (char *)malloc(512); // TBD - magic #!  Isa there a max etag defined?
+                    partData.manager->etags[seq-1] = (char *)malloc(512); // TBD - magic #!  Is there a max etag defined?
                     S3_copy_object_range(partData.pSrcCtx, partData.srcKey, bucketContext.bucketName, g_mpuKey,
                          seq, g_mpuUploadId,
                          startOffset, count,
@@ -1166,7 +1166,7 @@ extern "C" {
                     free( putProps );
                 }
                 msg << " -- END -- BW=" << bw << " MB/s";
-                rodsLog( LOG_NOTICE, msg.str().c_str() );
+                rodsLog( LOG_DEBUG, msg.str().c_str() );
                 if (partData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
             } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt < g_retry_count));
             if (partData.status != S3StatusOK) {
@@ -1263,7 +1263,7 @@ extern "C" {
                             S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, &putObjectHandler, &data);
                             unsigned long long usEnd = usNow();
                             double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
-                            rodsLog( LOG_NOTICE, "BW=%lf", bw);
+                            rodsLog( LOG_DEBUG, "BW=%lf", bw);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
                         if (data.status != S3StatusOK) {
@@ -1432,7 +1432,7 @@ extern "C" {
 
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
-                        rodsLog( LOG_STATUS, "MultipartBW=%lf", bw);
+                        rodsLog( LOG_DEBUG, "MultipartBW=%lf", bw);
 
                         manager.remaining = 0;
                         manager.offset  = 0;
