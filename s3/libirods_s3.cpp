@@ -88,6 +88,8 @@ const std::string s3_mpu_chunk = "S3_MPU_CHUNK";
 const std::string s3_mpu_threads = "S3_MPU_THREADS";
 const std::string s3_enable_md5 = "S3_ENABLE_MD5";
 const std::string s3_server_encrypt = "S3_SERVER_ENCRYPT";
+const std::string s3_signature_version = "S3_SIGNATURE_VERSION";
+const std::string s3_region_name = "S3_REGIONNAME";
 
 // For s3PutCopyFile to identify the real source type
 typedef enum { S3_PUTFILE, S3_COPYOBJECT } s3_putcopy;
@@ -388,6 +390,21 @@ extern "C" {
         return result;
     }
 
+    // Get S3 Signature version from plugin property map
+    static S3SignatureVersion s3GetSignatureVersion (irods::plugin_property_map& _prop_map)
+    {
+        std::string version_str;
+
+        irods::error ret = _prop_map.get< std::string >(s3_signature_version, version_str);
+        if (ret.ok()) {
+            if (version_str == "4" || boost::iequals(version_str, "V4")) {
+                return S3SignatureV4;
+            }
+        }
+
+        return S3SignatureV2; // default
+    }
+
     irods::error readS3AuthInfo (
         const std::string& _filename,
         std::string& _rtn_key_id,
@@ -527,9 +544,15 @@ extern "C" {
             size_t ctr = 0;
             while( ctr < g_retry_count ) {
                 int status = 0;
+                int flags = S3_INIT_ALL;
+                S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
+
+                if (signature_version == S3SignatureV4) {
+                    flags |= S3_INIT_SIGNATURE_V4;
+                }
 
                 const char* host_name = s3GetHostname();  // Iterate through on each try
-                status = S3_initialize( "s3", S3_INIT_ALL, host_name );
+                status = S3_initialize( "s3", flags, host_name );
 
                 std::stringstream msg;
                 if( status >= 0 ) {
@@ -541,6 +564,23 @@ extern "C" {
                 result = ASSERT_ERROR(status == S3StatusOK, status, "Error initializing the S3 library. Status = %d.",
                                       status, msg.str().c_str());
                 if( result.ok() ) {
+
+                    // If using V4 we also need to set the S3 region name
+                    if (signature_version == S3SignatureV4) {
+                        std::string region_name = "us-east-1";
+
+                        // Get S3 region name from plugin property map
+                        if (!_prop_map.get< std::string >(s3_region_name, region_name ).ok()) {
+                            rodsLog( LOG_ERROR, "Failed to retrieve S3 region name from resource plugin properties, using 'us-east-1'");
+                        }
+
+                        S3Status status = S3_set_region_name(region_name.c_str());
+                        if (status != S3StatusOK) {
+                            rodsLog(LOG_ERROR, "failed to set region name to %s: %s", region_name.c_str(), S3_get_status_name(status));
+                            return ERROR(S3_INIT_ERROR, "S3_set_region_name() failed.");
+                        }
+                    }
+
                     break;
                 }
 

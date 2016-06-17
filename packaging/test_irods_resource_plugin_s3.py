@@ -22,8 +22,12 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
             self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
             s3stsdate='date'
+            s3region='us-east-1'
+            s3signature_version=4
             s3params=( 'S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=' +  keypairfile +
                        ';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE=' + s3stsdate +
+                       ';S3_REGIONNAME=' + s3region +
+                       ';S3_SIGNATURE_VERSION=' + str(s3signature_version) +
                        ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
             )
             s3params=os.environ.get('S3PARAMS', s3params);
