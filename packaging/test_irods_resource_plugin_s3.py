@@ -23,7 +23,7 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
             s3stsdate='date'
             s3region='us-east-1'
-            s3signature_version=4
+            s3signature_version=2
             s3params=( 'S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=' +  keypairfile +
                        ';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE=' + s3stsdate +
                        ';S3_REGIONNAME=' + s3region +
@@ -320,3 +320,29 @@ class Test_Compound_with_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # cleanup
         session.run_icommand('irm -f ' + filename)
         os.unlink(filepath)
+
+
+class Test_Compound_with_S3_Resource_eu_central_1(Test_Compound_with_S3_Resource):
+    def setUp(self):
+        hostname = lib.get_hostname()
+        with lib.make_session_for_existing_admin() as admin_session:
+            self.archive_naming_policy='decoupled'
+            keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+            self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci-eu-central-1')
+            s3stsdate='date'
+            s3region='eu-central-1'
+            s3signature_version=4
+            s3params=( 'S3_DEFAULT_HOSTNAME=s3.eu-central-1.amazonaws.com;S3_AUTH_FILE=' +  keypairfile +
+                       ';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE=' + s3stsdate +
+                       ';S3_REGIONNAME=' + s3region +
+                       ';S3_SIGNATURE_VERSION=' + str(s3signature_version) +
+                       ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+            )
+            s3params=os.environ.get('S3PARAMS', s3params);
+            admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
+            admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
+            admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' "+hostname+":/var/lib/irods/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
+            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
+            admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
+            admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
+        super(Test_Compound_with_S3_Resource, self).setUp()
