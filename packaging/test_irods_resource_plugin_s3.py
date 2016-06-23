@@ -328,6 +328,9 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
 
 class Test_Compound_With_S3_Resource_EU_Central_1(Test_Compound_With_S3_Resource):
+    '''
+    This also tests signature V4 with the x-amz-date header.
+    '''
     def __init__(self, *args, **kwargs):
         self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
         self.archive_naming_policy='decoupled'
@@ -347,4 +350,15 @@ class Test_Compound_With_S3_Resource_STSDate_Header(Test_Compound_With_S3_Resour
         self.s3region='us-east-1'
         self.s3endPoint='s3.amazonaws.com'
         self.s3signature_version=2
+        super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
+
+class Test_Compound_With_S3_Resource_STSDate_Header_V4(Test_Compound_With_S3_Resource):
+    def __init__(self, *args, **kwargs):
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.archive_naming_policy='decoupled'
+        self.s3stsdate='date'
+        self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3signature_version=4
         super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
