@@ -1945,6 +1945,9 @@ extern "C" {
                 }
             }
         }
+        if( !result.ok() ) {
+            irods::log( result );
+        }
         return result;
     }
         
