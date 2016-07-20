@@ -3,6 +3,9 @@ import os
 import re
 import shutil
 import subprocess
+import platform
+import datetime
+import boto3
 
 import sys
 if sys.version_info >= (2,7):
@@ -19,7 +22,6 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
         self.archive_naming_policy='decoupled'
         self.s3stsdate=''
-        self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
         self.s3region='us-east-1'
         self.s3endPoint='s3.amazonaws.com'
         self.s3signature_version=2
@@ -27,6 +29,22 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
     def setUp(self):
         hostname = lib.get_hostname()
+
+        # set up aws configuration
+        self.set_up_aws_config_dir()
+
+        # set up s3 bucket
+        s3 = boto3.resource('s3', region_name=self.s3region)
+        distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
+        self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f')
+        self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
+        if self.s3region == 'us-east-1':
+            self.bucket = s3.create_bucket(Bucket=self.s3bucketname)
+        else:
+            self.bucket = s3.create_bucket(Bucket=self.s3bucketname,
+                                           CreateBucketConfiguration={'LocationConstraint': self.s3region})
+
+        # set up resources
         with lib.make_session_for_existing_admin() as admin_session:
             s3params=( 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint +
                        ';S3_AUTH_FILE=' +  self.keypairfile +
@@ -46,6 +64,13 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
     def tearDown(self):
         super(Test_Compound_With_S3_Resource, self).tearDown()
+
+        # delete s3 bucket
+        for obj in self.bucket.objects.all():
+            obj.delete()
+        self.bucket.delete()
+
+        # tear down resources
         with lib.make_session_for_existing_admin() as admin_session:
             admin_session.assert_icommand("iadmin rmchildfromresc demoResc archiveResc")
             admin_session.assert_icommand("iadmin rmchildfromresc demoResc cacheResc")
@@ -55,6 +80,31 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
         shutil.rmtree(lib.get_irods_top_level_dir() + "/archiveRescVault", ignore_errors=True)
         shutil.rmtree(lib.get_irods_top_level_dir() + "/cacheRescVault", ignore_errors=True)
+
+    def set_up_aws_config_dir(self):
+        # read access keys from keypair file
+        with open(self.keypairfile) as f:
+            aws_access_key_id = f.readline().rstrip()
+            aws_secret_access_key = f.readline().rstrip()
+
+        # make config dir
+        aws_cfg_dir_path = os.path.join(os.path.expanduser('~'), '.aws')
+        try:
+            os.makedirs(aws_cfg_dir_path)
+        except OSError:
+            if not os.path.isdir(aws_cfg_dir_path):
+                raise
+
+        # make config file
+        with open(os.path.join(aws_cfg_dir_path, 'config'), 'w') as cfg_file:
+            cfg_file.write('[default]\n')
+            cfg_file.write('region=us-east-1\n')
+
+        # make credentials file
+        with open(os.path.join(aws_cfg_dir_path, 'credentials'), 'w') as cred_file:
+            cred_file.write('[default]\n')
+            cred_file.write('aws_access_key_id = ' + aws_access_key_id + '\n')
+            cred_file.write('aws_secret_access_key = ' + aws_secret_access_key + '\n')
 
     def test_irm_specific_replica(self):
         self.admin.assert_icommand("ils -L "+self.testfile,'STDOUT_SINGLELINE',self.testfile) # should be listed
@@ -335,7 +385,6 @@ class Test_Compound_With_S3_Resource_EU_Central_1(Test_Compound_With_S3_Resource
         self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
         self.archive_naming_policy='decoupled'
         self.s3stsdate=''
-        self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci-eu-central-1')
         self.s3region='eu-central-1'
         self.s3endPoint='s3.eu-central-1.amazonaws.com'
         self.s3signature_version=4
@@ -346,7 +395,6 @@ class Test_Compound_With_S3_Resource_STSDate_Header(Test_Compound_With_S3_Resour
         self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
         self.archive_naming_policy='decoupled'
         self.s3stsdate='date'
-        self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
         self.s3region='us-east-1'
         self.s3endPoint='s3.amazonaws.com'
         self.s3signature_version=2
@@ -357,7 +405,6 @@ class Test_Compound_With_S3_Resource_STSDate_Header_V4(Test_Compound_With_S3_Res
         self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
         self.archive_naming_policy='decoupled'
         self.s3stsdate='date'
-        self.s3bucketname=os.environ.get('S3BUCKET', 'irods-ci')
         self.s3region='us-east-1'
         self.s3endPoint='s3.amazonaws.com'
         self.s3signature_version=4
