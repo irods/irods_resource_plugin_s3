@@ -36,6 +36,11 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # set up s3 bucket
         s3 = boto3.resource('s3', region_name=self.s3region)
         distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
+
+        # skip ssl tests on ub12
+        if self._testMethodName.startswith('test_ssl'):
+           self.skipTest("skipping ssl tests on ubuntu 12")
+
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f')
         self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
         if self.s3region == 'us-east-1':
