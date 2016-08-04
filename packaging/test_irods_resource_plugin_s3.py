@@ -103,7 +103,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # make config file
         with open(os.path.join(aws_cfg_dir_path, 'config'), 'w') as cfg_file:
             cfg_file.write('[default]\n')
-            cfg_file.write('region=us-east-1\n')
+            cfg_file.write('region=' + self.s3region + '\n')
 
         # make credentials file
         with open(os.path.join(aws_cfg_dir_path, 'credentials'), 'w') as cred_file:
