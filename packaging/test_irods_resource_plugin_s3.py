@@ -6,6 +6,8 @@ import subprocess
 import platform
 import datetime
 import boto3
+import random
+import string
 
 import sys
 if sys.version_info >= (2,7):
@@ -41,7 +43,8 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         if self._testMethodName.startswith('test_ssl'):
            self.skipTest("skipping ssl tests on ubuntu 12")
 
-        self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f')
+        self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
+        self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
         self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
         if self.s3region == 'us-east-1':
             self.bucket = s3.create_bucket(Bucket=self.s3bucketname)
