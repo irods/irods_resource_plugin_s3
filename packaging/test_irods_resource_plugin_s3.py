@@ -30,18 +30,16 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
 
     def setUp(self):
-        hostname = lib.get_hostname()
+        # skip ssl tests on ub12
+        distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
+        if self._testMethodName.startswith('test_ssl') and distro_str.lower().startswith('ubuntu12'):
+           self.skipTest("skipping ssl tests on ubuntu 12")
 
         # set up aws configuration
         self.set_up_aws_config_dir()
 
         # set up s3 bucket
         s3 = boto3.resource('s3', region_name=self.s3region)
-        distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
-
-        # skip ssl tests on ub12
-        if self._testMethodName.startswith('test_ssl'):
-           self.skipTest("skipping ssl tests on ubuntu 12")
 
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
         self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
@@ -53,21 +51,24 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
                                            CreateBucketConfiguration={'LocationConstraint': self.s3region})
 
         # set up resources
+        hostname = lib.get_hostname()
+        s3params=( 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint +
+                   ';S3_AUTH_FILE=' +  self.keypairfile +
+                   ';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE=' + self.s3stsdate +
+                   ';S3_REGIONNAME=' + self.s3region +
+                   ';S3_SIGNATURE_VERSION=' + str(self.s3signature_version) +
+                   ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        )
+        s3params=os.environ.get('S3PARAMS', s3params);
+
         with lib.make_session_for_existing_admin() as admin_session:
-            s3params=( 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint +
-                       ';S3_AUTH_FILE=' +  self.keypairfile +
-                       ';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE=' + self.s3stsdate +
-                       ';S3_REGIONNAME=' + self.s3region +
-                       ';S3_SIGNATURE_VERSION=' + str(self.s3signature_version) +
-                       ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
-            )
-            s3params=os.environ.get('S3PARAMS', s3params);
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
             admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' "+hostname+":/var/lib/irods/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
             admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
+
         super(Test_Compound_With_S3_Resource, self).setUp()
 
     def tearDown(self):
@@ -86,7 +87,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             admin_session.assert_icommand("iadmin rmresc cacheResc")
             admin_session.assert_icommand("iadmin rmresc demoResc")
             admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
-        shutil.rmtree(lib.get_irods_top_level_dir() + "/archiveRescVault", ignore_errors=True)
+
         shutil.rmtree(lib.get_irods_top_level_dir() + "/cacheRescVault", ignore_errors=True)
 
     def set_up_aws_config_dir(self):

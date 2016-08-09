@@ -29,6 +29,7 @@
 #include "irods_string_tokenize.hpp"
 #include "irods_hierarchy_parser.hpp"
 #include "irods_resource_redirect.hpp"
+#include "irods_kvp_string_parser.hpp"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -2526,37 +2527,21 @@ rodsLog( LOG_NOTICE, "XXXX - %s:%d arch_bucket [%s]", __FUNCTION__, __LINE__, ar
         s3_resource( const std::string& _inst_name,
                      const std::string& _context ) :
             irods::resource( _inst_name, _context ) {
-            
+
             // =-=-=-=-=-=-=-
             // parse context string into property pairs assuming a ; as a separator
             std::vector< std::string > props;
-            rodsLog(
-                LOG_DEBUG,
-                "context: %s",
-                _context.c_str());
-            irods::string_tokenize( _context, ";", props );
+            irods::kvp_map_t kvp;
+            irods::parse_kvp_string(_context, kvp);
 
             // =-=-=-=-=-=-=-
-            // parse key/property pairs using = as a separator and
-            // add them to the property list
-            std::vector< std::string >::iterator itr = props.begin();
-            for( ; itr != props.end(); ++itr ) {
-                // =-=-=-=-=-=-=-
-                // break up key and value into two strings
-                std::vector< std::string > vals;
-                irods::string_tokenize( *itr, "=", vals );
-
-                // =-=-=-=-=-=-=-
-                // break up key and value into two strings
-                rodsLog(
-                    LOG_DEBUG,
-                    "vals: %s %s",
-                    vals[0].c_str(),
-                    vals[1].c_str());
-
-                properties_[ vals[0] ] = vals[1];
-
-            } // for itr 
+            // copy the properties from the context to the prop map
+            irods::kvp_map_t::iterator itr = kvp.begin();
+            for( ; itr != kvp.end(); ++itr ) {
+                properties_.set< std::string >(
+                    itr->first,
+                    itr->second );
+            } // for itr
 
             // Add start and stop operations
             set_start_operation( "s3StartOperation" );
