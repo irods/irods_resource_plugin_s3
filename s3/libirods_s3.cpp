@@ -14,6 +14,7 @@
 #include <rodsLog.h>
 #include <rodsErrorTable.h>
 #include <objInfo.h>
+#include <modDataObjMeta.h>
 
 #ifdef USING_JSON
 #include <json/json.h>
@@ -2084,6 +2085,55 @@ extern "C" {
         return ERROR( SYS_NOT_SUPPORTED, "s3FileCopyPlugin" );
     }
 
+    irods::error s3_move_to_bucket(
+        irods::resource_plugin_context& _ctx,
+        irods::file_object_ptr          _obj,
+        const std::string&              _from,
+        const std::string&              _to,
+        std::string&                    _arch_path) {
+        std::string key_id;
+        std::string access_key;
+        irods::error ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+
+        // build the new archive path
+        std::string arch_path = _obj->physical_path();
+        std::string::size_type pos = arch_path.find(_from);
+        if( std::string::npos == pos ) {
+            std::string msg = "object bucket [";
+            msg += _from + "] not found in phy path [" + arch_path + "]";
+            return ERROR(
+                    SYS_INVALID_FILE_PATH,
+                    msg );
+        }
+        arch_path = arch_path.replace(pos, _from.size(), _to);
+
+        rodsLog( LOG_NOTICE, "XXXX - copy [%s] to [%s]", _obj->physical_path().c_str(), arch_path.c_str());
+        // copy the file to the new location
+        ret = s3CopyFile(
+                _ctx,
+                _obj->physical_path(),
+                arch_path,
+                key_id,
+                access_key,
+                s3GetProto(
+                    _ctx.prop_map()),
+                s3GetSTSDate(_ctx.prop_map()));
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+
+        // delete the old file
+        ret = s3FileUnlinkPlugin(_ctx);
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+        _arch_path = arch_path;
+        return SUCCESS();
+
+    } // s3_move_to_bucket
 
     // =-=-=-=-=-=-=-
     // s3StageToCache - This routine is for testing the TEST_STAGE_FILE_TYPE.
@@ -2094,7 +2144,7 @@ extern "C" {
         char*                               _cache_file_name )
     {
         irods::error result = SUCCESS();
-
+rodsLog( LOG_NOTICE, "XXXX - %s:%d START", __FUNCTION__, __LINE__ );
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -2105,6 +2155,30 @@ extern "C" {
             std::string access_key;
             
             irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+            // if the S3 plugin is supporting the archive option check the phypath to see if this
+            // data object is in the deep object archive
+            std::string arch_bucket;
+            ret = _ctx.prop_map().get<std::string>("arch_bucket", arch_bucket);
+            if(ret.ok()) {
+rodsLog( LOG_NOTICE, "XXXX - %s:%d arch_bucket [%s]", __FUNCTION__, __LINE__, arch_bucket.c_str() );
+                std::string::size_type pos = object->physical_path().find(arch_bucket);
+                if(std::string::npos != pos) {
+
+                    // XXXX - TODO:: check for progress with new endpoint here
+
+                    std::string obj_bucket;
+                    ret = _ctx.prop_map().get<std::string>("obj_bucket", obj_bucket);
+                    if(!ret.ok()) {
+                        return PASS(ret);
+                    }
+                    std::string arch_path;
+                    ret = s3_move_to_bucket(_ctx, object, arch_bucket, obj_bucket, arch_path);
+                    if(!ret.ok()) {
+                        return PASS(ret);
+                    }
+                }
+            }
 
             ret = s3FileStatPlugin(_ctx, &statbuf);
             if((result = ASSERT_PASS(ret, "Failed stating the file: \"%s\".",
@@ -2368,6 +2442,81 @@ extern "C" {
 
     } // s3FileRebalance
 
+    irods::error s3_archive_object(
+        irods::resource_plugin_context& _ctx ) {
+        irods::error ret = _ctx.valid< irods::file_object >();
+        if ( !ret.ok() ) {
+
+            msg << "resource context is invalid";
+            return PASSMSG( msg.str(), ret );
+        }
+
+        std::string arch_bucket;
+        ret = _ctx.prop_map().get<std::string>("arch_bucket", arch_bucket);
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+
+        std::string obj_bucket;
+        ret = _ctx.prop_map().get<std::string>("obj_bucket", obj_bucket);
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+
+        std::string key_id;
+        std::string access_key;
+        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+
+        irods::file_object_ptr object = boost::dynamic_pointer_cast<
+                                            irods::file_object>(_ctx.fco());
+
+        std::string arch_path;
+        ret = s3_move_to_bucket(_ctx, object, obj_bucket, arch_bucket, arch_path);
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+
+        dataObjInfo_t obj_info;
+        memset(&obj_info,0,sizeof(obj_info));
+
+        rstrcpy(obj_info.objPath, object->logical_path().c_str(), MAX_NAME_LEN);
+
+        keyValPair_t reg_param;
+        memset(&reg_param,0,sizeof(reg_param));
+        addKeyVal(&reg_param, FILE_PATH_KW, arch_path.c_str());
+
+        modDataObjMeta_t mod_inp;
+        memset(&mod_inp,0,sizeof(mod_inp));
+        mod_inp.dataObjInfo = &obj_info;
+        mod_inp.regParam    = &reg_param;
+
+        int status = rsModDataObjMeta(_ctx.comm(), &mod_inp);
+        if(status < 0 ) {
+            return ERROR(
+                       status,
+                       "rsModDataObjMeta failed");
+        }
+
+        return SUCCESS();
+
+    } // s3_archive_object
+
+    // delegate this operation directly to the archive object
+    irods::error s3_restore_object(
+        irods::resource_plugin_context& _ctx ) {
+        irods::error ret = _ctx.valid< irods::file_object >();
+        if ( !ret.ok() ) {
+            std::stringstream msg;
+            msg << "resource context is invalid";
+            return PASSMSG( msg.str(), ret );
+        }
+
+        return SUCCESS();
+
+    } // s3_restore_object
 
     class s3_resource : public irods::resource {
     public:
@@ -2462,6 +2611,9 @@ extern "C" {
         resc->add_operation( irods::RESOURCE_OP_MODIFIED,     "s3ModifiedPlugin" );
         resc->add_operation( irods::RESOURCE_OP_RESOLVE_RESC_HIER, "s3RedirectPlugin" );
         resc->add_operation( irods::RESOURCE_OP_REBALANCE,         "s3FileRebalance" );
+
+        resc->add_operation( "resource_archive_object",       "s3_archive_object" );
+        resc->add_operation( "resource_restore_object",       "s3_restore_object" );
 
         // set some properties necessary for backporting to iRODS legacy code
         resc->set_property< int >( "check_path_perm", DO_CHK_PATH_PERM );
