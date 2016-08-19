@@ -38,6 +38,7 @@
 #include <vector>
 #include <string>
 #include <ctime>
+#include <cmath>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -82,6 +83,7 @@ const std::string s3_default_hostname = "S3_DEFAULT_HOSTNAME";
 const std::string s3_auth_file = "S3_AUTH_FILE";
 const std::string s3_key_id = "S3_ACCESS_KEY_ID";
 const std::string s3_access_key = "S3_SECRET_ACCESS_KEY";
+const std::string s3_auth_token = "S3_AUTH_TOKEN";
 const std::string s3_retry_count = "S3_RETRY_COUNT";
 const std::string s3_wait_time_sec = "S3_WAIT_TIME_SEC";
 const std::string s3_proto = "S3_PROTO";
@@ -232,6 +234,51 @@ extern "C" {
         return ret;
     }
 
+    // Get property value by name from S3ResponseProperties
+    static void get_response_property_value(
+            const S3ResponseProperties *properties,
+            const std::string& name,
+            std::string& value)
+    {
+        for (int i=0; i<properties->metaDataCount; ++i) {
+            const S3NameValue *property = &(properties->metaData[i]);
+            if (property->name && !strcmp(property->name, name.c_str())) {
+                value = property->value;
+            }
+        }
+    }
+
+    // For debugging
+    static void log_response_properties(const S3ResponseProperties *properties)
+    {
+        rodsLog( LOG_NOTICE, "S3ResponseProperties: metaDataCount = [%d]", properties->metaDataCount);
+
+        for (int i=0; i<properties->metaDataCount; ++i) {
+            rodsLog( LOG_NOTICE, "S3ResponseProperties: metadata[%d].name = [%s], metadata[%d].value = [%s]",
+                    i, properties->metaData[i].name, i, properties->metaData[i].value);
+        }
+    }
+
+    static std::string get_auth_token_from_property_map(irods::plugin_property_map& _prop_map) {
+        std::string auth_token;
+        irods::error ret = _prop_map.get<std::string>(s3_auth_token, auth_token);
+        return auth_token;
+    }
+
+    // Set up OSCS url for use in bucketContext
+    // e.g: "em2.storage.oraclecloud.com/v1/Storage-mydomain"
+    static std::string make_bucket_context_url(
+            const std::string& hostname,
+            APIVersion version,
+            const std::string& key_id)
+    {
+        // if key_id is domain:account
+        // only use domain in url
+        size_t pos = key_id.find(':');
+        std::stringstream url;
+        url << hostname << "/v" << version << "/" << key_id.substr(0, pos);
+        return url.str();
+    }
 
     // Callbacks for S3
     static void StoreAndLogStatus (
@@ -278,6 +325,7 @@ extern "C" {
         const S3ResponseProperties *properties,
         void *callbackData)
     {
+        ((callback_data_t *)callbackData)->responseProperties = (S3ResponseProperties *)properties;
         return S3StatusOK;
     }
 
@@ -407,6 +455,32 @@ extern "C" {
 
         return S3SignatureV2; // default
     }
+
+
+    static irods::error s3GetAuthCredentials(
+        irods::plugin_property_map& _prop_map,
+        std::string& _rtn_key_id,
+        std::string& _rtn_access_key)
+    {
+        irods::error result = SUCCESS();
+        irods::error ret;
+        std::string key_id;
+        std::string access_key;
+
+        ret = _prop_map.get<std::string>(s3_key_id, key_id);
+        if((result = ASSERT_PASS(ret, "Failed to get the S3 access key id property.")).ok()) {
+
+            ret = _prop_map.get<std::string>(s3_access_key, access_key);
+            if((result = ASSERT_PASS(ret, "Failed to get the S3 secret access key property.")).ok()) {
+
+                _rtn_key_id = key_id;
+                _rtn_access_key = access_key;
+            }
+        }
+
+        return result;
+    }
+
 
     irods::error readS3AuthInfo (
         const std::string& _filename,
@@ -601,6 +675,39 @@ extern "C" {
             if( result.ok() ) {         
                 S3Initialized = true;
             }
+
+            // request authentication token
+            // TODO: move this code somewhere else
+            std::string access_key_id;
+            std::string secret_access_key;
+
+            // Get access key id and secret access key
+            ret = s3GetAuthCredentials(_prop_map, access_key_id, secret_access_key);
+            if(!ret.ok()) {
+                return PASS(ret);
+            }
+
+            callback_data_t data;
+            memset(&data, 0, sizeof(callback_data_t));
+
+            S3ResponseHandler responseHandler =
+            {
+                &responsePropertiesCallback,
+                &responseCompleteCallback
+            };
+
+            S3_request_auth_token(access_key_id.c_str(), secret_access_key.c_str(), &responseHandler, &data);
+
+            std::string auth_token;
+
+            get_response_property_value(data.responseProperties, "Auth-Token", auth_token);
+
+            ret = _prop_map.set<std::string>(s3_auth_token, auth_token);
+            if(!ret.ok()) {
+                return PASS(ret);
+            }
+            // request authentication token
+
 
         } // if !init
 
@@ -871,6 +978,14 @@ extern "C" {
                         return PASS(ret);
                     } 
 
+                    // oracle
+                    std::string auth_token;
+                    ret = _prop_map.get<std::string>(s3_auth_token, auth_token);
+                    if(!ret.ok()) {
+                        return PASS(ret);
+                    }
+                    // oracle
+
                     callback_data_t data;
                     S3BucketContext bucketContext;
 
@@ -879,8 +994,7 @@ extern "C" {
                     bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.stsDate = s3GetSTSDate(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
-                    bucketContext.accessKeyId = _key_id.c_str();
-                    bucketContext.secretAccessKey = _access_key.c_str();
+                    bucketContext.securityToken = auth_token.c_str();
 
                     long chunksize = s3GetMPUChunksize( _prop_map );
 
@@ -896,7 +1010,8 @@ extern "C" {
                             data.fd = cache_fd;
                             data.contentLength = data.originalContentLength = _fileSize;
                             unsigned long long usStart = usNow();
-                            bucketContext.hostName = s3GetHostname();  // Iterate different one on each try
+                            //bucketContext.hostName = s3GetHostname();  // Iterate different one on each try
+                            bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion1, _key_id).c_str();
                             data.pCtx = &bucketContext;
                             S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
                             unsigned long long usEnd = usNow();
@@ -1302,8 +1417,7 @@ extern "C" {
                     bucketContext.protocol = s3GetProto(_prop_map);
                     bucketContext.stsDate = s3GetSTSDate(_prop_map);
                     bucketContext.uriStyle = S3UriStylePath;
-                    bucketContext.accessKeyId = _key_id.c_str();
-                    bucketContext.secretAccessKey = _access_key.c_str();
+                    bucketContext.securityToken = get_auth_token_from_property_map(_prop_map).c_str();
 
 
                     S3PutProperties *putProps = NULL;
@@ -1327,7 +1441,8 @@ extern "C" {
                             data.pCtx = &bucketContext;
 
                             unsigned long long usStart = usNow();
-                            bucketContext.hostName = s3GetHostname();
+                            //bucketContext.hostName = s3GetHostname();
+                            bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion1, _key_id).c_str();
                             S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, &putObjectHandler, &data);
                             unsigned long long usEnd = usNow();
                             double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
@@ -1623,8 +1738,16 @@ extern "C" {
                     bucketContext.protocol = _proto;
                     bucketContext.stsDate = _stsDate;
                     bucketContext.uriStyle = S3UriStylePath;
-                    bucketContext.accessKeyId = _key_id.c_str();
-                    bucketContext.secretAccessKey = _access_key.c_str();
+
+                    // oracle
+                    bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion1, _key_id).c_str();
+                    std::string auth_token;
+                    ret = _src_ctx.prop_map().get<std::string>(s3_auth_token, auth_token);
+                    if(!ret.ok()) {
+                        return PASS(ret);
+                    }
+                    bucketContext.securityToken = auth_token.c_str();
+                    // oracle
 
                     S3ResponseHandler responseHandler = {
                         &responsePropertiesCallback,
@@ -1639,7 +1762,6 @@ extern "C" {
                     size_t retry_cnt = 0;
                     do {
                         bzero (&data, sizeof (data));
-                        bucketContext.hostName = s3GetHostname();
                         data.pCtx = &bucketContext;
                         S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), &putProps, &lastModified, sizeof(eTag), eTag, 0,
                                        &responseHandler, &data);
@@ -1660,31 +1782,6 @@ extern "C" {
         return result;
     }
 
-    irods::error s3GetAuthCredentials(
-        irods::plugin_property_map& _prop_map,
-        std::string& _rtn_key_id,
-        std::string& _rtn_access_key)
-    {
-        irods::error result = SUCCESS();
-        irods::error ret;
-        std::string key_id;
-        std::string access_key;
-
-        ret = _prop_map.get<std::string>(s3_key_id, key_id);
-        if((result = ASSERT_PASS(ret, "Failed to get the S3 access key id property.")).ok()) {
-
-            ret = _prop_map.get<std::string>(s3_access_key, access_key);
-            if((result = ASSERT_PASS(ret, "Failed to get the S3 secret access key property.")).ok()) {
-
-                _rtn_key_id = key_id;
-                _rtn_access_key = access_key;
-            }
-        }
-
-        return result;
-    }
-    //
-    //////////////////////////////////////////////////////////////////////
 
     // =-=-=-=-=-=-=-
     /// @brief Checks the basic operation parameters and updates the physical path in the file object
@@ -1846,14 +1943,14 @@ extern "C" {
                         bucketContext.protocol = s3GetProto(_ctx.prop_map());
                         bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
                         bucketContext.uriStyle = S3UriStylePath;
-                        bucketContext.accessKeyId = key_id.c_str();
-                        bucketContext.secretAccessKey = access_key.c_str();
+                        bucketContext.securityToken = get_auth_token_from_property_map(_ctx.prop_map()).c_str();
 
                         S3ResponseHandler responseHandler = { 0, &responseCompleteCallback };
                         size_t retry_cnt = 0;
                         do {
                             bzero (&data, sizeof (data));
-                            bucketContext.hostName = s3GetHostname();
+                            //bucketContext.hostName = s3GetHostname();
+                            bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion1, key_id).c_str();
                             data.pCtx = &bucketContext;
                             S3_delete_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
@@ -1920,30 +2017,63 @@ extern "C" {
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                         if((result = ASSERT_PASS(ret, "Failed to get the S3 credentials properties.")).ok()) {
 
-                            callback_data_t data;
+
+                            // oracle
+                            std::string auth_token;
+                            ret = _ctx.prop_map().get<std::string>(s3_auth_token, auth_token);
+                            if(!ret.ok()) {
+                                return PASS(ret);
+                            }
+                            // oracle
+
+//                            callback_data_t data;
+//                            S3BucketContext bucketContext;
+//
+//                            bzero (&bucketContext, sizeof (bucketContext));
+//                            bucketContext.bucketName = bucket.c_str();
+//                            bucketContext.protocol = s3GetProto(_ctx.prop_map());
+//                            bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+//                            bucketContext.uriStyle = S3UriStylePath;
+//                            bucketContext.accessKeyId = key_id.c_str();
+//                            bucketContext.secretAccessKey = access_key.c_str();
+//                            bucketContext.securityToken = auth_token.c_str();
+//
+//                            S3ListBucketHandler listBucketHandler = {
+//                                { &responsePropertiesCallback, &responseCompleteCallback },
+//                                &listBucketCallback
+//                            };
+
+                            ///// replace list bucket with head
                             S3BucketContext bucketContext;
 
-                            bzero (&bucketContext, sizeof (bucketContext));
+                            memset(&bucketContext, 0, sizeof(S3BucketContext));
+                            bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion1, key_id).c_str();
                             bucketContext.bucketName = bucket.c_str();
                             bucketContext.protocol = s3GetProto(_ctx.prop_map());
-	                    bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+                            bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
                             bucketContext.uriStyle = S3UriStylePath;
-                            bucketContext.accessKeyId = key_id.c_str();
-                            bucketContext.secretAccessKey = access_key.c_str();
+                            bucketContext.securityToken = auth_token.c_str();
 
-                            S3ListBucketHandler listBucketHandler = {
-                                { &responsePropertiesCallback, &responseCompleteCallback },
-                                &listBucketCallback
+                            callback_data_t data;
+                            memset(&data, 0, sizeof(callback_data_t));
+
+                            S3ResponseHandler responseHandler =
+                            {
+                                &responsePropertiesCallback,
+                                &responseCompleteCallback
                             };
+                            ////////////
 
                             data.keyCount = 0;
 
                             size_t retry_cnt = 0;
                             do {
                                 bzero (&data, sizeof (data));
-                                bucketContext.hostName = s3GetHostname();
+                                bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion1, key_id).c_str();
+                                //bucketContext.hostName = s3GetHostname();
                                 data.pCtx = &bucketContext;
-                                S3_list_bucket(&bucketContext, key.c_str(), NULL, NULL, 1, 0, &listBucketHandler, &data);
+                                // S3_list_bucket(&bucketContext, key.c_str(), NULL, NULL, 1, 0, &listBucketHandler, &data);
+                                S3_head_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
                                 if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                             } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
 
@@ -1956,23 +2086,41 @@ extern "C" {
                                 result = ERROR(S3_FILE_STAT_ERR, msg.str());
                             }
 
-                            else if(data.keyCount > 0) {
-                                _statbuf->st_mode = S_IFREG;
-                                _statbuf->st_nlink = 1;
-                                _statbuf->st_uid = getuid ();
-                                _statbuf->st_gid = getgid ();
-                                _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = data.s3Stat.lastModified;
-                                _statbuf->st_size = data.s3Stat.size;
-                            }
+//                            // log tracking info
+//                            log_response_properties(data.responseProperties);
 
-                            else {
-                                std::stringstream msg;
-                                msg << __FUNCTION__;
-                                msg << " - S3 object not found: \"";
-                                msg << _object->physical_path();
-                                msg << "\"";
-                                result = ERROR(S3_FILE_STAT_ERR, msg.str());
-                            }
+                            // get last modified date from response properties
+                            std::string last_modified;
+                            get_response_property_value(data.responseProperties, "Last-Modified-Timestamp", last_modified);
+                            int64_t ts = (int64_t)rint(strtod(last_modified.c_str(), NULL));
+
+                            _statbuf->st_mode = S_IFREG;
+                            _statbuf->st_nlink = 1;
+                            _statbuf->st_uid = getuid ();
+                            _statbuf->st_gid = getgid ();
+                            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = ts;
+                            _statbuf->st_size = data.responseProperties->contentLength;
+
+
+                            // shouldn't look at keyCount if using HEAD
+                            // if object is not found we won't get S3StatusOK
+//                            else if(data.keyCount > 0) {
+//                                _statbuf->st_mode = S_IFREG;
+//                                _statbuf->st_nlink = 1;
+//                                _statbuf->st_uid = getuid ();
+//                                _statbuf->st_gid = getgid ();
+//                                _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = data.s3Stat.lastModified;
+//                                _statbuf->st_size = data.s3Stat.size;
+//                            }
+//
+//                            else {
+//                                std::stringstream msg;
+//                                msg << __FUNCTION__;
+//                                msg << " - S3 object not found: \"";
+//                                msg << _object->physical_path();
+//                                msg << "\"";
+//                                result = ERROR(S3_FILE_STAT_ERR, msg.str());
+//                            }
                         }
                     }
                 }
@@ -2176,10 +2324,10 @@ extern "C" {
     // is not used.
     irods::error s3StageToCachePlugin(
         irods::resource_plugin_context& _ctx,
-        char*                               _cache_file_name )
+        char* _cache_file_name )
     {
         irods::error result = SUCCESS();
-rodsLog( LOG_NOTICE, "XXXX - %s:%d START", __FUNCTION__, __LINE__ );
+        rodsLog( LOG_NOTICE, "XXXX - %s:%d START", __FUNCTION__, __LINE__ );
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -2196,24 +2344,131 @@ rodsLog( LOG_NOTICE, "XXXX - %s:%d START", __FUNCTION__, __LINE__ );
             std::string arch_bucket;
             ret = _ctx.prop_map().get<std::string>("arch_bucket", arch_bucket);
             if(ret.ok()) {
-rodsLog( LOG_NOTICE, "XXXX - %s:%d arch_bucket [%s]", __FUNCTION__, __LINE__, arch_bucket.c_str() );
                 std::string::size_type pos = object->physical_path().find(arch_bucket);
                 if(std::string::npos != pos) {
 
-                    // XXXX - TODO:: check for progress with new endpoint here
 
-                    std::string obj_bucket;
-                    ret = _ctx.prop_map().get<std::string>("obj_bucket", obj_bucket);
+                    //// move some of that to s3_restore_object()
+
+                    ret = s3Init( _ctx.prop_map() );
+
+                    // oracle
+                    std::string auth_token;
+                    ret = _ctx.prop_map().get<std::string>(s3_auth_token, auth_token);
                     if(!ret.ok()) {
                         return PASS(ret);
                     }
-                    std::string arch_path;
-                    ret = s3_move_to_bucket(_ctx, object, arch_bucket, obj_bucket, arch_path);
+                    // oracle
+
+
+                    ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                     if(!ret.ok()) {
                         return PASS(ret);
                     }
+
+                    std::string bucket;
+                    std::string key;
+                    ret = parseS3Path(object->physical_path(), bucket, key);
+
+                    S3BucketContext bucketContext;
+
+                    memset(&bucketContext, 0, sizeof(S3BucketContext));
+                    bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion1, key_id).c_str();
+                    bucketContext.bucketName = arch_bucket.c_str();
+                    bucketContext.protocol = s3GetProto(_ctx.prop_map());
+                    bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+                    bucketContext.uriStyle = S3UriStylePath;
+                    bucketContext.securityToken = auth_token.c_str();
+
+                    callback_data_t data;
+                    memset(&data, 0, sizeof(callback_data_t));
+
+                    S3ResponseHandler responseHandler =
+                    {
+                        &responsePropertiesCallback,
+                        &responseCompleteCallback
+                    };
+
+                    // send HEAD request on archived object
+                    S3_head_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
+
+                    // get object archive status from response properties
+                    std::string archived_status;
+                    get_response_property_value(data.responseProperties, "Archive-Restore-Status", archived_status);
+
+
+                    // Object is archived
+                    if (archived_status == "archived") {
+                        // trigger restoration
+                        bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion0, key_id).c_str();
+                        S3_restore_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
+
+                        // log tracking info
+                        log_response_properties(data.responseProperties);
+
+                        // TODO: return OPERATION_IN_PROGRESS when available
+                        return ERROR(S3_GET_ERROR, "Object restoration triggered");
+                    }
+
+                    // Object is in flight
+                    if (archived_status == "inprogress") {
+                        std::string job_tracking_url;
+
+                        // get job tracking url from response properties
+                        get_response_property_value(data.responseProperties, "Archive-Restore-Tracking", job_tracking_url);
+
+                        // extract job_id from tracking url
+                        std::string separator = "jobId=";
+
+                        std::size_t pos = job_tracking_url.find(separator);
+                        if (pos != std::string::npos) {
+                            std::string job_id = job_tracking_url.substr(pos+separator.length());
+
+                            bucketContext.hostName = make_bucket_context_url(s3GetHostname(), APIVersion0, key_id).c_str();
+
+                            // use temp file to store request data
+                            FILE *tmpf = tmpfile();
+                            data.fd = fileno(tmpf);
+                            data.pCtx = &bucketContext;
+
+                            S3GetObjectHandler getJobStatusHandler = {
+                                    responseHandler,
+                                    &getObjectDataCallback
+                            };
+
+                            // send job tracking request
+                            S3_get_restore_job_status(&bucketContext, job_id.c_str(), &getJobStatusHandler, &data);
+
+                            // extract request data
+                            char buf[ERR_MSG_LEN];
+                            rewind(tmpf);
+                            if (fgets(buf, sizeof(buf), tmpf)) {
+                                // store job status info in error stack
+                                addRErrorMsg(&_ctx.comm()->rError, S3_GET_ERROR, buf);
+                            }
+
+                            // log tracking info
+                            log_response_properties(data.responseProperties);
+
+                            // reset data.fd
+                            fclose(tmpf);
+                            data.fd = 0;
+                        }
+
+                        // TODO: return OPERATION_IN_PROGRESS when available
+                        return ERROR(S3_GET_ERROR, "Object restoration is in progress");
+                    }
+
+
+                    // Object should be restored
+                    if (archived_status != "restored") {
+                        std::stringstream msg;
+                        msg << "Archive-Restore-Status = [" << archived_status << "]";
+                        return ERROR(S3_GET_ERROR, msg.str());
+                    }
+
                 }
-            }
+            } // deep archive
 
             ret = s3FileStatPlugin(_ctx, &statbuf);
             if((result = ASSERT_PASS(ret, "Failed stating the file: \"%s\".",
@@ -2481,7 +2736,7 @@ rodsLog( LOG_NOTICE, "XXXX - %s:%d arch_bucket [%s]", __FUNCTION__, __LINE__, ar
         irods::resource_plugin_context& _ctx ) {
         irods::error ret = _ctx.valid< irods::file_object >();
         if ( !ret.ok() ) {
-
+            std::stringstream msg;
             msg << "resource context is invalid";
             return PASSMSG( msg.str(), ret );
         }
@@ -2519,6 +2774,9 @@ rodsLog( LOG_NOTICE, "XXXX - %s:%d arch_bucket [%s]", __FUNCTION__, __LINE__, ar
 
         rstrcpy(obj_info.objPath, object->logical_path().c_str(), MAX_NAME_LEN);
 
+        // make sure we're modifying the replica on the archive resource
+        rstrcpy(obj_info.rescHier, object->resc_hier().c_str(), MAX_NAME_LEN);
+
         keyValPair_t reg_param;
         memset(&reg_param,0,sizeof(reg_param));
         addKeyVal(&reg_param, FILE_PATH_KW, arch_path.c_str());
@@ -2548,6 +2806,10 @@ rodsLog( LOG_NOTICE, "XXXX - %s:%d arch_bucket [%s]", __FUNCTION__, __LINE__, ar
             msg << "resource context is invalid";
             return PASSMSG( msg.str(), ret );
         }
+
+        irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+        rodsLog( LOG_NOTICE, "XXXX - restoring [%s]", object->logical_path().c_str());
 
         return SUCCESS();
 

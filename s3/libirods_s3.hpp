@@ -32,6 +32,7 @@ typedef struct callback_data
     S3Status status;
     int keyCount;
     s3Stat_t s3Stat;    /* should be a pointer if keyCount > 1 */
+    S3ResponseProperties *responseProperties;
 
     S3BucketContext *pCtx; /* To enable more detailed error messages */
 } callback_data_t;
@@ -74,5 +75,11 @@ typedef struct multirange_data
     S3BucketContext *pCtx; /* To enable more detailed error messages */
 } multirange_data_t;
 
+// Oracle OSCS
+typedef enum {
+    APIVersion0,
+    APIVersion1
+} APIVersion;
+// OSCS
 
 #endif // _LIBIRODS_S3_HPP_
