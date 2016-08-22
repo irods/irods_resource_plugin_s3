@@ -664,6 +664,11 @@ extern "C" {
         std::string enable_str;
         bool enable = false;
 
+        // Don't send md5 digest when using signature V4
+        if (s3GetSignatureVersion(_prop_map) == S3SignatureV4) {
+            return false;
+        }
+
         ret = _prop_map.get< std::string >(
                                    s3_enable_md5,
                                    enable_str );
