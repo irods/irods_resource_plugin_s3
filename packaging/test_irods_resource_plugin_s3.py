@@ -57,7 +57,8 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
                    ';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE=' + self.s3stsdate +
                    ';S3_REGIONNAME=' + self.s3region +
                    ';S3_SIGNATURE_VERSION=' + str(self.s3signature_version) +
-                   ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+                   ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy +
+                   ';S3_ENABLE_MD5=1'
         )
         s3params=os.environ.get('S3PARAMS', s3params);
 
