@@ -86,6 +86,7 @@ const std::string s3_retry_count = "S3_RETRY_COUNT";
 const std::string s3_wait_time_sec = "S3_WAIT_TIME_SEC";
 const std::string s3_proto = "S3_PROTO";
 const std::string s3_stsdate = "S3_STSDATE";
+const std::string s3_max_upload_size = "S3_MAX_UPLOAD_SIZE";
 const std::string s3_mpu_chunk = "S3_MPU_CHUNK";
 const std::string s3_mpu_threads = "S3_MPU_THREADS";
 const std::string s3_enable_md5 = "S3_ENABLE_MD5";
@@ -622,22 +623,40 @@ extern "C" {
         return S3ProtocolHTTPS;
     }
 
-    static long s3GetMPUChunksize (
-        irods::plugin_property_map& _prop_map )
+    // returns the upper limit of the MPU chunk size parameter, in megabytes
+    // used for validating the value of S3_MPU_CHUNK
+    static long s3GetMaxUploadSize (irods::plugin_property_map& _prop_map)
+    {
+        irods::error ret;
+        std::string max_size_str;   // max size from context string, in MB
+
+        ret = _prop_map.get<std::string>(s3_max_upload_size, max_size_str);
+        if (ret.ok()) {
+            // should be between 5MB and 5TB
+            long max_megs = atol(max_size_str.c_str());
+            if ( max_megs >= 5 && max_megs <= 5L * 1024 * 1024 ) {
+                return max_megs;
+            }
+        }
+        return 5L * 1024;    // default to 5GB
+    }
+
+    // returns the chunk size for multipart upload, in bytes
+    static long s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
     {
         irods::error ret;
         std::string chunk_str;
-        long chunk = 64L * 1024L * 1024L; // default to safe value
-        ret = _prop_map.get< std::string >(
-                                   s3_mpu_chunk,
-                                   chunk_str );
+        long bytes = 64L * 1024 * 1024; // default to safe value
+        ret = _prop_map.get< std::string >(s3_mpu_chunk, chunk_str );
+
         if (ret.ok()) {
-            // S3 allows from 5MB ... 5GB partsize.  Smaller or larger specified use default.
-            long parse = atol(chunk_str.c_str());
-            if ( (parse >= 5) && (parse <= 5000) )
-                chunk = parse * 1024L * 1024L;
+            // AWS S3 allows chunk sizes from 5MB to 5GB.
+            // Other S3 appliances may have a different upper limit.
+            long megs = atol(chunk_str.c_str());
+            if ( megs >= 5 && megs <= s3GetMaxUploadSize(_prop_map) )
+                bytes = megs * 1024 * 1024;
         }
-        return chunk;
+        return bytes;
     }
 
     static ssize_t s3GetMPUThreads (
