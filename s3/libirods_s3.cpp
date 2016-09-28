@@ -1205,6 +1205,7 @@ extern "C" {
                     putProps->md5 = s3CalcMD5( partData.put_object_data.fd, partData.put_object_data.offset, partData.put_object_data.contentLength );
                 if ( putProps && partData.server_encrypt )
                     putProps->useServerSideEncryption = true;
+                putProps->expires = -1;
                 unsigned long long usStart = usNow();
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
                 if (partData.mode == S3_COPYOBJECT) {
@@ -1310,6 +1311,7 @@ extern "C" {
                         putProps->md5 = s3CalcMD5( cache_fd, 0, _fileSize );
                     if ( putProps && server_encrypt )
                         putProps->useServerSideEncryption = true;
+                    putProps->expires = -1;
 
                     if ( _fileSize < chunksize ) {
                         S3PutObjectHandler putObjectHandler = {
@@ -1417,7 +1419,7 @@ extern "C" {
                         do {
                             bucketContext.hostName = s3GetHostname();
                             manager.pCtx = &bucketContext;
-                            S3_initiate_multipart(&bucketContext, key.c_str(), NULL, &mpuInitialHandler, NULL, &manager);
+                            S3_initiate_multipart(&bucketContext, key.c_str(), putProps, &mpuInitialHandler, NULL, &manager);
                             if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
                         if (manager.upload_id == NULL || manager.status != S3StatusOK) {
@@ -1628,12 +1630,17 @@ extern "C" {
                         &responseCompleteCallback
                     };
 
+                    // initialize put properties
+                    S3PutProperties putProps;
+                    memset(&putProps, 0, sizeof(S3PutProperties));
+                    putProps.expires = -1;
+
                     size_t retry_cnt = 0;
                     do {
                         bzero (&data, sizeof (data));
                         bucketContext.hostName = s3GetHostname();
                         data.pCtx = &bucketContext;
-                        S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), NULL, &lastModified, sizeof(eTag), eTag, 0,
+                        S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), &putProps, &lastModified, sizeof(eTag), eTag, 0,
                                        &responseHandler, &data);
                         if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                     } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
