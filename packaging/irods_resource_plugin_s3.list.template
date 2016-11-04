@@ -39,6 +39,7 @@ END_PREINSTALL
 . /etc/irods/service_account.config 2> /dev/null
 chown $$IRODS_SERVICE_ACCOUNT_NAME:$$IRODS_SERVICE_GROUP_NAME ${OS_IRODS_HOME_DIR}/plugins/resources/libs3.so
 chown $$IRODS_SERVICE_ACCOUNT_NAME:$$IRODS_SERVICE_GROUP_NAME ${OS_IRODS_HOME_DIR}/tests/pydevtest/test_irods_resource_plugin_s3.py
+chown $$IRODS_SERVICE_ACCOUNT_NAME:$$IRODS_SERVICE_GROUP_NAME ${OS_IRODS_HOME_DIR}/tests/pydevtest/cleanup_buckets.py
 END_POSTINSTALL
 
 
@@ -48,3 +49,4 @@ END_POSTINSTALL
 
 f 644 root root ${OS_IRODS_HOME_DIR}/plugins/resources/libs3.so ./libs3.so
 f 644 root root ${OS_IRODS_HOME_DIR}/tests/pydevtest/test_irods_resource_plugin_s3.py ./packaging/test_irods_resource_plugin_s3.py
+f 644 root root ${OS_IRODS_HOME_DIR}/tests/pydevtest/cleanup_buckets.py ./packaging/cleanup_buckets.py
