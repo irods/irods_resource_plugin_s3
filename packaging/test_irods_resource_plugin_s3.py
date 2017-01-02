@@ -1,13 +1,13 @@
+import boto3
 import commands
+import datetime
 import os
+import platform
+import random
 import re
 import shutil
-import subprocess
-import platform
-import datetime
-import boto3
-import random
 import string
+import subprocess
 
 import sys
 if sys.version_info >= (2,7):
@@ -15,9 +15,12 @@ if sys.version_info >= (2,7):
 else:
     import unittest2 as unittest
 
-import lib
-from resource_suite import ResourceSuite
-from test_chunkydevtest import ChunkyDevTest
+from .. import lib
+from . import session
+from ..configuration import IrodsConfig
+from .resource_suite import ResourceSuite
+from .test_chunkydevtest import ChunkyDevTest
+
 
 class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.TestCase):
     def __init__(self, *args, **kwargs):
@@ -62,10 +65,11 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         )
         s3params=os.environ.get('S3PARAMS', s3params);
 
-        with lib.make_session_for_existing_admin() as admin_session:
-            admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
+        with session.make_session_for_existing_admin() as admin_session:
+            irods_config = IrodsConfig()
+            admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
-            admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' "+hostname+":/var/lib/irods/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
+            admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' " + hostname + ":" + irods_config.irods_directory + "/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
             admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
@@ -81,15 +85,15 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         self.bucket.delete()
 
         # tear down resources
-        with lib.make_session_for_existing_admin() as admin_session:
+        with session.make_session_for_existing_admin() as admin_session:
             admin_session.assert_icommand("iadmin rmchildfromresc demoResc archiveResc")
             admin_session.assert_icommand("iadmin rmchildfromresc demoResc cacheResc")
             admin_session.assert_icommand("iadmin rmresc archiveResc")
             admin_session.assert_icommand("iadmin rmresc cacheResc")
             admin_session.assert_icommand("iadmin rmresc demoResc")
-            admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', stdin_string='yes\n')
+            admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
-        shutil.rmtree(lib.get_irods_top_level_dir() + "/cacheRescVault", ignore_errors=True)
+        shutil.rmtree(IrodsConfig().irods_directory + "/cacheRescVault", ignore_errors=True)
 
     def set_up_aws_config_dir(self):
         # read access keys from keypair file
@@ -346,11 +350,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             self.skipTest("Archive naming policy is not set to 'decoupled'")
 
         # local setup
-        filename = "testfile.txt"
-        filepath = os.path.abspath(filename)
-        f = open(filepath,'wb')
-        f.write("TESTFILE -- ["+filepath+"]")
-        f.close()
+        filename = self.testfile
 
         # run as regular user
         session = self.user0
@@ -371,20 +371,19 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         session.assert_icommand("iput "+filename) # put file
 
         # get object id
-        object_id = session.run_icommand('iquest "%s" ' + '"' + id_query + '"')[1].strip()
+        object_id = session.run_icommand('iquest "%s" ' + '"' + id_query + '"')[0].strip()
 
         # physical path we expect to see: /{bucket_name}/{reversed_id}/{obj_name}
         target_path = '/' + self.s3bucketname + '/' + object_id[::-1] + '/' + filename
 
         # get object path
-        physical_path = session.run_icommand('iquest "%s" ' + '"' + path_query + '"')[1].strip()
+        physical_path = session.run_icommand('iquest "%s" ' + '"' + path_query + '"')[0].strip()
 
         # verify object path
         self.assertEqual(target_path, physical_path)
 
         # cleanup
         session.run_icommand('irm -f ' + filename)
-        os.unlink(filepath)
 
 
 class Test_Compound_With_S3_Resource_EU_Central_1(Test_Compound_With_S3_Resource):
