@@ -2084,23 +2084,23 @@ extern "C" {
                                     msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                                 }
                                 result = ERROR(S3_FILE_STAT_ERR, msg.str());
-                            }
+                            } else {
 
 //                            // log tracking info
 //                            log_response_properties(data.responseProperties);
 
-                            // get last modified date from response properties
-                            std::string last_modified;
-                            get_response_property_value(data.responseProperties, "Last-Modified-Timestamp", last_modified);
-                            int64_t ts = (int64_t)rint(strtod(last_modified.c_str(), NULL));
+                                // get last modified date from response properties
+                                std::string last_modified;
+                                get_response_property_value(data.responseProperties, "Last-Modified-Timestamp", last_modified);
+                                int64_t ts = (int64_t)rint(strtod(last_modified.c_str(), NULL));
 
-                            _statbuf->st_mode = S_IFREG;
-                            _statbuf->st_nlink = 1;
-                            _statbuf->st_uid = getuid ();
-                            _statbuf->st_gid = getgid ();
-                            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = ts;
-                            _statbuf->st_size = data.responseProperties->contentLength;
-
+                                _statbuf->st_mode = S_IFREG;
+                                _statbuf->st_nlink = 1;
+                                _statbuf->st_uid = getuid ();
+                                _statbuf->st_gid = getgid ();
+                                _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = ts;
+                                _statbuf->st_size = data.responseProperties->contentLength;
+                            }
 
                             // shouldn't look at keyCount if using HEAD
                             // if object is not found we won't get S3StatusOK
