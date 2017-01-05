@@ -14,11 +14,6 @@ To build the S3 Resource Plugin, you will need to have:
      https://github.com/irods/libs3
 
 
-Then to build this resource plugin:
-
-  ./packaging/build.sh
-
-
 To use this resource plugin:
 
   irods@hostname $ iadmin mkresc compResc compound

@@ -1,9 +1,1 @@
-*~
-TAGS
-libs3.so
-.filelist
-*/.depends
-*/.deps
-*/.objs
-build/*
-packaging/irods_resource_plugin_s3.list
+.dir-locals.el
