@@ -48,3 +48,4 @@ END_POSTINSTALL
 
 f 644 root root ${OS_IRODS_HOME_DIR}/plugins/resources/libs3.so ./libs3.so
 f 644 root root ${OS_IRODS_HOME_DIR}/tests/pydevtest/test_irods_resource_plugin_s3.py ./packaging/test_irods_resource_plugin_s3.py
+f 644 root root ${OS_IRODS_HOME_DIR}/tests/pydevtest/move2DA.r ./packaging/move2DA.r
