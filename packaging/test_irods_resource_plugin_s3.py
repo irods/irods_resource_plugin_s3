@@ -435,7 +435,7 @@ class Test_Compound_With_S3_Resource_STSDate_Header_V4(Test_Compound_With_S3_Res
 class Test_Compound_With_S3_Resource_OSCS(ResourceSuite, ChunkyDevTest, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         self.keypairfile='/projects/irods/vsphere-testing/externals/oracle.keypair'
-        self.s3endPoint='us2.storage.oraclecloud.com'
+        self.s3endPoint='uscom-central-1.storage.oraclecloud.com'
         super(Test_Compound_With_S3_Resource_OSCS, self).__init__(*args, **kwargs)
 
     def setUp(self):
