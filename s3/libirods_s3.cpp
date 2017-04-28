@@ -1304,8 +1304,6 @@ irods::error s3PutCopyFile(
                 putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
                 if ( putProps && enable_md5 )
                     putProps->md5 = s3CalcMD5( cache_fd, 0, _fileSize );
-                if ( putProps && server_encrypt )
-                    putProps->useServerSideEncryption = true;
                 putProps->expires = -1;
 
                 if ( _fileSize < chunksize ) {
