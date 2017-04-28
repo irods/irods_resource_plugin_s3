@@ -19,6 +19,7 @@ import lib
 from resource_suite import ResourceSuite
 from test_chunkydevtest import ChunkyDevTest
 
+
 class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
@@ -27,6 +28,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         self.s3region='us-east-1'
         self.s3endPoint='s3.amazonaws.com'
         self.s3signature_version=2
+        self.s3sse = 0 # server side encryption
         super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
 
     def setUp(self):
@@ -52,14 +54,18 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
         # set up resources
         hostname = lib.get_hostname()
-        s3params=( 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint +
-                   ';S3_AUTH_FILE=' +  self.keypairfile +
-                   ';S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_STSDATE=' + self.s3stsdate +
-                   ';S3_REGIONNAME=' + self.s3region +
-                   ';S3_SIGNATURE_VERSION=' + str(self.s3signature_version) +
-                   ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy +
-                   ';S3_ENABLE_MD5=1'
-        )
+        s3params = 'S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1'
+        s3params += ';S3_STSDATE=' + self.s3stsdate
+        s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+        s3params += ';S3_AUTH_FILE=' +  self.keypairfile
+        s3params += ';S3_REGIONNAME=' + self.s3region
+        s3params += ';S3_SIGNATURE_VERSION=' + str(self.s3signature_version)
+        s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        try:
+            s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
+        except AttributeError:
+            pass
+
         s3params=os.environ.get('S3PARAMS', s3params);
 
         with lib.make_session_for_existing_admin() as admin_session:
@@ -415,6 +421,17 @@ class Test_Compound_With_S3_Resource_STSDate_Header_V4(Test_Compound_With_S3_Res
         self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
         self.archive_naming_policy='decoupled'
         self.s3stsdate='date'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3signature_version=4
+        super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
+
+class Test_Compound_With_S3_Resource_V4_SSE(Test_Compound_With_S3_Resource):
+    def __init__(self, *args, **kwargs):
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.archive_naming_policy='decoupled'
+        self.s3stsdate=''
+        self.s3sse=1
         self.s3region='us-east-1'
         self.s3endPoint='s3.amazonaws.com'
         self.s3signature_version=4

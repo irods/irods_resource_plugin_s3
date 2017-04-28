@@ -1203,8 +1203,6 @@ extern "C" {
                 putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
                 if ( putProps && partData.enable_md5 )
                     putProps->md5 = s3CalcMD5( partData.put_object_data.fd, partData.put_object_data.offset, partData.put_object_data.contentLength );
-                if ( putProps && partData.server_encrypt )
-                    putProps->useServerSideEncryption = true;
                 putProps->expires = -1;
                 unsigned long long usStart = usNow();
                 bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
@@ -1473,7 +1471,6 @@ extern "C" {
                             partData.put_object_data.contentLength = partContentLength;
                             partData.put_object_data.offset = (seq-1) * chunksize;
                             partData.enable_md5 = s3GetEnableMD5( _prop_map );
-                            partData.server_encrypt = s3GetServerEncrypt( _prop_map );
                             g_mpuData[seq-1] = partData;
                             data.contentLength -= partContentLength;
                         }
