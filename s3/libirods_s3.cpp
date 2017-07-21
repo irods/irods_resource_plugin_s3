@@ -96,6 +96,29 @@ typedef enum { S3_PUTFILE, S3_COPYOBJECT } s3_putcopy;
 size_t g_retry_count = 10;
 size_t g_retry_wait = 1;
 
+
+
+void ds3_log_error(const ds3_error* error) {
+    rodsLog(LOG_ERROR, "DS3_ERROR_MESSAGE: %s\n", error->message->value);
+    if (error->error != NULL) {
+        rodsLog(LOG_ERROR,"DS3_HTTP_ERROR_CODE: %lu\n", (long unsigned int)error->error->http_error_code);
+        rodsLog(LOG_ERROR,"DS3_CODE: %s\n", error->error->code->value);
+        rodsLog(LOG_ERROR,"DS3_STATUS_MESSAGE: %s\n", error->error->message->value);
+        rodsLog(LOG_ERROR,"DS3_RESOURCE: %s\n", error->error->resource->value);
+    }
+}
+
+
+void ds3_handle_error(ds3_error* error) {
+    if (error != NULL) {
+        ds3_log_error(error);
+        ds3_error_free(error);
+        //exit(1);
+    }
+}
+
+
+
 #ifdef ERROR_INJECT
 // Callback error injection
 // If defined(ERROR_INJECT), then the specified pread/write below will fail.
@@ -1243,6 +1266,35 @@ static void mpuWorkerThread (
     }
 }
 
+
+irods::error ds3_bulk_put(
+        const std::vector<std::string>& _file_names,
+        const std::vector<std::string>& _object_names,
+        //rodsLong_t _fileSize,
+        const std::string& _key_id,
+        const std::string& _access_key,
+        irods::plugin_property_map& _prop_map)
+{
+    // Get a client instance which uses the environment variables to get the endpoint and credentials
+    ds3_client* client;
+    ds3_request* request;
+    ds3_error* error;
+    ds3_bulk_object_list_response* obj_list;
+    ds3_master_object_list_response* chunks_response;
+    ds3_bulk_object_response* current_obj_to_put;
+    uint64_t chunk_count, current_chunk_count = 0;
+    uint64_t chunk_index, obj_index;
+    FILE* obj_file;
+
+
+
+    irods::error result = SUCCESS();
+
+    return result;
+
+}
+
+
 irods::error s3PutCopyFile(
     const s3_putcopy _mode,
     const std::string& _filename,
@@ -1263,7 +1315,7 @@ irods::error s3PutCopyFile(
     long chunksize = s3GetMPUChunksize( _prop_map );
     size_t retry_cnt    = 0;
     bool enable_md5 = s3GetEnableMD5 ( _prop_map );
-    bool server_encrypt = s3GetServerEncrypt ( _prop_map );
+    //bool server_encrypt = s3GetServerEncrypt ( _prop_map );
     std::stringstream msg;
 
     ret = parseS3Path(_s3ObjName, bucket, key);
@@ -2222,6 +2274,141 @@ irods::error s3SyncToArchPlugin(
     return result;
 } // s3SyncToArchPlugin
 
+
+
+// =-=-=-=-=-=-=-
+// ds3SyncToArch
+irods::error ds3SyncToArchPlugin(
+    irods::plugin_context& _ctx,
+    const char* _cache_file_name )
+{
+    irods::error result = SUCCESS();
+    // =-=-=-=-=-=-=-
+    // check incoming parameters
+    irods::error ret = s3CheckParams( _ctx );
+    if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
+
+        struct stat statbuf;
+        int status;
+        std::string key_id;
+        std::string access_key;
+
+        irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+        status = stat(_cache_file_name, &statbuf);
+        int err_status = UNIX_FILE_STAT_ERR - errno;
+        if((result = ASSERT_ERROR(status >= 0, err_status, "Failed to stat cache file: \"%s\".",
+                                  _cache_file_name)).ok()) {
+
+            if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, UNIX_FILE_STAT_ERR, "Cache file: \"%s\" is not a file.",
+                                      _cache_file_name)).ok()) {
+
+                ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+                if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
+
+                    std::string default_hostname;
+                    ret = _ctx.prop_map().get< std::string >(
+                        s3_default_hostname,
+                        default_hostname );
+                    if( !ret.ok() ) {
+                        irods::log(ret);
+                    }
+
+                    // retrieve archive naming policy from resource plugin context
+                    std::string archive_naming_policy = CONSISTENT_NAMING; // default
+                    ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+                    if(!ret.ok()) {
+                        irods::log(ret);
+                    }
+                    boost::to_lower(archive_naming_policy);
+
+                    // if archive naming policy is decoupled
+                    // we use the object's reversed id as S3 key name prefix
+                    if (archive_naming_policy == DECOUPLED_NAMING) {
+                        // extract object name and bucket name from physical path
+                        std::vector< std::string > tokens;
+                        irods::string_tokenize(object->physical_path(), "/", tokens);
+                        std::string bucket_name = tokens.front();
+                        std::string object_name = tokens.back();
+
+                        // reverse object id
+                        std::string obj_id = boost::lexical_cast<std::string>(object->id());
+                        std::reverse(obj_id.begin(), obj_id.end());
+
+                        // make S3 key name
+                        std::ostringstream s3_key_name;
+                        s3_key_name << "/" << bucket_name << "/" << obj_id << "/" << object_name;
+
+                        // update physical path
+                        object->physical_path(s3_key_name.str());
+                    }
+
+
+                    ////////////////////////////////////
+
+                        // Get Service
+                        ds3_client* client;
+                        ds3_request* request;
+                        ds3_error* error;
+                        ds3_list_all_my_buckets_result_response *response;
+                        uint64_t bucket_index;
+
+                        // Create a client from environment variables
+                        error = ds3_create_client_from_env(&client);
+                        ds3_handle_error(error);
+
+                        // Create the get service request.  All requests to a DS3 appliance start this way.
+                        // All ds3_init_* functions return a ds3_request struct
+                        request = ds3_init_get_service_request();
+
+                        // This performs the request to a DS3 appliance.
+                        // If there is an error 'error' will not be NULL
+                        // If the request completed successfully then 'error' will be NULL
+                        error = ds3_get_service_request(client, request, &response);
+                        ds3_request_free(request);
+                        ds3_handle_error(error);
+
+                        if(response->num_buckets == 0) {
+                            printf("No buckets returned\n");
+                            ds3_list_all_my_buckets_result_response_free(response);
+                            ds3_creds_free(client->creds);
+                            ds3_client_free(client);
+                            return result;
+                        }
+
+                        for (bucket_index = 0; bucket_index < response->num_buckets; bucket_index++) {
+                            ds3_bucket_details_response* bucket = response->buckets[bucket_index];
+
+                            // IRODS LOG
+                            rodsLog( LOG_NOTICE, "@@@@@@@@@@@@@@@  Bucket: (%s) created on %s\n", bucket->name->value, bucket->creation_date->value);
+                            //printf("Bucket: (%s) created on %s\n", bucket->name->value, bucket->creation_date->value);
+                        }
+
+                        ds3_list_all_my_buckets_result_response_free(response);
+                        ds3_creds_free(client->creds);
+                        ds3_client_free(client);
+                        ds3_cleanup();
+
+                        //return 0;
+
+                    ////////////////////////////////////
+
+
+
+//                    ret = s3PutCopyFile(S3_PUTFILE, _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
+//                    result = ASSERT_PASS(ret, "Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".",
+//                                         _cache_file_name, object->physical_path().c_str());
+
+                }
+            }
+        }
+    }
+    if( !result.ok() ) {
+        irods::log( result );
+    }
+    return result;
+} // s3SyncToArchPlugin
+
+
 // =-=-=-=-=-=-=-
 // redirect_get - code to determine redirection for get operation
 irods::error s3RedirectCreate(
@@ -2508,7 +2695,7 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
     resc->add_operation<const char*>(
         irods::RESOURCE_OP_SYNCTOARCH,
         std::function<irods::error(irods::plugin_context&, const char*)>(
-            s3SyncToArchPlugin ) );
+            ds3SyncToArchPlugin ) );
 
     resc->add_operation(
         irods::RESOURCE_OP_REGISTERED,

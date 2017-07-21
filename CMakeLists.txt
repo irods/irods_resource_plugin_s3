@@ -52,6 +52,7 @@ set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -stdlib=libc++ -Wl,-
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs")
 add_compile_options(-nostdinc++ -Wall -Wextra -Werror)
 add_compile_options(-Wno-unused-parameter) # Until fix of irods_re_plugin.hpp
+add_compile_options(-Wno-unused-variable) # ADT DEV
 add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://github.com/irods/irods/issues/3396
 link_libraries(c++abi)
 include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1)
@@ -82,6 +83,7 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
   ${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
+  /usr/local/lib/libds3.so
   ${OPENSSL_CRYPTO_LIBRARY}
   )
 target_compile_definitions(irods_s3_plugin PRIVATE RODS_SERVER ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED)

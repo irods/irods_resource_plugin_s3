@@ -6,6 +6,7 @@
 #include <rodsType.h>
 #include <rodsDef.h>
 #include <libs3.h>
+#include <ds3.h>
 
 #define S3_AUTH_FILE "s3Auth"
 #define ARCHIVE_NAMING_POLICY_KW    "ARCHIVE_NAMING_POLICY"
@@ -73,6 +74,11 @@ typedef struct multirange_data
 
     S3BucketContext *pCtx; /* To enable more detailed error messages */
 } multirange_data_t;
+
+
+// DS3 functions
+void ds3_log_error(const ds3_error* error);
+void ds3_handle_error(ds3_error* error);
 
 
 #endif // _LIBIRODS_S3_HPP_
