@@ -25,7 +25,7 @@ def get_build_prerequisites_all():
             'irods-externals-libs3a30e55e8-0']
 
 def get_build_prerequisites_apt():
-    return ['make', 'libssl-dev', 'libxml2-dev', 'libcurl4-gnutls-dev'] + get_build_prerequisites_all()
+    return ['make', 'libssl-dev', 'libxml2-dev', 'libcurl4-gnutls-dev', 'gcc'] + get_build_prerequisites_all()
 
 def get_build_prerequisites_yum():
     return ['openssl-devel', 'libxml2-devel', 'curl-devel'] + get_build_prerequisites_all()
