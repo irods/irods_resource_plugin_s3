@@ -8,7 +8,7 @@ To build the S3 Resource Plugin, you will need to have:
 
  - libxml2-dev / libxml2-devel
 
- - libcurl-dev / curl-devel
+ - libcurl4-gnutls-dev / curl-devel
 
  - libs3 installed for your platform
      https://github.com/irods/libs3
