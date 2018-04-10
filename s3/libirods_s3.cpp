@@ -90,6 +90,7 @@ static const std::string s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
 static const std::string s3_proto{"S3_PROTO"};
 static const std::string s3_stsdate{"S3_STSDATE"};
 static const std::string s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
+static const std::string s3_enable_mpu = "S3_ENABLE_MPU";
 static const std::string s3_mpu_chunk{"S3_MPU_CHUNK"};
 static const std::string s3_mpu_threads{"S3_MPU_THREADS"};
 static const std::string s3_enable_md5{"S3_ENABLE_MD5"};
@@ -691,6 +692,26 @@ static bool s3GetEnableMD5 (
 
     ret = _prop_map.get< std::string >(
         s3_enable_md5,
+        enable_str );
+    if (ret.ok()) {
+        // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
+        int parse = atol(enable_str.c_str());
+        if (parse != 0)
+            enable = true;
+    }
+    return enable;
+}
+
+
+static bool s3GetEnableMultiPartUpload (
+    irods::plugin_property_map& _prop_map )
+{
+    irods::error ret;
+    std::string enable_str;
+    bool enable = false;
+
+    ret = _prop_map.get< std::string >(
+        s3_enable_mpu,
         enable_str );
     if (ret.ok()) {
         // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
@@ -1313,7 +1334,9 @@ irods::error s3PutCopyFile(
                     putProps->useServerSideEncryption = true;
                 putProps->expires = -1;
 
-                if ( _fileSize < chunksize ) {
+                // HML: add a check to see whether or not multipart upload is enabled.
+                bool mpu_enabled = s3GetEnableMultiPartUpload(_prop_map);
+                if ((!mpu_enabled) || ( _fileSize < chunksize )) {
                     S3PutObjectHandler putObjectHandler = {
                         { &responsePropertiesCallback, &responseCompleteCallback },
                         &putObjectDataCallback
