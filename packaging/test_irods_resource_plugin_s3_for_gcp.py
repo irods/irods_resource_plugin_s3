@@ -4,15 +4,16 @@ except ImportError:
    print('This test requires boto3: perhaps try pip install boto3')
    exit()
 
+from botocore.client import Config
+from boto3.session import Session
+from botocore.handlers import set_list_objects_encoding_type_url
 import commands
 import datetime
 import os
 import platform
 import random
-import re
 import shutil
 import string
-import subprocess
 
 import sys
 if sys.version_info >= (2,7):
@@ -22,24 +23,23 @@ else:
 
 from .. import lib
 from . import session
+import resource_suite
+from test_chunkydevtest import ChunkyDevTest
 from ..configuration import IrodsConfig
-from .resource_suite import ResourceSuite
-from .test_chunkydevtest import ChunkyDevTest
 
 
 
-class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.TestCase):
-    def __init__(self, *args, **kwargs):
-        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
-        self.archive_naming_policy='decoupled'
-        self.s3stsdate=''
-        self.s3region='us-east-1'
-        self.s3endPoint='s3.amazonaws.com'
-        self.s3signature_version=2
-        self.s3sse = 0 # server side encryption
-        super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
+class Test_Compound_With_S3_GCS_Resource(resource_suite.ResourceSuite, ChunkyDevTest, unittest.TestCase):
 
     def setUp(self):
+        self.keypairfile='/etc/irods/google_account.txt'
+        self.archive_naming_policy='decoupled'
+        self.s3stsdate=''
+        self.s3region='us-east1-a'
+        self.s3endPoint='https://storage.googleapis.com'
+        self.s3signature_version=4
+        self.s3sse = 0 # server side encryption
+
         # skip ssl tests on ub12
         distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
         if self._testMethodName.startswith('test_ssl') and distro_str.lower().startswith('ubuntu12'):
@@ -48,23 +48,33 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # set up aws configuration
         self.set_up_aws_config_dir()
 
-        # set up s3 bucket
-        s3 = boto3.resource('s3', region_name=self.s3region)
+        # set up Session s3 bucket
+        #boto3.set_stream_logger('')
+        GCSsession = Session( region_name="us-east1-a")
+        GCSsession.events.unregister('before-parameter-build.s3.ListObjects',
+                                  set_list_objects_encoding_type_url)
+        s3 = GCSsession.resource('s3', endpoint_url='https://storage.googleapis.com', config=Config(signature_version='s3v4'))
+        print ('s3 from bot0', s3)
 
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
         self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
         self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
-        if self.s3region == 'us-east-1':
+        self.s3bucketname = self.s3bucketname.replace(".", "-")
+        if self.s3region == 'us-east1-a':
+            print ('bucket name', self.s3bucketname)
             self.bucket = s3.create_bucket(Bucket=self.s3bucketname)
         else:
             self.bucket = s3.create_bucket(Bucket=self.s3bucketname,
                                            CreateBucketConfiguration={'LocationConstraint': self.s3region})
+#       print ('attempting to print objects in setup')
+#       for f in self.bucket.objects.all():
+#           print(f.key)
 
         # set up resources
         hostname = lib.get_hostname()
-        s3params = 'S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1'
+        s3params = 'S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_ENABLE_MPU=0;S3_MPU_CHUNK=10;S3_MPU_THREADS=1;S3_ENABLE_MD5=1'
         s3params += ';S3_STSDATE=' + self.s3stsdate
-        s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+        s3params += ';S3_DEFAULT_HOSTNAME=' + 'storage.googleapis.com'
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
         s3params += ';S3_REGIONNAME=' + self.s3region
         s3params += ';S3_SIGNATURE_VERSION=' + str(self.s3signature_version)
@@ -81,14 +91,16 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
             admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
             admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' " + hostname + ":" + irods_config.irods_directory + "/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
+#           admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/empty/path "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
+#           admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+ 'storage.googleapis.com' +':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
 
-        super(Test_Compound_With_S3_Resource, self).setUp()
+        super(Test_Compound_With_S3_GCS_Resource, self).setUp()
 
     def tearDown(self):
-        super(Test_Compound_With_S3_Resource, self).tearDown()
+        super(Test_Compound_With_S3_GCS_Resource, self).tearDown()
 
         # delete s3 bucket
         for obj in self.bucket.objects.all():
@@ -190,7 +202,6 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         hostname = lib.get_hostname()
         doublefile = "doublefile.txt"
         os.system("cat %s %s > %s" % (filename, filename, doublefile))
-        doublesize = str(os.stat(doublefile).st_size)
 
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/thirdrescVault" % hostname, 'STDOUT_SINGLELINE', "Creating")   # create third resource
@@ -316,7 +327,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should be listed only once
 
         # local cleanup
-        output = commands.getstatusoutput( 'rm '+filepath )
+        commands.getstatusoutput( 'rm '+filepath )
 
     def test_iget_with_purgec(self):
         # local setup
@@ -397,46 +408,46 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         session.run_icommand('irm -f ' + filename)
 
 
-class Test_Compound_With_S3_Resource_EU_Central_1(Test_Compound_With_S3_Resource):
-    '''
-    This also tests signature V4 with the x-amz-date header.
-    '''
-    def __init__(self, *args, **kwargs):
-        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
-        self.archive_naming_policy='decoupled'
-        self.s3stsdate=''
-        self.s3region='eu-central-1'
-        self.s3endPoint='s3.eu-central-1.amazonaws.com'
-        self.s3signature_version=4
-        super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
+#class Test_Compound_With_S3_GCS_Resource_EU_Central_1(Test_Compound_With_S3_GCS_Resource):
+#    '''
+#    This also tests signature V4 with the x-amz-date header.
+#    '''
+#    def __init__(self, *args, **kwargs):
+#        self.keypairfile='/etc/irods/google_account.txt'
+#        self.archive_naming_policy='decoupled'
+#        self.s3stsdate=''
+#        self.s3region='eu-central-1'
+#        self.s3endPoint='s3.eu-central-1.amazonaws.com'
+#        self.s3signature_version=4
+#        super(Test_Compound_With_S3_GCS_Resource, self).__init__(*args, **kwargs)
 
-class Test_Compound_With_S3_Resource_STSDate_Header(Test_Compound_With_S3_Resource):
+class Test_Compound_With_S3_GCS_Resource_STSDate_Header(Test_Compound_With_S3_GCS_Resource):
     def __init__(self, *args, **kwargs):
-        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.keypairfile='/etc/irods/google_account.txt'
         self.archive_naming_policy='decoupled'
         self.s3stsdate='date'
-        self.s3region='us-east-1'
-        self.s3endPoint='s3.amazonaws.com'
+        self.s3region='us-east1-a'
+        self.s3endPoint='https://storage.googleapis.com'
         self.s3signature_version=2
-        super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
+        super(Test_Compound_With_S3_GCS_Resource, self).__init__(*args, **kwargs)
 
-class Test_Compound_With_S3_Resource_STSDate_Header_V4(Test_Compound_With_S3_Resource):
+class Test_Compound_With_S3_GCS_Resource_STSDate_Header_V4(Test_Compound_With_S3_GCS_Resource):
     def __init__(self, *args, **kwargs):
-        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.keypairfile='/etc/irods/google_account.txt'
         self.archive_naming_policy='decoupled'
         self.s3stsdate='date'
-        self.s3region='us-east-1'
-        self.s3endPoint='s3.amazonaws.com'
+        self.s3region='us-east1-a'
+        self.s3endPoint='https://storage.googleapis.com'
         self.s3signature_version=4
-        super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
+        super(Test_Compound_With_S3_GCS_Resource, self).__init__(*args, **kwargs)
 
-class Test_Compound_With_S3_Resource_V4_SSE(Test_Compound_With_S3_Resource):
+class Test_Compound_With_S3_GCS_Resource_V4_SSE(Test_Compound_With_S3_GCS_Resource):
     def __init__(self, *args, **kwargs):
-        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.keypairfile='/etc/irods/google_account.txt'
         self.archive_naming_policy='decoupled'
         self.s3stsdate=''
         self.s3sse=1
-        self.s3region='us-east-1'
-        self.s3endPoint='s3.amazonaws.com'
+        self.s3region='us-east1-a'
+        self.s3endPoint='https://storage.googleapis.com'
         self.s3signature_version=4
-        super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
+        super(Test_Compound_With_S3_GCS_Resource, self).__init__(*args, **kwargs)
