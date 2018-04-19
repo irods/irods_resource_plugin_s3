@@ -71,6 +71,7 @@ target_include_directories(
   irods_s3_plugin
   PRIVATE
   ${IRODS_INCLUDE_DIRS}
+  ${CMAKE_SOURCE_DIR}
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
   )

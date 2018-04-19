@@ -11,6 +11,8 @@
 #include <rodsLog.h>
 #include <rodsErrorTable.h>
 #include <objInfo.h>
+#include <rsRegReplica.hpp>
+#include <dataObjOpr.hpp>
 
 #ifdef USING_JSON
 #include <json/json.h>
@@ -26,6 +28,9 @@
 #include "irods_hierarchy_parser.hpp"
 #include "irods_resource_redirect.hpp"
 #include "irods_kvp_string_parser.hpp"
+#include "irods_virtual_path.hpp"
+#include "irods_resource_backport.hpp"
+#include "irods_query.hpp"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -40,6 +45,8 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/thread.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/format.hpp>
 
 // =-=-=-=-=-=-=-
 // system includes
@@ -74,27 +81,29 @@
 
 #include <string.h>
 
-const std::string s3_default_hostname = "S3_DEFAULT_HOSTNAME";
-const std::string s3_auth_file = "S3_AUTH_FILE";
-const std::string s3_key_id = "S3_ACCESS_KEY_ID";
-const std::string s3_access_key = "S3_SECRET_ACCESS_KEY";
-const std::string s3_retry_count = "S3_RETRY_COUNT";
-const std::string s3_wait_time_sec = "S3_WAIT_TIME_SEC";
-const std::string s3_proto = "S3_PROTO";
-const std::string s3_stsdate = "S3_STSDATE";
-const std::string s3_max_upload_size = "S3_MAX_UPLOAD_SIZE";
-const std::string s3_mpu_chunk = "S3_MPU_CHUNK";
-const std::string s3_mpu_threads = "S3_MPU_THREADS";
-const std::string s3_enable_md5 = "S3_ENABLE_MD5";
-const std::string s3_server_encrypt = "S3_SERVER_ENCRYPT";
-const std::string s3_signature_version = "S3_SIGNATURE_VERSION";
-const std::string s3_region_name = "S3_REGIONNAME";
+static const std::string s3_default_hostname{"S3_DEFAULT_HOSTNAME"};
+static const std::string s3_auth_file{"S3_AUTH_FILE"};
+static const std::string s3_key_id{"S3_ACCESS_KEY_ID"};
+static const std::string s3_access_key{"S3_SECRET_ACCESS_KEY"};
+static const std::string s3_retry_count{"S3_RETRY_COUNT"};
+static const std::string s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
+static const std::string s3_proto{"S3_PROTO"};
+static const std::string s3_stsdate{"S3_STSDATE"};
+static const std::string s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
+static const std::string s3_mpu_chunk{"S3_MPU_CHUNK"};
+static const std::string s3_mpu_threads{"S3_MPU_THREADS"};
+static const std::string s3_enable_md5{"S3_ENABLE_MD5"};
+static const std::string s3_server_encrypt{"S3_SERVER_ENCRYPT"};
+static const std::string s3_signature_version{"S3_SIGNATURE_VERSION"};
+static const std::string s3_region_name{"S3_REGIONNAME"};
+static const std::string REPL_POLICY_KEY{"repl_policy"};
+static const std::string REPL_POLICY_VAL{"reg_repl"};
 
 // For s3PutCopyFile to identify the real source type
 typedef enum { S3_PUTFILE, S3_COPYOBJECT } s3_putcopy;
 
-size_t g_retry_count = 10;
-size_t g_retry_wait = 1;
+size_t g_retry_count{10};
+size_t g_retry_wait{1};
 
 #ifdef ERROR_INJECT
 // Callback error injection
@@ -104,12 +113,12 @@ size_t g_retry_wait = 1;
 // Pairing this with LIBS3 error injection will exercise the error recovery
 // and retry code paths.
 static boost::mutex g_error_mutex;
-static long g_werr = 0; // counter
-static long g_rerr = 0; // counter
-static long g_merr = 0; // counter
-static const long g_werr_idx = 4; // Which # pwrite to fail
-static const long g_rerr_idx = 4; // Which # pread to fail
-static const long g_merr_idx = 4; // Which part of Multipart Finish XML to fail
+static long g_werr{0}; // counter
+static long g_rerr{0}; // counter
+static long g_merr{0}; // counter
+static const long g_werr_idx{4}; // Which # pwrite to fail
+static const long g_rerr_idx{4}; // Which # pread to fail
+static const long g_merr_idx{4}; // Which part of Multipart Finish XML to fail
 #endif
 
 //////////////////////////////////////////////////////////////////////
@@ -366,9 +375,8 @@ S3Status listBucketCallback(
 // Utility functions
 irods::error parseS3Path (
     const std::string& _s3ObjName,
-    std::string& _bucket,
-    std::string& _key)
-{
+    std::string&       _bucket,
+    std::string&       _key) {
     irods::error result = SUCCESS();
     size_t start_pos = 0;
     size_t slash_pos = 0;
@@ -480,8 +488,7 @@ irods::error s3ReadAuthInfo(
 }
 
 irods::error s3Init (
-    irods::plugin_property_map& _prop_map )
-{
+    irods::plugin_property_map& _prop_map ) {
     irods::error result = SUCCESS();
 
     if (!S3Initialized) {
@@ -1789,83 +1796,171 @@ irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 
 }
 
+static
+bool determine_unlink_for_repl_policy(
+    rsComm_t*          _comm,
+    const std::string& _logical_path,
+    const std::string& _vault_path) {
+
+    const auto& vps = irods::get_virtual_path_separator();
+    std::string::size_type pos = _logical_path.find_last_of(vps);
+    if(std::string::npos == pos) {
+        THROW(
+            SYS_INVALID_INPUT_PARAM,
+            boost::format("[%s] is not a logical path") %
+            _logical_path);
+    }
+
+    std::string data_name{_logical_path.substr(pos+1, std::string::npos)};
+    std::string coll_name{_logical_path.substr(0, pos)};
+    std::string qstr =
+        boost::str(boost::format(
+        "SELECT DATA_PATH, DATA_RESC_ID WHERE DATA_NAME = '%s' AND COLL_NAME = '%s'") %
+        data_name %
+        coll_name);
+    uint32_t s3_ctr{0};
+    for(const auto& row : irods::query{_comm, qstr}) {
+        const std::string& path = row[0];
+        const std::string& id   = row[1];
+        if(boost::starts_with(path, _vault_path)) {
+            // if it matches check resc type
+            // =-=-=-=-=-=-=-
+            std::string type;
+            irods::error ret = irods::get_resource_property<std::string>(
+                                   std::stol(id.c_str()),
+                                   irods::RESOURCE_TYPE,
+                                   type);
+            if(!ret.ok()) {
+                irods::log(PASS(ret));
+                continue;
+            }
+
+            if("s3" == type) {
+                s3_ctr++;
+            }
+        } // if _vault_path
+
+    } // for row
+
+    if(s3_ctr > 0) {
+        return false;
+    }
+
+    return true;
+} // determine_unlink_for_repl_policy
+
 // =-=-=-=-=-=-=-
 // interface for POSIX Unlink
 irods::error s3FileUnlinkPlugin(
-    irods::plugin_context& _ctx )
-{
-    irods::error result = SUCCESS();
-
+    irods::plugin_context& _ctx) {
     // =-=-=-=-=-=-=-
     // check incoming parameters
     irods::error ret = s3CheckParams( _ctx );
     if(!ret.ok()) {
         std::stringstream msg;
         msg << __FUNCTION__ << " - Invalid parameters or physical path.";
-        result = PASSMSG(msg.str(), ret);
+        return PASSMSG(msg.str(), ret);
     }
-    else {
 
-        // =-=-=-=-=-=-=-
-        // get ref to fco
-        irods::data_object_ptr _object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
+    irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<
+                                          irods::file_object>(
+                                                  _ctx.fco());
+    std::string repl_policy;
+    ret = _ctx.prop_map().get<std::string>(
+              REPL_POLICY_KEY,
+              repl_policy);
+    // If the policy is set then determine if we should
+    // actually unlink the S3 object or not.  If several
+    // iRODS replicas point at the same S3 object we only
+    // need to unlink in S3 if we are the last S3 registration
+    if(ret.ok() && REPL_POLICY_VAL == repl_policy) {
+        try {
+            std::string vault_path;
+            ret = _ctx.prop_map().get<std::string>(
+                      irods::RESOURCE_PATH,
+                      vault_path);
+            if(!ret.ok()) {
+                return PASS(ret);
+            }
 
-        irods::error ret;
-        std::string bucket;
-        std::string key;
-        std::string key_id;
-        std::string access_key;
-
-        ret = parseS3Path(_object->physical_path(), bucket, key);
-        if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
-                                 _object->physical_path().c_str())).ok()) {
-
-            ret = s3Init( _ctx.prop_map() );
-            if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
-
-                ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                if((result = ASSERT_PASS(ret, "Failed to get the S3 credentials properties.")).ok()) {
-
-                    callback_data_t data;
-                    S3BucketContext bucketContext;
-
-                    bzero (&bucketContext, sizeof (bucketContext));
-                    bucketContext.bucketName = bucket.c_str();
-                    bucketContext.protocol = s3GetProto(_ctx.prop_map());
-                    bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-                    bucketContext.uriStyle = S3UriStylePath;
-                    bucketContext.accessKeyId = key_id.c_str();
-                    bucketContext.secretAccessKey = access_key.c_str();
-
-                    S3ResponseHandler responseHandler = { 0, &responseCompleteCallback };
-                    size_t retry_cnt = 0;
-                    do {
-                        bzero (&data, sizeof (data));
-                        bucketContext.hostName = s3GetHostname();
-                        data.pCtx = &bucketContext;
-                        S3_delete_object(&bucketContext, key.c_str(), 0, &responseHandler, &data);
-                        if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
-
-                    if (data.status != S3StatusOK) {
-                        std::stringstream msg;
-                        msg << __FUNCTION__;
-                        msg << " - Error unlinking the S3 object: \"";
-                        msg << _object->physical_path();
-                        msg << "\"";
-                        if(data.status >= 0) {
-                            msg << " - \"";
-                            msg << S3_get_status_name((S3Status)data.status);
-                            msg << "\"";
-                        }
-                        result = ERROR(S3_FILE_UNLINK_ERR, msg.str());
-                    }
-                }
+            if(!determine_unlink_for_repl_policy(
+                    _ctx.comm(),
+                    file_obj->logical_path(),
+                    vault_path)) {
+                    return SUCCESS();
             }
         }
+        catch(const irods::exception& _e) {
+            return ERROR(
+                        _e.code(),
+                        _e.what());
+        }
+    } // if repl_policy
+
+    std::string bucket;
+    std::string key;
+    ret = parseS3Path(file_obj->physical_path(), bucket, key);
+    if(!ret.ok()) {
+        return PASS(ret);
     }
-    return result;
-}
+
+    ret = s3Init(_ctx.prop_map());
+    if(!ret.ok()) {
+        return PASS(ret);
+    }
+
+    std::string key_id;
+    std::string access_key;
+    ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+    if(!ret.ok()) {
+        return PASS(ret);
+    }
+
+    S3BucketContext bucketContext;
+    bzero(&bucketContext, sizeof(bucketContext));
+    bucketContext.bucketName = bucket.c_str();
+    bucketContext.protocol = s3GetProto(_ctx.prop_map());
+    bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+    bucketContext.uriStyle = S3UriStylePath;
+    bucketContext.accessKeyId = key_id.c_str();
+    bucketContext.secretAccessKey = access_key.c_str();
+
+    callback_data_t data;
+    S3ResponseHandler responseHandler = { 0, &responseCompleteCallback };
+    size_t retry_cnt = 0;
+    do {
+        bzero (&data, sizeof (data));
+        bucketContext.hostName = s3GetHostname();
+        data.pCtx = &bucketContext;
+        S3_delete_object(
+            &bucketContext,
+            key.c_str(), 0,
+            &responseHandler,
+            &data);
+        if(data.status != S3StatusOK) {
+            s3_sleep( g_retry_wait, 0 );
+        }
+
+    } while((data.status != S3StatusOK) &&
+            S3_status_is_retryable(data.status) &&
+            (++retry_cnt < g_retry_count));
+
+    if(data.status != S3StatusOK) {
+        std::stringstream msg;
+        msg << __FUNCTION__;
+        msg << " - Error unlinking the S3 object: \"";
+        msg << file_obj->physical_path();
+        msg << "\"";
+        if(data.status >= 0) {
+            msg << " - \"";
+            msg << S3_get_status_name((S3Status)data.status);
+            msg << "\"";
+        }
+        return ERROR(S3_FILE_UNLINK_ERR, msg.str());
+    }
+    
+    return SUCCESS();
+} // s3FileUnlinkPlugin 
 
 // =-=-=-=-=-=-=-
 // interface for POSIX Stat
@@ -2226,11 +2321,10 @@ irods::error s3SyncToArchPlugin(
 // redirect_get - code to determine redirection for get operation
 irods::error s3RedirectCreate(
     irods::plugin_property_map& _prop_map,
-    irods::file_object&           _file_obj,
-    const std::string&             _resc_name,
-    const std::string&             _curr_host,
-    float&                         _out_vote )
-{
+    irods::file_object&         _file_obj,
+    const std::string&          _resc_name,
+    const std::string&          _curr_host,
+    float&                      _out_vote ) {
     irods::error result = SUCCESS();
     irods::error ret;
     int resc_status = 0;
@@ -2266,38 +2360,222 @@ irods::error s3RedirectCreate(
 } // s3RedirectCreate
 
 // =-=-=-=-=-=-=-
+// given a property map and file object, if the object exists in the
+// list of replicas then if the reg policy is set assume we have reach
+// to the replica and register one for this given archive resource
+irods::error register_archive_object(
+    rsComm_t*                   _comm,
+    irods::plugin_property_map& _prop_map,
+    irods::file_object_ptr      _file_obj ) {
+    // get the repl policy to determine if we need to check for an archived
+    // replica and if so register it, only register if properly set
+    std::string repl_policy;
+    irods::error ret = _prop_map.get<std::string>(
+                           REPL_POLICY_KEY,
+                           repl_policy);
+    if(!ret.ok()) {
+        return SUCCESS();
+    }
+
+    if(REPL_POLICY_VAL != repl_policy) {
+        return SUCCESS();
+    }
+
+    std::string resc_name;
+    ret = _prop_map.get<std::string>(
+              irods::RESOURCE_NAME,
+              resc_name );
+    if( !ret.ok() ) {
+        return PASS( ret );
+    }
+
+    // scan for a repl with this resource in the
+    // hierarchy, if there is one then no need to continue
+    bool repl_found = false;
+    using phy_objs_t = std::vector<irods::physical_object>;
+    phy_objs_t objs = _file_obj->replicas();
+    phy_objs_t::iterator itr = objs.begin();
+    for(const auto& obj : objs) {
+        irods::hierarchy_parser hp;
+        hp.set_string(obj.resc_hier());
+        if(!hp.resc_in_hier(resc_name)) {
+            continue;
+        }
+
+        repl_found = true;
+    } // for itr
+
+    if(repl_found) {
+        return SUCCESS();
+    }
+
+    std::string vault_path;
+    ret = _prop_map.get<std::string>(
+              irods::RESOURCE_PATH,
+              vault_path);
+
+    // =-=-=-=-=-=-=-
+    // search for a phypath with the same bucket name
+    std::string phy_path;
+    for(const auto& obj : objs) {
+        if(boost::starts_with(obj.path(), vault_path)) {
+            phy_path = itr->path();
+            break;
+        }
+    }
+
+    if(phy_path.empty()) {
+        return ERROR(
+                   INVALID_OBJECT_NAME,
+                   boost::format("no matching phy path for [%s], [%s], [%s]") %
+                       _file_obj->logical_path() %
+                       vault_path %
+                       resc_name);
+    }
+
+    // =-=-=-=-=-=-=-
+    // get our parent resource
+    rodsLong_t resc_id = 0;
+    ret = _prop_map.get<rodsLong_t>( irods::RESOURCE_ID, resc_id );
+    if( !ret.ok() ) {
+        return PASS( ret );
+    }
+
+    std::string resc_hier;
+    ret = resc_mgr.leaf_id_to_hier(resc_id, resc_hier);
+    if( !ret.ok() ) {
+        return PASS( ret );
+    }
+
+    // =-=-=-=-=-=-=-
+    // get the root resc of the hier
+    std::string root_resc;
+    irods::hierarchy_parser parser;
+    parser.set_string( resc_hier );
+    parser.first_resc( root_resc );
+
+    // =-=-=-=-=-=-=-
+    // find the highest repl number for this data object
+    int max_repl_num = 0;
+    for(const auto& obj : objs) {
+        if(obj.repl_num() > max_repl_num) {
+            max_repl_num = obj.repl_num();
+        }
+    } // for objs
+
+    // =-=-=-=-=-=-=-
+    // grab the first physical object to reference
+    // for the various properties in the obj info
+    // physical object to mine for various properties
+    const auto& obj = objs.front();
+
+    // =-=-=-=-=-=-=-
+    // build out a dataObjInfo_t struct for use in the call
+    // to rsRegDataObj
+    dataObjInfo_t dst_data_obj;
+    bzero( &dst_data_obj, sizeof( dst_data_obj ) );
+
+    resc_mgr.hier_to_leaf_id(resc_hier.c_str(), dst_data_obj.rescId);
+    strncpy( dst_data_obj.objPath,       obj.name().c_str(),       MAX_NAME_LEN );
+    strncpy( dst_data_obj.rescName,      root_resc.c_str(),         NAME_LEN );
+    strncpy( dst_data_obj.rescHier,      resc_hier.c_str(),         MAX_NAME_LEN );
+    strncpy( dst_data_obj.dataType,      obj.type_name( ).c_str(), NAME_LEN );
+    dst_data_obj.dataSize = obj.size( );
+    strncpy( dst_data_obj.chksum,        obj.checksum( ).c_str(),  NAME_LEN );
+    strncpy( dst_data_obj.version,       obj.version( ).c_str(),   NAME_LEN );
+    strncpy( dst_data_obj.filePath,      phy_path.c_str(),          MAX_NAME_LEN );
+    strncpy( dst_data_obj.dataOwnerName, obj.owner_name( ).c_str(),NAME_LEN );
+    strncpy( dst_data_obj.dataOwnerZone, obj.owner_zone( ).c_str(),NAME_LEN );
+    dst_data_obj.replNum    = max_repl_num+1;
+    dst_data_obj.replStatus = obj.is_dirty( );
+    strncpy( dst_data_obj.statusString,  obj.status( ).c_str(),    NAME_LEN );
+    dst_data_obj.dataId = obj.id();
+    dst_data_obj.collId = obj.coll_id();
+    dst_data_obj.dataMapId = 0; 
+    dst_data_obj.flags     = 0; 
+    strncpy( dst_data_obj.dataComments,  obj.r_comment( ).c_str(), MAX_NAME_LEN );
+    strncpy( dst_data_obj.dataMode,      obj.mode( ).c_str(),      SHORT_STR_LEN );
+    strncpy( dst_data_obj.dataExpiry,    obj.expiry_ts( ).c_str(), TIME_LEN );
+    strncpy( dst_data_obj.dataCreate,    obj.create_ts( ).c_str(), TIME_LEN );
+    strncpy( dst_data_obj.dataModify,    obj.modify_ts( ).c_str(), TIME_LEN );
+
+    // =-=-=-=-=-=-=-
+    // manufacture a src data obj
+    dataObjInfo_t src_data_obj;
+    memcpy( &src_data_obj, &dst_data_obj, sizeof( dst_data_obj ) );
+    src_data_obj.replNum = obj.repl_num();
+    strncpy( src_data_obj.filePath, obj.path().c_str(),       MAX_NAME_LEN );
+    strncpy( src_data_obj.rescHier, obj.resc_hier().c_str(),  MAX_NAME_LEN );
+
+    // =-=-=-=-=-=-=-
+    // repl to an existing copy
+    regReplica_t reg_inp;
+    bzero( &reg_inp, sizeof( reg_inp ) );
+    reg_inp.srcDataObjInfo  = &src_data_obj;
+    reg_inp.destDataObjInfo = &dst_data_obj;
+    int reg_status = rsRegReplica( _comm, &reg_inp );
+    if( reg_status < 0 ) {
+        return ERROR( reg_status, "failed to register data object" );
+    }
+
+    // =-=-=-=-=-=-=-
+    // we need to make a physical object and add it to the file_object
+    // so it can get picked up for the repl operation
+    irods::physical_object phy_obj = obj;
+    phy_obj.resc_hier( dst_data_obj.rescHier );
+    phy_obj.repl_num( dst_data_obj.replNum );
+    objs.push_back( phy_obj );
+    _file_obj->replicas( objs );
+
+    // =-=-=-=-=-=-=-
+    // repave resc hier in file object as it is
+    // what is used to determine hierarchy in
+    // the compound resource
+    _file_obj->resc_hier( dst_data_obj.rescHier );
+    _file_obj->physical_path( dst_data_obj.filePath );
+
+    return SUCCESS();
+
+} // register_archive_object
+
+// =-=-=-=-=-=-=-
 // redirect_get - code to determine redirection for get operation
 irods::error s3RedirectOpen(
+    rsComm_t*                   _comm,
     irods::plugin_property_map& _prop_map,
-    irods::file_object&           _file_obj,
-    const std::string&             _resc_name,
-    const std::string&             _curr_host,
-    float&                         _out_vote )
-{
+    irods::file_object_ptr      _file_obj,
+    const std::string&          _resc_name,
+    const std::string&          _curr_host,
+    float&                      _out_vote ) {
     irods::error result = SUCCESS();
     irods::error ret;
     int resc_status = 0;
     std::string host_name;
-
     // =-=-=-=-=-=-=-
     // determine if the resource is down
     ret = _prop_map.get< int >( irods::RESOURCE_STATUS, resc_status );
     if((result = ASSERT_PASS(ret, "Failed to get status property for resource.")).ok() ) {
-
         // =-=-=-=-=-=-=-
         // get the resource host for comparison to curr host
         ret = _prop_map.get< std::string >( irods::RESOURCE_LOCATION, host_name );
         if((result = ASSERT_PASS(ret, "Failed to get the location property.")).ok() ) {
-
             // =-=-=-=-=-=-=-
             // if the status is down, vote no.
             if( INT_RESC_STATUS_DOWN == resc_status ) {
                 _out_vote = 0.0;
             }
-
-            // =-=-=-=-=-=-=-
-            // vote higher if we are on the same host
             else if( _curr_host == host_name ) {
+                // =-=-=-=-=-=-=-
+                // vote higher if we are on the same host
+                irods::error get_ret = register_archive_object(
+                                           _comm,
+                                           _prop_map,
+                                           _file_obj);
+                if(!get_ret.ok()) {
+                    irods::log(get_ret);
+                    return PASS(get_ret);
+                }
+
                 _out_vote = 1.0;
             } else {
                 _out_vote = 0.5;
@@ -2351,8 +2629,13 @@ irods::error s3RedirectPlugin(
                 if( irods::OPEN_OPERATION == (*_opr) ) {
                     // =-=-=-=-=-=-=-
                     // call redirect determination for 'get' operation
-                    result = s3RedirectOpen( _ctx.prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
-
+                    result = s3RedirectOpen(
+                                 _ctx.comm(),
+                                 _ctx.prop_map(),
+                                 file_obj,
+                                 resc_name,
+                                 (*_curr_host),
+                                 (*_out_vote));
                 } else if( irods::CREATE_OPERATION == (*_opr) ) {
                     // =-=-=-=-=-=-=-
                     // call redirect determination for 'create' operation
