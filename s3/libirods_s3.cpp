@@ -1205,8 +1205,6 @@ static void mpuWorkerThread (
             putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
             if ( putProps && partData.enable_md5 )
                 putProps->md5 = s3CalcMD5( partData.put_object_data.fd, partData.put_object_data.offset, partData.put_object_data.contentLength );
-            if ( putProps && partData.server_encrypt )
-                putProps->useServerSideEncryption = true;
             putProps->expires = -1;
             unsigned long long usStart = usNow();
             bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
@@ -1270,7 +1268,7 @@ irods::error s3PutCopyFile(
     long chunksize = s3GetMPUChunksize( _prop_map );
     size_t retry_cnt    = 0;
     bool enable_md5 = s3GetEnableMD5 ( _prop_map );
-    s3GetServerEncrypt ( _prop_map );
+    bool server_encrypt = s3GetServerEncrypt ( _prop_map );
     std::stringstream msg;
 
     ret = parseS3Path(_s3ObjName, bucket, key);
@@ -1311,6 +1309,8 @@ irods::error s3PutCopyFile(
                 putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
                 if ( putProps && enable_md5 )
                     putProps->md5 = s3CalcMD5( cache_fd, 0, _fileSize );
+                if ( putProps && server_encrypt )
+                    putProps->useServerSideEncryption = true;
                 putProps->expires = -1;
 
                 if ( _fileSize < chunksize ) {
