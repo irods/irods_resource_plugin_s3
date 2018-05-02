@@ -43,9 +43,9 @@ S3 server side encryption can be enabled using the parameter S3_SERVER_ENCRYPT=[
 Using this plugin with Google Cloud services
 --------------------------------------------
 
-This plugin has been certified to work with google cloud storage. This works becuase Google has implmented the s3 protocol.  There are several differences:
+This plugin has been certified to work with google cloud storage. This works because Google has implemented the s3 protocol.  There are several differences:
 
-* Google does not seem to support multpart uploads.  So it is neccessary to disable this feature by adding the S3_ENABLE_MPU=0 flag to the context string.
+* Google does not seem to support multipart uploads.  So it is necessary to disable this feature by adding the S3_ENABLE_MPU=0 flag to the context string.
 * The default hostname in the context string should be set to storage.googleapis.com
 * The signature version should be set to s3v4
-* The values in the key file have to be generated according to the instructions at this link: https://cloud.google.com/storage/docs/migrating#keys
+* The values in the key file have to be generated according to the instructions: https://cloud.google.com/storage/docs/migrating#keys
