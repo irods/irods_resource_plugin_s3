@@ -135,7 +135,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         self.admin.assert_icommand("ils -L "+self.testfile,'STDOUT_SINGLELINE',self.testfile) # should be listed
         self.admin.assert_icommand("irepl -R "+self.testresc+" "+self.testfile) # creates replica
         self.admin.assert_icommand("ils -L "+self.testfile,'STDOUT_SINGLELINE',self.testfile) # should be listed twice
-        self.admin.assert_icommand("irm -n 0 "+self.testfile) # remove original from cacheResc only
+        self.admin.assert_icommand("irm -n 0 "+self.testfile, 'STDOUT_SINGLELINE','deprecated') # remove original from cacheResc only
         self.admin.assert_icommand("ils -L "+self.testfile,'STDOUT_SINGLELINE',["2 "+self.testresc,self.testfile]) # replica 2 should still be there
         self.admin.assert_icommand_fail("ils -L "+self.testfile,'STDOUT_SINGLELINE',["0 "+self.admin.default_resource,self.testfile]) # replica 0 should be gone
         trashpath = self.admin.session_collection_trash
