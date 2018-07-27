@@ -22,6 +22,7 @@ To use this resource plugin:
   irods@hostname $ iadmin addchildtoresc compResc cacheResc cache
   irods@hostname $ iadmin addchildtoresc compResc archiveResc archive
   irods@hostname $ iput -R compResc foo.txt
+  irods@hostname $ ireg -R archiveResc /<s3BucketName>/full/path/in/bucket /full/logical/path/to/dataObject
 
 The AWS/S3 keypair file should have two values (Access Key ID and Secret Access Key):
 
