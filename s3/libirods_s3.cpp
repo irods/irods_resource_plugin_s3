@@ -712,7 +712,7 @@ static bool s3GetEnableMultiPartUpload (
 {
     irods::error ret;
     std::string enable_str;
-    bool enable = false;
+    bool enable = true;
 
     ret = _prop_map.get< std::string >(
         s3_enable_mpu,
