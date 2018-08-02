@@ -128,6 +128,7 @@ static bool S3Initialized = false; // so we only initialize the s3 library once
 static std::vector<char *> g_hostname;
 static int g_hostnameIdx = 0;
 static boost::mutex g_hostnameIdxLock;
+S3ResponseProperties savedProperties;
 
 // Sleep for *at least* the given time, plus some up to 1s additional
 // The random addition ensures that threads don't all cluster up and retry
@@ -282,6 +283,9 @@ static S3Status responsePropertiesCallback(
     const S3ResponseProperties *properties,
     void *callbackData)
 {
+    // Here we are saving the only 2 things iRODS actually cares about.
+    savedProperties.lastModified = properties->lastModified;
+    savedProperties.contentLength = properties->contentLength;
     return S3StatusOK;
 }
 
@@ -2037,19 +2041,13 @@ irods::error s3FileStatPlugin(
                         bucketContext.accessKeyId = key_id.c_str();
                         bucketContext.secretAccessKey = access_key.c_str();
 
-                        S3ListBucketHandler listBucketHandler = {
-                            { &responsePropertiesCallback, &responseCompleteCallback },
-                            &listBucketCallback
-                        };
-
-                        data.keyCount = 0;
-
+                        S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallback };
                         size_t retry_cnt = 0;
                         do {
                             bzero (&data, sizeof (data));
                             bucketContext.hostName = s3GetHostname();
                             data.pCtx = &bucketContext;
-                            S3_list_bucket(&bucketContext, key.c_str(), NULL, NULL, 1, 0, &listBucketHandler, &data);
+                            S3_head_object(&bucketContext, key.c_str(), 0, &headObjectHandler, &data);
                             if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
                         } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
 
@@ -2062,13 +2060,13 @@ irods::error s3FileStatPlugin(
                             result = ERROR(S3_FILE_STAT_ERR, msg.str());
                         }
 
-                        else if(data.keyCount > 0) {
+                        else if( savedProperties.contentLength > 0) {
                             _statbuf->st_mode = S_IFREG;
                             _statbuf->st_nlink = 1;
                             _statbuf->st_uid = getuid ();
                             _statbuf->st_gid = getgid ();
-                            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = data.s3Stat.lastModified;
-                            _statbuf->st_size = data.s3Stat.size;
+                            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
+                            _statbuf->st_size = savedProperties.contentLength;
                         }
 
                         else {
