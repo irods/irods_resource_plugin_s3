@@ -2060,7 +2060,7 @@ irods::error s3FileStatPlugin(
                             result = ERROR(S3_FILE_STAT_ERR, msg.str());
                         }
 
-                        else if( savedProperties.contentLength > 0) {
+                        else if( savedProperties.contentLength >= 0) {
                             _statbuf->st_mode = S_IFREG;
                             _statbuf->st_nlink = 1;
                             _statbuf->st_uid = getuid ();
