@@ -2060,22 +2060,13 @@ irods::error s3FileStatPlugin(
                             result = ERROR(S3_FILE_STAT_ERR, msg.str());
                         }
 
-                        else if( savedProperties.contentLength >= 0) {
+                        else {
                             _statbuf->st_mode = S_IFREG;
                             _statbuf->st_nlink = 1;
                             _statbuf->st_uid = getuid ();
                             _statbuf->st_gid = getgid ();
                             _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
                             _statbuf->st_size = savedProperties.contentLength;
-                        }
-
-                        else {
-                            std::stringstream msg;
-                            msg << __FUNCTION__;
-                            msg << " - S3 object not found: \"";
-                            msg << _object->physical_path();
-                            msg << "\"";
-                            result = ERROR(S3_FILE_STAT_ERR, msg.str());
                         }
                     }
                 }
