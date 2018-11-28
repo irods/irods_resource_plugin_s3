@@ -23,6 +23,7 @@ macro(IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIE
   list(APPEND IRODS_PACKAGE_DEPENDENCIES_LIST irods-externals-${DEPENDENCY_SUBDIRECTORY})
 endmacro()
 IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(S3 libs3a30e55e8-0)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(JANSSON jansson2.7-0)
 string(REPLACE ";" ", " IRODS_PACKAGE_DEPENDENCIES_STRING "${IRODS_PACKAGE_DEPENDENCIES_LIST}")
 
 set(CMAKE_C_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/clang)
@@ -53,7 +54,7 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -Wl,-
 add_compile_options(-nostdinc++ -Wall -Wextra -Werror)
 add_compile_options(-Wno-unused-parameter) # Until fix of irods_re_plugin.hpp
 add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://github.com/irods/irods/issues/3396
-link_libraries(c++abi)
+link_libraries(c++abi curl xml2 crypto pthread)
 include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1)
 
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
@@ -66,6 +67,19 @@ add_library(
   irods_s3_plugin
   MODULE
   ${CMAKE_SOURCE_DIR}/s3/libirods_s3.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_archive_operations.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_cacheless_operations.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/curl.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/addhead.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/cache.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/common_auth.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/fdcache.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/gnutls_auth.cpp
+  #${CMAKE_SOURCE_DIR}/s3/s3fs/nss_auth.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/openssl_auth.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs_util.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3fs/string_util.cpp
   )
 target_include_directories(
   irods_s3_plugin
@@ -75,6 +89,8 @@ target_include_directories(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
   ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
+  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
+  /usr/include/libxml2
   )
 target_link_libraries(
   irods_s3_plugin
@@ -84,6 +100,7 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
   ${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
+  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
   ${OPENSSL_CRYPTO_LIBRARY}
   )
 target_compile_definitions(irods_s3_plugin PRIVATE RODS_SERVER ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED)
@@ -100,6 +117,7 @@ install(
   FILES
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_for_gcp.py
+  ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_nocache.py
   DESTINATION ${IRODS_HOME_DIRECTORY}/scripts/irods/test
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
   )
