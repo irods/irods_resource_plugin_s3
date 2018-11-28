@@ -75,6 +75,31 @@ S3_ENABLE_MD5=[0|1]  (default is 0, off)
 S3 server-side encryption can be enabled using the parameter `S3_SERVER_ENCRYPT=[0|1]` (default=0=off).  This is not the same as HTTPS, and implies that the data will be stored on disk encrypted.
 To encrypt during the network transport to S3, use `S3_PROTO=HTTPS` (the default)
 
+### Using the S3 plugin in cacheless mode
+
+The S3 plugin may be used in cacheless mode.  In this case the resource can be standalone and does not require an associated cache and compound resource.  This is still being actively developed and not all features that exist for cache mode have been implemented at this time.  The following have not been implemented or have not been tested at this time.
+
+* Muliple hosts in a comma separated list in S3_DEFAULT_HOSTNAME.
+* S3_ENABLE_MD5 flag
+* S3_ENABLE_MPU flag
+* ARCHIVE_NAMING_POLICY flag
+
+An additional flag called HOST_MODE is used to enable cacheless mode.  The default value for this is archive_attached which provides the legacy functionality.  The valid settings are as follows:
+
+* archive_attached - Legacy functionality.  Resource must be a child of a compound resource (parent/child context of archive) and must have a cache resource associated with it.
+* cacheless_attached - Resource does not require a compound resource or a cache.  The resource remains tagged to the server defined in the resc_net property.  Any requests to this resource will be redirected to that server.
+* cacheless_detached - Same as above but the resource is not tagged to a certain resource server.  Any resource server may fulfill a request.  This requires that all resource servers have network access to the S3 resource.
+
+Note that the cacheless_detached mode is still a work-in-progress.
+
+The following is an example of how to configure a cacheless_attached S3 resource:
+
+~~~~
+iadmin mkresc s3resc s3 `hostname`:/irods-bucket/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
+~~~~
+
+
+
 ## Using this plugin with Google Cloud Storage (GCS)
 
 This plugin has been manually tested to work with google cloud storage. This works because Google has implemented the s3 protocol.  There are several differences:
