@@ -43,7 +43,9 @@ const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
 
 const char* s3GetHostname();
-
+S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);
+long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
+ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
 
 typedef struct S3Auth {
     char accessKeyId[MAX_NAME_LEN];

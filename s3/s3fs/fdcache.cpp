@@ -1653,6 +1653,7 @@ ssize_t FdEntity::Read(char* bytes, off_t start, size_t size, bool force_load)
 
 ssize_t FdEntity::Write(const char* bytes, size_t start, size_t size)
 {
+
   S3FS_PRN_DBG("[path=%s][fd=%d][offset=%llu][size=%zu]", path.c_str(), fd, (size_t)start, size);
 
   if(-1 == fd){
@@ -2312,7 +2313,7 @@ std::map<int, FdOffsetPair> FileOffsetManager::offset_map;
 FileOffsetManager::FileOffsetManager()  {
 
     if(this == get()){
-		fd_counter = 0;
+		//fd_counter = 0;
         try{
             pthread_mutex_init(&file_offset_manager_lock, NULL);
             is_lock_init = true;
