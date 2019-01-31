@@ -328,7 +328,7 @@ void CurlHandlerPool::ReturnHandler(CURL* h)
 //-------------------------------------------------------------------
 // Class S3fsCurl
 //-------------------------------------------------------------------
-static const int MULTIPART_SIZE = 10 * 1024 * 1024;
+//static const int MULTIPART_SIZE = 60 * 1024 * 1024;
 static const int MAX_MULTI_COPY_SOURCE_SIZE = 500 * 1024 * 1024;
 
 static const int IAM_EXPIRE_MERGIN = 20 * 60;  // update timing
@@ -381,7 +381,7 @@ string           S3fsCurl::curl_ca_bundle;
 mimes_t          S3fsCurl::mimeTypes;
 string           S3fsCurl::userAgent;
 int              S3fsCurl::max_parallel_cnt    = 5;              // default
-off_t            S3fsCurl::multipart_size      = MULTIPART_SIZE; // default
+off_t            S3fsCurl::multipart_size;//      = MULTIPART_SIZE; // default
 bool             S3fsCurl::is_sigv4            = true;           // default
 bool             S3fsCurl::is_ua               = true;           // default
 
@@ -4063,6 +4063,7 @@ int S3fsMultiCurl::Request(void)
   // Send multi request loop( with retry )
   // (When many request is sends, sometimes gets "Couldn't connect to server")
   //
+
   while(!cMap_all.empty()){
     // set curl handle to multi handle
     int                     result;
@@ -4096,6 +4097,7 @@ int S3fsMultiCurl::Request(void)
 // thread function for performing an S3fsCurl request
 void* S3fsMultiCurl::RequestPerformWrapper(void* arg) {
   S3fsCurl* s3fscurl = static_cast<S3fsCurl*>(arg);
+  //b_partdata_startpos(0), b_partdata_size(0),
   void *result = (void*)(intptr_t)(s3fscurl->RequestPerform());
   s3fscurl->sem->post();
   return result;
