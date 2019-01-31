@@ -119,8 +119,6 @@ static boost::mutex g_hostnameIdxLock;
 
 S3ResponseProperties savedProperties;
 
-irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map); 
-
 // gets the attached_mode and cacheless_mode from the host_mode_str
 // return value of 0 means host_mode_str was valid
 // return value of -1 means defaults were set because host_mode_str was invalid
@@ -443,7 +441,7 @@ irods::error parseS3Path (
 }
 
 // Get S3 Signature version from plugin property map
-static S3SignatureVersion s3GetSignatureVersion (irods::plugin_property_map& _prop_map)
+S3SignatureVersion s3GetSignatureVersion (irods::plugin_property_map& _prop_map)
 {
     std::string version_str;
 
@@ -691,7 +689,7 @@ static long s3GetMaxUploadSize (irods::plugin_property_map& _prop_map)
 }
 
 // returns the chunk size for multipart upload, in bytes
-static long s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
+long s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string chunk_str;
@@ -708,7 +706,7 @@ static long s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
     return bytes;
 }
 
-static ssize_t s3GetMPUThreads (
+ssize_t s3GetMPUThreads (
     irods::plugin_property_map& _prop_map )
 {
     irods::error ret;
@@ -1797,17 +1795,33 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     if (!attached_mode) {
         char resource_location[MAX_NAME_LEN];
         gethostname(resource_location, MAX_NAME_LEN);
-rodsLog(LOG_NOTICE, "setting resource location to %s", resource_location); 
         _prop_map.set<std::string>(irods::RESOURCE_LOCATION, resource_location);
     }
 
     if (cacheless_mode) {
-        ret = initialize_cacheless_mode(_prop_map);
-        if (!ret.ok()) {
-            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
+
+        xmlInitParser();
+    
+        // Load SSE environment
+        if(!S3fsCurl::LoadEnvSse()) {
+            std::string error_str = "something wrong about SSE environment.";
+            rodsLog(LOG_ERROR, error_str.c_str());
+            return ERROR(S3_INIT_ERROR, error_str.c_str());
+        } 
+      
+        // ssl init
+        else if(!s3fs_init_global_ssl()){
+            std::string error_str = "could not initialize for ssl libraries.";
+            rodsLog(LOG_ERROR, error_str.c_str());
+            return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
+    
+    
+        // init curl
+        S3fsCurl::InitS3fsCurl("/etc/mime.types");
     }
  
+
     return result;
 }
 
@@ -2192,107 +2206,6 @@ public:
     }
 
 }; // class s3_resource
-
-irods::error initialize_cacheless_mode(irods::plugin_property_map& _prop_map) {
-
-    // this is taken from s3fs.cpp - main() with adjustments
-    
-    // init xml2
-    xmlInitParser();
-
-    irods::error ret = s3Init( _prop_map );
-    if (!ret.ok()) {
-        return PASS(ret);
-    }
-    
-    // Load SSE environment
-    if(!S3fsCurl::LoadEnvSse()) {
-        std::string error_str = "something wrong about SSE environment.";
-        rodsLog(LOG_ERROR, error_str.c_str());
-        return ERROR(S3_INIT_ERROR, error_str.c_str());
-    } 
-  
-    // ssl init
-    else if(!s3fs_init_global_ssl()){
-        std::string error_str = "could not initialize for ssl libraries.";
-        rodsLog(LOG_ERROR, error_str.c_str());
-        return ERROR(S3_INIT_ERROR, error_str.c_str());
-    }
-
-
-    // init curl
-    S3fsCurl::InitS3fsCurl("/etc/mime.types");
-    
-    // check bucket name for illegal characters
-    /*size_t found = bucket.find_first_of("/:\\;!@#$%^&*?|+=");
-    if(found != std::string::npos){
-        S3fsCurl::DestroyS3fsCurl();
-        s3fs_destroy_global_ssl();
-        std::string error_str =  "BUCKET %s -- bucket name contains an illegal character.";
-        rodsLog(LOG_ERROR, error_str.c_str());
-        return ERROR(S3_INIT_ERROR, error_str.c_str());
-    }*/
-
-    // get keys
-    std::string key_id, access_key;
-    ret = _prop_map.get< std::string >(s3_key_id, key_id);
-    if (!ret.ok()) {
-        S3fsCurl::DestroyS3fsCurl();
-        s3fs_destroy_global_ssl();
-        return ret;
-    }
-
-    ret = _prop_map.get< std::string >(s3_access_key, access_key);
-    if (!ret.ok()) {
-        S3fsCurl::DestroyS3fsCurl();
-        s3fs_destroy_global_ssl();
-        return ret;
-    }
-
-    // save keys
-    if(!S3fsCurl::SetAccessKey(key_id.c_str(), access_key.c_str())){
-        S3fsCurl::DestroyS3fsCurl();
-        s3fs_destroy_global_ssl();
-        std::string error_str =  "failed to set internal data for access key/secret key.";
-        rodsLog(LOG_ERROR, error_str.c_str());
-        return ERROR(S3_INIT_ERROR, error_str.c_str());
-    }
-    S3fsCurl::InitUserAgent();
-
-    ret = _prop_map.get< std::string >(s3_proto, s3_protocol_str);
-    if (!ret.ok()) {
-        S3fsCurl::DestroyS3fsCurl();
-        s3fs_destroy_global_ssl();
-        std::string error_str =  "S3_PROTO is not defined for resource.";
-        rodsLog(LOG_ERROR, error_str.c_str());
-        return ERROR(S3_INIT_ERROR, error_str.c_str());
-    }
-
-    if (boost::iequals(s3_protocol_str, "https")) {
-        s3_protocol_str = "https";
-    } else if (boost::iequals(s3_protocol_str, "http")) {
-        s3_protocol_str = "http";
-    } else {
-        s3_protocol_str = "";
-    }
-
-    S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
-
-    if (signature_version == S3SignatureV4) {
-        S3fsCurl::SetSignatureV4(true);
-    } else {
-        S3fsCurl::SetSignatureV4(false);
-    }
-
-
-
-    service_path = "";
-    host = std::string(s3GetHostname());
-
-    return SUCCESS();
-
-
-}
 
 extern "C"
 irods::resource* plugin_factory( const std::string& _inst_name, const std::string& _context ) {
