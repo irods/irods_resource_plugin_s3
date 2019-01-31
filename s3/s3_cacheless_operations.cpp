@@ -8,6 +8,8 @@
 #include "s3fs/fdcache.h"
 #include "s3fs/s3fs.h"
 #include "s3fs/s3fs_util.h"
+#include "s3fs/s3fs_auth.h"
+
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -29,39 +31,103 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 
+// =-=-=-=-=-=-=-
+// other includes
 #include <string>
 #include <fcntl.h>
+#include <libxml/xpath.h>
+#include <libxml/xpathInternals.h>
+#include <libxml/tree.h>
+
 
 extern size_t g_retry_count;
 extern size_t g_retry_wait;
 
 extern S3ResponseProperties savedProperties;
 
-// common function for creation of a plain object
-/*static int create_file_object(const char* path)
-{
-    headers_t meta;
-    meta["Content-Type"]     = S3fsCurl::LookupMimeType(std::string(path));
-    //meta["x-amz-meta-uid"]   = str(uid);
-    //meta["x-amz-meta-gid"]   = str(gid);
-    //meta["x-amz-meta-mode"]  = str(mode);
-    //meta["x-amz-meta-mtime"] = str(time(NULL));
-  
-    S3fsCurl s3fscurl(true);
-    return s3fscurl.PutRequest(path, meta, -1);    // fd=-1 means for creating zero byte object.
-}*/
-
-        
 namespace irods_s3_cacheless {
+
+    irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map) {
+
+        // this is taken from s3fs.cpp - main() with adjustments
+        
+        irods::error ret = s3Init( _prop_map );
+        if (!ret.ok()) {
+            return PASS(ret);
+        }
+        
+        // get keys
+        std::string key_id, access_key;
+        ret = _prop_map.get< std::string >(s3_key_id, key_id);
+        if (!ret.ok()) {
+            S3fsCurl::DestroyS3fsCurl();
+            s3fs_destroy_global_ssl();
+            return ret;
+        }
+    
+        ret = _prop_map.get< std::string >(s3_access_key, access_key);
+        if (!ret.ok()) {
+            S3fsCurl::DestroyS3fsCurl();
+            s3fs_destroy_global_ssl();
+            return ret;
+        }
+    
+        // save keys
+        if(!S3fsCurl::SetAccessKey(key_id.c_str(), access_key.c_str())){
+            S3fsCurl::DestroyS3fsCurl();
+            s3fs_destroy_global_ssl();
+            std::string error_str =  "failed to set internal data for access key/secret key.";
+            rodsLog(LOG_ERROR, error_str.c_str());
+            return ERROR(S3_INIT_ERROR, error_str.c_str());
+        }
+        S3fsCurl::InitUserAgent();
+    
+        ret = _prop_map.get< std::string >(s3_proto, s3_protocol_str);
+        if (!ret.ok()) {
+            S3fsCurl::DestroyS3fsCurl();
+            s3fs_destroy_global_ssl();
+            std::string error_str =  "S3_PROTO is not defined for resource.";
+            rodsLog(LOG_ERROR, error_str.c_str());
+            return ERROR(S3_INIT_ERROR, error_str.c_str());
+        }
+    
+        if (boost::iequals(s3_protocol_str, "https")) {
+            s3_protocol_str = "https";
+        } else if (boost::iequals(s3_protocol_str, "http")) {
+            s3_protocol_str = "http";
+        } else {
+            s3_protocol_str = "";
+        }
+    
+        S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
+    
+        if (signature_version == S3SignatureV4) {
+            S3fsCurl::SetSignatureV4(true);
+        } else {
+            S3fsCurl::SetSignatureV4(false);
+        }
+    
+        // set multipart size
+        //    Note:  SetMultipartSize takes value in MB so need to convert back from bytes to MB.
+        S3fsCurl::SetMultipartSize(s3GetMPUChunksize(_prop_map) / (1024ULL * 1024ULL));
+    
+        // set number of simultaneous threads
+        S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_prop_map));
+    
+        service_path = "";
+        host = std::string(s3GetHostname());
+    
+        return SUCCESS();
+    }
 
     int create_file_object(std::string& path) 
     {
 
         headers_t meta;
         meta["Content-Type"]     = S3fsCurl::LookupMimeType(path);
-        meta["x-amz-meta-uid"]   = "999";
-        meta["x-amz-meta-gid"]   = "999";
-        meta["x-amz-meta-mode"]  = "33204";
+        //meta["x-amz-meta-uid"]   = "999";
+        //meta["x-amz-meta-gid"]   = "999";
+        //meta["x-amz-meta-mode"]  = "33204";
         //meta["x-amz-meta-mtime"] = std::string(time(NULL));
 
         S3fsCurl s3fscurl(true);
@@ -111,6 +177,10 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
+        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
+        }
 
         service_path = "";
 
@@ -161,6 +231,11 @@ namespace irods_s3_cacheless {
             std::stringstream msg;
             msg << __FUNCTION__ << " - Invalid parameters or physical path.";
             return PASSMSG(msg.str(), ret);
+        }
+
+        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
 
         bool needs_flush = false;
@@ -232,8 +307,6 @@ namespace irods_s3_cacheless {
                                    void*               _buf,
                                    int                 _len ) {
 
-        memset(_buf, 'z', _len); 
-
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -243,6 +316,10 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
+        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
+        }
 
         irods::error result = SUCCESS();
 
@@ -286,8 +363,8 @@ namespace irods_s3_cacheless {
         // TODO check performance of this.
         struct stat st;
         headers_t meta;
-        int returnVal = get_object_attribute(path.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
-                        //get_object_attribute(path.c_str(), &st, &meta);
+        int returnVal = //get_object_attribute(path.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
+                        get_object_attribute(path.c_str(), &st, &meta);
         if (0 != returnVal) {
             return ERROR(S3_FILE_STAT_ERR, (boost::format("%s: - Failed to perform a stat of %s") % __FUNCTION__ % path.c_str()));
         }
@@ -338,6 +415,10 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
+        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
+        }
 
         irods::error result = SUCCESS();
 
@@ -429,6 +510,11 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
+        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
+        }
+
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string path = fco->physical_path();
 
@@ -461,6 +547,11 @@ namespace irods_s3_cacheless {
             std::stringstream msg;
             msg << __FUNCTION__ << " - Invalid parameters or physical path.";
             return PASSMSG(msg.str(), ret);
+        }
+
+        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
 
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
@@ -631,6 +722,11 @@ namespace irods_s3_cacheless {
             return PASSMSG(msg.str(), ret);
         }
 
+        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
+        }
+
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string from = fco->physical_path();
 
@@ -672,7 +768,6 @@ namespace irods_s3_cacheless {
     irods::error s3FileTruncatePlugin(
         irods::plugin_context& _ctx )
     {
-rodsLog(LOG_NOTICE, "%s:%d", __FUNCTION__, __LINE__);
         return SUCCESS();
     } // s3FileTruncatePlugin
 
