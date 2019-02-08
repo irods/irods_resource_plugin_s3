@@ -73,6 +73,7 @@ target_include_directories(
   ${IRODS_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  ${IRODS_EXTERNALS_FULLPATH_JANSSON}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
   )
 target_link_libraries(
