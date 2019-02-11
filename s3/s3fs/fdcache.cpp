@@ -338,6 +338,11 @@ bool PageList::Resize(size_t size, bool is_loaded)
     pages.push_back(page);
 
   }else if(size < total){
+
+    if (0 == size) {
+		return Compress();
+    }
+
     // cut area
     for(fdpage_list_t::iterator iter = pages.begin(); iter != pages.end(); ){
       if(static_cast<size_t>((*iter)->next()) <= size){
@@ -812,7 +817,7 @@ int FdEntity::Open(headers_t* pmeta, ssize_t size, time_t time, bool no_fd_lock_
     // check only file size(do not need to save cfs and time.
     if(0 <= size && pagelist.Size() != static_cast<size_t>(size)){
       // truncate temporary file size
-      if(-1 == ftruncate(fd, static_cast<size_t>(size))){
+      if(0 != size && -1 == ftruncate(fd, static_cast<size_t>(size))){
         S3FS_PRN_ERR("failed to truncate temporary file(%d) by errno(%d).", fd, errno);
         return -EIO;
       }
@@ -927,7 +932,7 @@ int FdEntity::Open(headers_t* pmeta, ssize_t size, time_t time, bool no_fd_lock_
 
   // truncate cache(tmp) file
   if(is_truncate){
-    if(0 != ftruncate(fd, static_cast<off_t>(size)) || 0 != fsync(fd)){
+    if(0 != size && (0 != ftruncate(fd, static_cast<off_t>(size)) || 0 != fsync(fd))){
       S3FS_PRN_ERR("ftruncate(%s) or fsync returned err(%d)", cachepath.c_str(), errno);
       fclose(pfile);
       pfile = NULL;
@@ -2075,9 +2080,6 @@ FdEntity* FdManager::Open(const char* path, headers_t* pmeta, ssize_t size, time
         }
       }
     }
-
-	// TODO delete this
-	//iter = fent.end();
 
     if(fent.end() != iter){
       // found
