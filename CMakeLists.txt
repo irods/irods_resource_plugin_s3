@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5.0 FATAL_ERROR) #CPACK_DEBIAN_<COMPONENT>_PACKAGE_NAME
 
-find_package(IRODS 4.2.4 EXACT REQUIRED)
+find_package(IRODS 4.2.5 EXACT REQUIRED)
 
 if (NOT IRODS_EXTERNALS_PACKAGE_ROOT)
   set(IRODS_EXTERNALS_PACKAGE_ROOT "/opt/irods-externals" CACHE STRING "Choose the location of iRODS external packages." FORCE)
