@@ -1846,7 +1846,7 @@ bool determine_unlink_for_repl_policy(
         data_name %
         coll_name);
     uint32_t s3_ctr{0};
-    for(const auto& row : irods::query{_comm, qstr}) {
+    for(const auto& row : irods::query<rsComm_t>{_comm, qstr}) {
         const std::string& path = row[0];
         const std::string& id   = row[1];
         if(boost::starts_with(path, _vault_path)) {
