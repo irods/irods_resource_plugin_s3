@@ -2174,6 +2174,10 @@ irods::error s3FileRenamePlugin( irods::plugin_context& _ctx,
                                  object->physical_path().c_str());
         }
     }
+
+    // issue 1855 (irods issue 4326) - resources must now set physical path
+    object->physical_path(_new_file_name);
+
     return result;
 } // s3FileRenamePlugin
 
