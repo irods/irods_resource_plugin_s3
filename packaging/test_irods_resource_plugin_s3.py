@@ -393,6 +393,69 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # verify object path
         self.assertEqual(target_path, physical_path)
 
+        # move the file
+        new_filename = "%s.new" % filename
+        session.assert_icommand("imv %s %s" % (filename, new_filename))
+
+        # get and purge cache replica
+        session.assert_icommand("iget -f --purgec %s" % new_filename) # get file and purge 'cached' replica
+
+        # get again now that it is not in cache
+        session.assert_icommand("iget -f %s" % new_filename) # get file
+
+        # cleanup
+        session.run_icommand('irm -f ' + new_filename)
+
+    def test_decoupled_naming_policy_issue1855(self):
+        if self.archive_naming_policy != 'decoupled':
+            self.skipTest("Archive naming policy is not set to 'decoupled'")
+
+        # local setup
+        filename = self.testfile
+
+        # run as regular user
+        session = self.user0
+        collection = session.session_collection
+
+        # modify the s3 archive resource so that it only has the bucket name in the context
+        self.admin.assert_icommand('iadmin modresc archiveResc path /%s' % self.s3bucketname, 'STDOUT_SINGLELINE', 'Previous resource path:')
+
+        # iquest to get the object id of the replica on the S3 archive
+        id_query = ( "select DATA_ID where COLL_NAME =" + "'" + collection + "'" +
+                       " and DATA_NAME =" + "'" + filename + "'" +
+                       " and DATA_REPL_NUM ='1'" )
+
+        # iquest to get the pysical path of the replica on the S3 archive
+        path_query = ( "select DATA_PATH where COLL_NAME =" + "'" + collection + "'" +
+                       " and DATA_NAME =" + "'" + filename + "'" +
+                       " and DATA_REPL_NUM ='1'" )
+
+        # assertions
+        session.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
+        session.assert_icommand("iput "+filename) # put file
+
+        # get object id
+        object_id = session.run_icommand('iquest "%s" ' + '"' + id_query + '"')[0].strip()
+
+        # physical path we expect to see: /{bucket_name}/{reversed_id}/{obj_name}
+        target_path = '/' + self.s3bucketname + '/' + object_id[::-1] + '/' + filename
+
+        # get object path
+        physical_path = session.run_icommand('iquest "%s" ' + '"' + path_query + '"')[0].strip()
+
+        # verify object path
+        self.assertEqual(target_path, physical_path)
+
+        # move the file
+        new_filename = "%s.new" % filename
+        session.assert_icommand("imv %s %s" % (filename, new_filename))
+
+        # get and purge cache replica
+        session.assert_icommand("iget -f --purgec %s" % new_filename) # get file and purge 'cached' replica
+
+        # get again now that it is not in cache
+        session.assert_icommand("iget -f %s" % new_filename) # get file
+
         # cleanup
         session.run_icommand('irm -f ' + filename)
 
