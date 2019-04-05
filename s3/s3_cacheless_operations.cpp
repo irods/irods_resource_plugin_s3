@@ -758,7 +758,9 @@ namespace irods_s3_cacheless {
             return ERROR(S3_FILE_COPY_ERR, (boost::format("%s: - Failed to rename file from (%s) to (%s) result = %d") % __FUNCTION__ % from.c_str() % _new_file_name % result));
         }
 
-
+        // issue 1855 (irods issue 4326) - resources must now set physical path
+        fco->physical_path(_new_file_name);
+ 
         return SUCCESS();
 
     } // s3FileRenamePlugin
