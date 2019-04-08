@@ -91,6 +91,7 @@ namespace irods_s3_archive {
 
     }
 
+
     // =-=-=-=-=-=-=-
     // interface for POSIX Unlink
     irods::error s3FileUnlinkPlugin(
@@ -103,6 +104,12 @@ namespace irods_s3_archive {
             msg << __FUNCTION__ << " - Invalid parameters or physical path.";
             return PASSMSG(msg.str(), ret);
         }
+
+        size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+        _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+        size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+        _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<
                                               irods::file_object>(
@@ -146,7 +153,7 @@ namespace irods_s3_archive {
             return PASS(ret);
         }
 
-        ret = s3Init(_ctx.prop_map());
+        ret = s3InitPerOperation(_ctx.prop_map());
         if(!ret.ok()) {
             return PASS(ret);
         }
@@ -172,7 +179,8 @@ namespace irods_s3_archive {
         size_t retry_cnt = 0;
         do {
             bzero (&data, sizeof (data));
-            bucketContext.hostName = s3GetHostname();
+            std::string&& hostname = s3GetHostname(_ctx.prop_map());
+            bucketContext.hostName = hostname.c_str();
             data.pCtx = &bucketContext;
             S3_delete_object(
                 &bucketContext,
@@ -180,12 +188,12 @@ namespace irods_s3_archive {
                 &responseHandler,
                 &data);
             if(data.status != S3StatusOK) {
-                s3_sleep( g_retry_wait, 0 );
+                s3_sleep( retry_wait, 0 );
             }
 
         } while((data.status != S3StatusOK) &&
                 S3_status_is_retryable(data.status) &&
-                (++retry_cnt < g_retry_count));
+                (++retry_cnt < retry_count_limit));
 
         if(data.status != S3StatusOK) {
             std::stringstream msg;
@@ -213,6 +221,12 @@ namespace irods_s3_archive {
 
         irods::error result = SUCCESS();
 
+        size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+        _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+        size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+        _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
@@ -239,7 +253,7 @@ namespace irods_s3_archive {
                 if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                                          _object->physical_path().c_str())).ok()) {
 
-                    ret = s3Init( _ctx.prop_map() );
+                    ret = s3InitPerOperation( _ctx.prop_map() );
                     if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
@@ -260,11 +274,12 @@ namespace irods_s3_archive {
                             size_t retry_cnt = 0;
                             do {
                                 bzero (&data, sizeof (data));
-                                bucketContext.hostName = s3GetHostname();
+                                std::string&& hostname = s3GetHostname(_ctx.prop_map());
+                                bucketContext.hostName = hostname.c_str();
                                 data.pCtx = &bucketContext;
                                 S3_head_object(&bucketContext, key.c_str(), 0, &headObjectHandler, &data);
-                                if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-                            } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
+                                if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+                            } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
 
                             if (data.status != S3StatusOK) {
                                 std::stringstream msg;
@@ -496,14 +511,6 @@ namespace irods_s3_archive {
 
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                     if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
-
-                        std::string default_hostname;
-                        ret = _ctx.prop_map().get< std::string >(
-                            s3_default_hostname,
-                            default_hostname );
-                        if( !ret.ok() ) {
-                            irods::log(ret);
-                        }
 
                         // retrieve archive naming policy from resource plugin context
                         std::string archive_naming_policy = CONSISTENT_NAMING; // default

@@ -23,12 +23,16 @@
 typedef enum { S3_PUTFILE, S3_COPYOBJECT } s3_putcopy;
 
 const std::string s3_default_hostname{"S3_DEFAULT_HOSTNAME"};
+const std::string s3_default_hostname_vector{"S3_DEFAULT_HOSTNAME_VECTOR"};
+const std::string s3_hostname_index{"S3_HOSTNAME_INDEX"};
 const std::string host_mode{"HOST_MODE"};
 const std::string s3_auth_file{"S3_AUTH_FILE"};
 const std::string s3_key_id{"S3_ACCESS_KEY_ID"};
 const std::string s3_access_key{"S3_SECRET_ACCESS_KEY"};
 const std::string s3_retry_count{"S3_RETRY_COUNT"};
+const std::string s3_retry_count_size_t{"S3_RETRY_COUNT_SIZE_T"};     // so we only parse str to size_t once
 const std::string s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
+const std::string s3_wait_time_sec_size_t{"S3_WAIT_TIME_SEC_SIZE_T"}; // so we only parse str to size_t once
 const std::string s3_proto{"S3_PROTO"};
 const std::string s3_stsdate{"S3_STSDATE"};
 const std::string s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
@@ -42,7 +46,10 @@ const std::string s3_region_name{"S3_REGIONNAME"};
 const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
 
-const char* s3GetHostname();
+const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
+const size_t S3_DEFAULT_RETRY_COUNT = 1;
+
+std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
@@ -116,8 +123,6 @@ void s3_sleep(
     int _s,
     int _ms ); 
 
-const char *s3GetHostname();
-
 void responseCompleteCallback(
     S3Status status,
     const S3ErrorDetails *error,
@@ -134,6 +139,7 @@ irods::error parseS3Path (
     std::string&       _key); 
 
 irods::error s3Init ( irods::plugin_property_map& _prop_map ); 
+irods::error s3InitPerOperation ( irods::plugin_property_map& _prop_map ); 
 
 S3Protocol s3GetProto( irods::plugin_property_map& _prop_map);
 
