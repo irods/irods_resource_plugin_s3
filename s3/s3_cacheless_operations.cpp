@@ -115,7 +115,7 @@ namespace irods_s3_cacheless {
         S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_prop_map));
     
         service_path = "";
-        host = std::string(s3GetHostname());
+        host = std::string(s3GetHostname(_prop_map));
     
         return SUCCESS();
     }
