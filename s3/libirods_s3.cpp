@@ -82,11 +82,15 @@
 #include <string.h>
 
 static const std::string s3_default_hostname{"S3_DEFAULT_HOSTNAME"};
+static const std::string s3_default_hostname_vector{"S3_DEFAULT_HOSTNAME_VECTOR"};
+static const std::string s3_hostname_index{"S3_HOSTNAME_INDEX"};
 static const std::string s3_auth_file{"S3_AUTH_FILE"};
 static const std::string s3_key_id{"S3_ACCESS_KEY_ID"};
 static const std::string s3_access_key{"S3_SECRET_ACCESS_KEY"};
 static const std::string s3_retry_count{"S3_RETRY_COUNT"};
+static const std::string s3_retry_count_size_t{"S3_RETRY_COUNT_SIZE_T"};     // so we only parse str to size_t once
 static const std::string s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
+static const std::string s3_wait_time_sec_size_t{"S3_WAIT_TIME_SEC_SIZE_T"}; // so we only parse str to size_t once
 static const std::string s3_proto{"S3_PROTO"};
 static const std::string s3_stsdate{"S3_STSDATE"};
 static const std::string s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
@@ -100,11 +104,11 @@ static const std::string s3_region_name{"S3_REGIONNAME"};
 static const std::string REPL_POLICY_KEY{"repl_policy"};
 static const std::string REPL_POLICY_VAL{"reg_repl"};
 
+static const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
+static const size_t S3_DEFAULT_RETRY_COUNT = 1;
+
 // For s3PutCopyFile to identify the real source type
 typedef enum { S3_PUTFILE, S3_COPYOBJECT } s3_putcopy;
-
-size_t g_retry_count{10};
-size_t g_retry_wait{1};
 
 #ifdef ERROR_INJECT
 // Callback error injection
@@ -125,8 +129,6 @@ static const long g_merr_idx{4}; // Which part of Multipart Finish XML to fail
 //////////////////////////////////////////////////////////////////////
 // s3 specific functionality
 static bool S3Initialized = false; // so we only initialize the s3 library once
-static std::vector<char *> g_hostname;
-static int g_hostnameIdx = 0;
 static boost::mutex g_hostnameIdxLock;
 S3ResponseProperties savedProperties;
 
@@ -226,13 +228,23 @@ static char *s3CalcMD5( int fd, off_t start, off_t length )
 }
 // Increment through all specified hostnames in the list, locking in the case
 // where we may be multithreaded
-static const char *s3GetHostname()
+static std::string s3GetHostname(
+    irods::plugin_property_map& _prop_map ) 
 {
-    if (g_hostname.empty())
-        return NULL; // Short-circuit default case
+
+
+    std::vector<std::string> hostname_vector;
+    size_t hostname_index = 0;
     g_hostnameIdxLock.lock();
-    char *ret = g_hostname[g_hostnameIdx];
-    g_hostnameIdx = (g_hostnameIdx + 1) % g_hostname.size();
+    _prop_map.get<std::vector<std::string> >(s3_default_hostname_vector, hostname_vector);
+    _prop_map.get<size_t>(s3_hostname_index, hostname_index);
+    if (hostname_vector.empty()) {
+        return {}; // Short-circuit default case
+    }
+
+    std::string ret = hostname_vector[hostname_index];
+    hostname_index = (hostname_index+ 1) % hostname_vector.size();
+    _prop_map.set<size_t>(s3_hostname_index, hostname_index);
     g_hostnameIdxLock.unlock();
     return ret;
 }
@@ -492,123 +504,156 @@ irods::error s3ReadAuthInfo(
     return result;
 }
 
+// One time init on resource startup
 irods::error s3Init (
     irods::plugin_property_map& _prop_map ) {
+
     irods::error result = SUCCESS();
 
-    if (!S3Initialized) {
-        // First, parse the default hostname (if present) into a list of
-        // hostnames separated on the definition line by commas (,)
-        std::string hostname_list;
-        irods::error ret;
-        ret = _prop_map.get< std::string >(
-            s3_default_hostname,
-            hostname_list );
-        if( !ret.ok() ) {
-            // ok to fail
-            g_hostname.push_back(strdup(S3_DEFAULT_HOSTNAME)); // Default to Amazon
-        } else {
-            std::stringstream ss(hostname_list);
-            std::string item;
-            while (std::getline(ss, item, ',')) {
-                g_hostname.push_back(strdup(item.c_str()));
-            }
-            // Because each resource operation is a new instance, randomize the starting
-            // hostname offset so we don't always hit the first in the list between different
-            // operations.
-            srand(time(NULL));
-            g_hostnameIdx = rand() % g_hostname.size();
+    std::vector<std::string> hostname_vector;
+    size_t hostname_index = 0;
+
+    g_hostnameIdxLock.lock();
+
+    // First, parse the default hostname (if present) into a list of
+    // hostnames separated on the definition line by commas (,)
+    std::string hostname_list;
+    irods::error ret;
+    ret = _prop_map.get< std::string >(
+        s3_default_hostname,
+        hostname_list );
+    if( !ret.ok() ) {
+        // ok to fail
+        hostname_vector.push_back(S3_DEFAULT_HOSTNAME); // Default to Amazon
+    } else {
+        std::stringstream ss(hostname_list);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            hostname_vector.push_back(item);
+        }
+        // Because each resource operation is a new instance, randomize the starting
+        // hostname offset so we don't always hit the first in the list between different
+        // operations.
+        srand(time(NULL));
+        hostname_index = rand() % hostname_vector.size();
+    }
+
+    _prop_map.set<std::vector<std::string> >(s3_default_hostname_vector, hostname_vector);
+    _prop_map.set<size_t>(s3_hostname_index, hostname_index);
+
+    g_hostnameIdxLock.unlock();
+
+    size_t retry_count = 10;
+    std::string retry_count_str;
+    ret = _prop_map.get< std::string >(
+        s3_retry_count,
+        retry_count_str );
+    if( ret.ok() ) {
+        try {
+            retry_count = boost::lexical_cast<size_t>( retry_count_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            rodsLog(
+                LOG_ERROR,
+                "failed to cast retry count [%s] to an int",
+                retry_count_str.c_str() );
+        }
+    }
+    _prop_map.set<size_t>(s3_retry_count_size_t, retry_count);
+
+    size_t wait_time = 1;
+    std::string wait_time_str;
+    ret = _prop_map.get< std::string >(
+        s3_wait_time_sec,
+        wait_time_str );
+    if( ret.ok() ) {
+        try {
+            wait_time = boost::lexical_cast<size_t>( wait_time_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            rodsLog(
+                LOG_ERROR,
+                "failed to cast wait time [%s] to an int",
+                wait_time_str.c_str() );
+        }
+    }
+    _prop_map.set<size_t>(s3_wait_time_sec_size_t, wait_time);
+
+    return result;
+}
+
+// initialization done on every operation
+irods::error s3InitPerOperation (
+    irods::plugin_property_map& _prop_map ) {
+
+    irods::error result = SUCCESS();
+
+    size_t retry_count = 10;
+    std::string retry_count_str;
+    result = _prop_map.get< size_t >(
+        s3_retry_count,
+        retry_count );
+
+    size_t wait_time = S3_DEFAULT_RETRY_WAIT_SEC;
+    _prop_map.get<size_t>(s3_wait_time_sec_size_t, wait_time);
+
+    size_t ctr = 0;
+    while( ctr < retry_count ) {
+        int status = 0;
+        int flags = S3_INIT_ALL;
+        S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
+
+        if (signature_version == S3SignatureV4) {
+            flags |= S3_INIT_SIGNATURE_V4;
         }
 
-        std::string retry_count_str;
-        ret = _prop_map.get< std::string >(
-            s3_retry_count,
-            retry_count_str );
-        if( ret.ok() ) {
-            try {
-                g_retry_count = boost::lexical_cast<int>( retry_count_str );
-            } catch ( const boost::bad_lexical_cast& ) {
-                rodsLog(
-                    LOG_ERROR,
-                    "failed to cast retry count [%s] to an int",
-                    retry_count_str.c_str() );
-            }
+        std::string&& hostname = s3GetHostname(_prop_map);
+        const char* host_name = hostname.c_str();  // Iterate through on each try
+        status = S3_initialize( "s3", flags, host_name );
+
+        std::stringstream msg;
+        if( status >= 0 ) {
+            msg << " - \"";
+            msg << S3_get_status_name((S3Status)status);
+            msg << "\"";
         }
 
-        std::string wait_time_str;
-        ret = _prop_map.get< std::string >(
-            s3_wait_time_sec,
-            wait_time_str );
-        if( ret.ok() ) {
-            try {
-                g_retry_wait = boost::lexical_cast<int>( wait_time_str );
-            } catch ( const boost::bad_lexical_cast& ) {
-                rodsLog(
-                    LOG_ERROR,
-                    "failed to cast wait time [%s] to an int",
-                    wait_time_str.c_str() );
-            }
-        }
+        result = ASSERT_ERROR(status == S3StatusOK, status, "Error initializing the S3 library. Status = %d.",
+                              status, msg.str().c_str());
+        if( result.ok() ) {
 
-        size_t ctr = 0;
-        while( ctr < g_retry_count ) {
-            int status = 0;
-            int flags = S3_INIT_ALL;
-            S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
-
+            // If using V4 we also need to set the S3 region name
             if (signature_version == S3SignatureV4) {
-                flags |= S3_INIT_SIGNATURE_V4;
-            }
+                std::string region_name = "us-east-1";
 
-            const char* host_name = s3GetHostname();  // Iterate through on each try
-            status = S3_initialize( "s3", flags, host_name );
-
-            std::stringstream msg;
-            if( status >= 0 ) {
-                msg << " - \"";
-                msg << S3_get_status_name((S3Status)status);
-                msg << "\"";
-            }
-
-            result = ASSERT_ERROR(status == S3StatusOK, status, "Error initializing the S3 library. Status = %d.",
-                                  status, msg.str().c_str());
-            if( result.ok() ) {
-
-                // If using V4 we also need to set the S3 region name
-                if (signature_version == S3SignatureV4) {
-                    std::string region_name = "us-east-1";
-
-                    // Get S3 region name from plugin property map
-                    if (!_prop_map.get< std::string >(s3_region_name, region_name ).ok()) {
-                        rodsLog( LOG_ERROR, "Failed to retrieve S3 region name from resource plugin properties, using 'us-east-1'");
-                    }
-
-                    S3Status status = S3_set_region_name(region_name.c_str());
-                    if (status != S3StatusOK) {
-                        rodsLog(LOG_ERROR, "failed to set region name to %s: %s", region_name.c_str(), S3_get_status_name(status));
-                        return ERROR(S3_INIT_ERROR, "S3_set_region_name() failed.");
-                    }
+                // Get S3 region name from plugin property map
+                if (!_prop_map.get< std::string >(s3_region_name, region_name ).ok()) {
+                    rodsLog( LOG_ERROR, "Failed to retrieve S3 region name from resource plugin properties, using 'us-east-1'");
                 }
 
-                break;
+                S3Status status = S3_set_region_name(region_name.c_str());
+                if (status != S3StatusOK) {
+                    rodsLog(LOG_ERROR, "failed to set region name to %s: %s", region_name.c_str(), S3_get_status_name(status));
+                    return ERROR(S3_INIT_ERROR, "S3_set_region_name() failed.");
+                }
             }
 
-            ctr++;
+            break;
+        }
 
-            s3_sleep( g_retry_wait, 0 );
+        ctr++;
 
-            rodsLog(
-                LOG_NOTICE,
-                "s3Init - Error in connection, retry count %d",
-                ctr );
+        s3_sleep( wait_time, 0 );
 
-        } // while
+        rodsLog(
+            LOG_NOTICE,
+            "%s - Error in connection, retry count %d",
+            __FUNCTION__,
+            ctr );
 
         if( result.ok() ) {
             S3Initialized = true;
         }
 
-    } // if !init
+    } // while
 
     return result;
 }
@@ -782,12 +827,20 @@ static void mrdRangeRespCompCB (
 
 
 static void mrdWorkerThread (
-    void *param )
+    void *bucketContextParam, void *pluginPropertyMapParam)
 {
-    S3BucketContext bucketContext = *((S3BucketContext*)param);
+    S3BucketContext bucketContext = *((S3BucketContext*)bucketContextParam);
+    irods::plugin_property_map _prop_map = *((irods::plugin_property_map*)pluginPropertyMapParam);
+
     irods::error result;
     std::stringstream msg;
     S3GetObjectHandler getObjectHandler = { {mrdRangeRespPropCB, mrdRangeRespCompCB }, mrdRangeGetDataCB };
+
+    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+    _prop_map.get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
 
     /* Will break out when no work detected */
     while (1) {
@@ -822,15 +875,16 @@ static void mrdWorkerThread (
             rodsLog( LOG_DEBUG, msg.str().c_str() );
 
             unsigned long long usStart = usNow();
-            bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
+            std::string&& hostname = s3GetHostname(_prop_map);
+            bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset,
                            rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
             unsigned long long usEnd = usNow();
             double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
             msg << " -- END -- BW=" << bw << " MB/s";
             rodsLog( LOG_DEBUG, msg.str().c_str() );
-            if (rangeData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-        } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt < g_retry_count));
+            if (rangeData.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+        } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt < retry_count_limit));
         if (rangeData.status != S3StatusOK) {
             msg.str( std::string() ); // Clear
             msg << __FUNCTION__ << " - Error getting the S3 object: \"" << g_mrdKey << "\" range " << seq;
@@ -876,26 +930,28 @@ irods::error s3GetFile(
 {
     irods::error result = SUCCESS();
     irods::error ret;
+
+
+
+    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+    _prop_map.get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
     int cache_fd = -1;
     std::string bucket;
     std::string key;
     ret = parseS3Path(_s3ObjName, bucket, key);
     if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                              _s3ObjName.c_str())).ok()) {
-        ret = s3Init( _prop_map );
+
+        ret = s3InitPerOperation( _prop_map );
         if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
             cache_fd = open(_filename.c_str(), O_RDWR|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
             if((result = ASSERT_ERROR(cache_fd != -1, UNIX_FILE_OPEN_ERR, "Failed to open the cache file: \"%s\".",
                                       _filename.c_str())).ok()) {
-
-                std::string default_hostname;
-                irods::error ret = _prop_map.get< std::string >(
-                    s3_default_hostname,
-                    default_hostname );
-                if( !ret.ok() ) {
-                    return PASS(ret);
-                }
 
                 callback_data_t data;
                 S3BucketContext bucketContext;
@@ -922,14 +978,15 @@ irods::error s3GetFile(
                         data.fd = cache_fd;
                         data.contentLength = data.originalContentLength = _fileSize;
                         unsigned long long usStart = usNow();
-                        bucketContext.hostName = s3GetHostname();  // Iterate different one on each try
+                        std::string&& hostname = s3GetHostname(_prop_map);
+                        bucketContext.hostName = hostname.c_str();  // Iterate different one on each try
                         data.pCtx = &bucketContext;
                         S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "GETBW=%lf", bw);
-                        if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
+                        if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit) );
                     if (data.status != S3StatusOK) {
                         std::stringstream msg;
                         msg << __FUNCTION__ << " - Error fetching the S3 object: \"" << _s3ObjName << "\"";
@@ -983,7 +1040,7 @@ irods::error s3GetFile(
                     unsigned long long usStart = usNow();
                     std::list<boost::thread*> threads;
                     for (int thr_id=0; thr_id<nThreads; thr_id++) {
-                        boost::thread *thisThread = new boost::thread(mrdWorkerThread, &bucketContext);
+                        boost::thread *thisThread = new boost::thread(mrdWorkerThread, &bucketContext, &_prop_map);
                         threads.push_back(thisThread);
                     }
 
@@ -1187,12 +1244,21 @@ static void mpuCancel( S3BucketContext *bucketContext, const char *key, const ch
 
 /* Multipart worker thread, grabs a job from the queue and uploads it */
 static void mpuWorkerThread (
-    void *param )
+    void *bucketContextParam, void *pluginPropertyMapParam)
 {
-    S3BucketContext bucketContext = *((S3BucketContext*)param);
+    S3BucketContext bucketContext = *((S3BucketContext*)bucketContextParam);
+    irods::plugin_property_map _prop_map = *((irods::plugin_property_map*)pluginPropertyMapParam);
+
     irods::error result;
     std::stringstream msg;
     S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
+
+    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+    _prop_map.get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
 
     /* Will break out when no work detected */
     while (1) {
@@ -1232,7 +1298,8 @@ static void mpuWorkerThread (
                 putProps->md5 = s3CalcMD5( partData.put_object_data.fd, partData.put_object_data.offset, partData.put_object_data.contentLength );
             putProps->expires = -1;
             unsigned long long usStart = usNow();
-            bucketContext.hostName = s3GetHostname(); // Safe to do, this is a local copy of the data structure
+            std::string&& hostname = s3GetHostname(_prop_map);
+            bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             if (partData.mode == S3_COPYOBJECT) {
                 unsigned long long startOffset = partData.put_object_data.offset;
                 unsigned long long count = partData.put_object_data.contentLength;
@@ -1258,8 +1325,8 @@ static void mpuWorkerThread (
             }
             msg << " -- END -- BW=" << bw << " MB/s";
             rodsLog( LOG_DEBUG, msg.str().c_str() );
-            if (partData.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-        } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt < g_retry_count));
+            if (partData.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+        } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt < retry_count_limit));
         if (partData.status != S3StatusOK) {
             msg.str( std::string() ); // Clear
             msg << __FUNCTION__ << " - Error putting the S3 object: \"" << g_mpuKey << "\"" << " part " << seq;
@@ -1296,11 +1363,18 @@ irods::error s3PutCopyFile(
     bool server_encrypt = s3GetServerEncrypt ( _prop_map );
     std::stringstream msg;
 
+    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+    _prop_map.get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
     ret = parseS3Path(_s3ObjName, bucket, key);
     if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                              _s3ObjName.c_str())).ok()) {
 
-        ret = s3Init( _prop_map );
+
+        ret = s3InitPerOperation( _prop_map );
         if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
             if (_mode == S3_PUTFILE) {
@@ -1353,13 +1427,14 @@ irods::error s3PutCopyFile(
                         data.pCtx = &bucketContext;
 
                         unsigned long long usStart = usNow();
-                        bucketContext.hostName = s3GetHostname();
+                        std::string&& hostname = s3GetHostname(_prop_map);
+                        bucketContext.hostName = hostname.c_str(); 
                         S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, &putObjectHandler, &data);
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "BW=%lf", bw);
-                        if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
+                        if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit) );
                     if (data.status != S3StatusOK) {
                         std::stringstream msg;
                         msg << __FUNCTION__ << " - Error putting the S3 object: \"" << _s3ObjName << "\"";
@@ -1444,11 +1519,12 @@ irods::error s3PutCopyFile(
                     // These expect a upload_manager_t* as cbdata
                     S3MultipartInitialHandler mpuInitialHandler = { {mpuInitRespPropCB, mpuInitRespCompCB }, mpuInitXmlCB };
                     do {
-                        bucketContext.hostName = s3GetHostname();
+                        std::string&& hostname = s3GetHostname(_prop_map);
+                        bucketContext.hostName = hostname.c_str();
                         manager.pCtx = &bucketContext;
                         S3_initiate_multipart(&bucketContext, key.c_str(), putProps, &mpuInitialHandler, NULL, &manager);
-                        if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-                    } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
+                        if (manager.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+                    } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < retry_count_limit));
                     if (manager.upload_id == NULL || manager.status != S3StatusOK) {
                         // Clear up the S3PutProperties, if it exists
                         if (putProps) {
@@ -1512,7 +1588,7 @@ irods::error s3PutCopyFile(
 
                     std::list<boost::thread*> threads;
                     for (int thr_id=0; thr_id<nThreads; thr_id++) {
-                        boost::thread *thisThread = new boost::thread(mpuWorkerThread, &bucketContext);
+                        boost::thread *thisThread = new boost::thread(mpuWorkerThread, &bucketContext, &_prop_map);
                         threads.push_back(thisThread);
                     }
 
@@ -1556,11 +1632,12 @@ irods::error s3PutCopyFile(
                             // On partial error, need to restart XML send from the beginning
                             manager.remaining = manager_remaining;
                             manager.offset = 0;
-                            bucketContext.hostName = s3GetHostname();
+                            std::string&& hostname = s3GetHostname(_prop_map);
+                            bucketContext.hostName = hostname.c_str();
                             manager.pCtx = &bucketContext;
                             S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, &manager);
-                            if (manager.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-                        } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < g_retry_count ));
+                            if (manager.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+                        } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < retry_count_limit));
                         if (manager.status != S3StatusOK) {
                             msg.str( std::string() ); // Clear
                             msg << __FUNCTION__ << " - Error putting the S3 object: \"" << _s3ObjName << "\"";
@@ -1619,6 +1696,12 @@ irods::error s3CopyFile(
     std::string dest_bucket;
     std::string dest_key;
 
+    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+    _src_ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    _src_ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
     // Check the size, and if too large punt to the multipart copy/put routine
     struct stat statbuf;
     ret = s3FileStatPlugin( _src_ctx, &statbuf );
@@ -1665,12 +1748,13 @@ irods::error s3CopyFile(
                 size_t retry_cnt = 0;
                 do {
                     bzero (&data, sizeof (data));
-                    bucketContext.hostName = s3GetHostname();
+                    std::string&& hostname = s3GetHostname(_src_ctx.prop_map());
+                    bucketContext.hostName = hostname.c_str();
                     data.pCtx = &bucketContext;
                     S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), &putProps, &lastModified, sizeof(eTag), eTag, 0,
                                    &responseHandler, &data);
-                    if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-                } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
+                    if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+                } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit) );
                 if (data.status != S3StatusOK) {
                     std::stringstream msg;
                     msg << __FUNCTION__;
@@ -1739,12 +1823,12 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     // other instances of S3 resources.  leaving the code here as there is still
     // an open issue regarding iRODS connection reuse with the option to use
     // another S3 resource which will cause an error.
-    //ret = s3Init( _prop_map );
-    //if((result = ASSERT_PASS(ret, "Failed to initialize the S3 library.")).ok()) {
-    // Retrieve the auth info and set the appropriate fields in the property map
-    ret = s3ReadAuthInfo(_prop_map);
-    result = ASSERT_PASS(ret, "Failed to read S3 auth info.");
-    //}
+    ret = s3Init( _prop_map );
+    if((result = ASSERT_PASS(ret, "Failed to initialize the S3 library.")).ok()) {
+        // Retrieve the auth info and set the appropriate fields in the property map
+        ret = s3ReadAuthInfo(_prop_map);
+        result = ASSERT_PASS(ret, "Failed to read S3 auth info.");
+    }
 
     return result;
 }
@@ -1889,6 +1973,12 @@ irods::error s3FileUnlinkPlugin(
         return PASSMSG(msg.str(), ret);
     }
 
+    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+    _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
     irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<
                                           irods::file_object>(
                                                   _ctx.fco());
@@ -1931,7 +2021,7 @@ irods::error s3FileUnlinkPlugin(
         return PASS(ret);
     }
 
-    ret = s3Init(_ctx.prop_map());
+    ret = s3InitPerOperation(_ctx.prop_map());
     if(!ret.ok()) {
         return PASS(ret);
     }
@@ -1957,7 +2047,8 @@ irods::error s3FileUnlinkPlugin(
     size_t retry_cnt = 0;
     do {
         bzero (&data, sizeof (data));
-        bucketContext.hostName = s3GetHostname();
+        std::string&& hostname = s3GetHostname(_ctx.prop_map());
+        bucketContext.hostName = hostname.c_str();
         data.pCtx = &bucketContext;
         S3_delete_object(
             &bucketContext,
@@ -1965,12 +2056,12 @@ irods::error s3FileUnlinkPlugin(
             &responseHandler,
             &data);
         if(data.status != S3StatusOK) {
-            s3_sleep( g_retry_wait, 0 );
+            s3_sleep( retry_wait, 0 );
         }
 
     } while((data.status != S3StatusOK) &&
             S3_status_is_retryable(data.status) &&
-            (++retry_cnt < g_retry_count));
+            (++retry_cnt < retry_count_limit));
 
     if(data.status != S3StatusOK) {
         std::stringstream msg;
@@ -1998,6 +2089,12 @@ irods::error s3FileStatPlugin(
 
     irods::error result = SUCCESS();
 
+    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
+    _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
+
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
     // =-=-=-=-=-=-=-
     // check incoming parameters
     irods::error ret = s3CheckParams( _ctx );
@@ -2024,7 +2121,7 @@ irods::error s3FileStatPlugin(
             if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
                                      _object->physical_path().c_str())).ok()) {
 
-                ret = s3Init( _ctx.prop_map() );
+                ret = s3InitPerOperation( _ctx.prop_map() );
                 if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
 
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
@@ -2045,11 +2142,12 @@ irods::error s3FileStatPlugin(
                         size_t retry_cnt = 0;
                         do {
                             bzero (&data, sizeof (data));
-                            bucketContext.hostName = s3GetHostname();
+                            std::string&& hostname = s3GetHostname(_ctx.prop_map());
+                            bucketContext.hostName = hostname.c_str();
                             data.pCtx = &bucketContext;
                             S3_head_object(&bucketContext, key.c_str(), 0, &headObjectHandler, &data);
-                            if (data.status != S3StatusOK) s3_sleep( g_retry_wait, 0 );
-                        } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < g_retry_count) );
+                            if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+                        } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
 
                         if (data.status != S3StatusOK) {
                             std::stringstream msg;
@@ -2281,14 +2379,6 @@ irods::error s3SyncToArchPlugin(
 
                 ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                 if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
-
-                    std::string default_hostname;
-                    ret = _ctx.prop_map().get< std::string >(
-                        s3_default_hostname,
-                        default_hostname );
-                    if( !ret.ok() ) {
-                        irods::log(ret);
-                    }
 
                     // retrieve archive naming policy from resource plugin context
                     std::string archive_naming_policy = CONSISTENT_NAMING; // default

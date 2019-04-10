@@ -459,6 +459,79 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # cleanup
         session.run_icommand('irm -f ' + filename)
 
+    @unittest.skip("skip until minio added to CI")
+    def test_multiple_s3_endpoints_replication_issue1858(self):
+
+        # local setup
+        filename = self.testfile
+
+        # run as regular user
+        session = self.user0
+
+        # set up resources
+
+        # TODO change these as necessary
+        minio_auth_file = '/var/lib/irods/s3.keypair'
+        minio_bucket_name = 'irods-bucket'
+
+        hostname = lib.get_hostname()
+        s3params_aws = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1'
+        s3params_aws += ';S3_DEFAULT_HOSTNAME=%s' % self.s3endPoint
+        s3params_aws += ';S3_AUTH_FILE=%s' % self.keypairfile
+        s3params_aws += ';S3_REGIONNAME=%s' % self.s3region
+        s3params_aws += ';ARCHIVE_NAMING_POLICY=%s' % self.archive_naming_policy
+
+        s3params_minio = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTP;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1'
+        s3params_minio += ';S3_DEFAULT_HOSTNAME=%s:9000' % hostname
+        s3params_minio += ';S3_AUTH_FILE=%s' % minio_auth_file
+        s3params_minio += ';S3_REGIONNAME=%s' % self.s3region
+        s3params_minio += ';ARCHIVE_NAMING_POLICY=%s' % self.archive_naming_policy
+
+        try:
+
+            # make resource tree with repl and two compound resources underneath
+            self.admin.assert_icommand('iadmin mkresc s3repl_1858 replication', 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3compound1_1858 compound', 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3compound2_1858 compound', 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3cache1_1858 unixfilesystem %s:/tmp/s3cache1_1858 unixfilesystem' % hostname, 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3archive1_1858 s3 %s:/%s/irods/Vault %s' % (hostname, self.s3bucketname, s3params_aws), 'STDOUT_SINGLELINE', 's3archive1_1858')
+            self.admin.assert_icommand('iadmin mkresc s3cache2_1858 unixfilesystem %s:/tmp/s3cache2_1858 unixfilesystem' % hostname, 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3archive2_1858 s3 %s:/%s/irods/s3archive2_1858_vault %s' % (hostname, minio_bucket_name, s3params_minio), 'STDOUT_SINGLELINE', 's3archive2_1858')
+            self.admin.assert_icommand('iadmin addchildtoresc s3repl_1858 s3compound1_1858')
+            self.admin.assert_icommand('iadmin addchildtoresc s3repl_1858 s3compound2_1858')
+            self.admin.assert_icommand('iadmin addchildtoresc s3compound1_1858 s3cache1_1858 cache')
+            self.admin.assert_icommand('iadmin addchildtoresc s3compound1_1858 s3archive1_1858 archive')
+            self.admin.assert_icommand('iadmin addchildtoresc s3compound2_1858 s3cache2_1858 cache')
+            self.admin.assert_icommand('iadmin addchildtoresc s3compound2_1858 s3archive2_1858 archive')
+
+            # put a file to this tree
+            session.assert_icommand('iput -R s3repl_1858 %s' % filename) # put file
+
+            # make sure we have four replicas
+            session.assert_icommand('ils -L %s' % filename, 'STDOUT_MULTILINE', ['s3repl_1858;s3compound1_1858;s3cache1_1858',
+                                                                                 's3repl_1858;s3compound1_1858;s3archive1_1858',
+                                                                                 's3repl_1858;s3compound2_1858;s3cache2_1858',
+                                                                                 's3repl_1858;s3compound2_1858;s3archive2_1858'])
+
+        finally:
+
+            # remove the file
+            session.assert_icommand('irm -f %s' % filename) # remove file
+
+            # cleanup
+            self.admin.assert_icommand('iadmin rmchildfromresc s3repl_1858 s3compound1_1858')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3repl_1858 s3compound2_1858')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3compound1_1858 s3cache1_1858 cache')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3compound1_1858 s3archive1_1858 archive')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3compound2_1858 s3cache2_1858 cache')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3compound2_1858 s3archive2_1858 archive')
+            self.admin.assert_icommand('iadmin rmresc s3repl_1858')
+            self.admin.assert_icommand('iadmin rmresc s3compound1_1858')
+            self.admin.assert_icommand('iadmin rmresc s3compound2_1858')
+            self.admin.assert_icommand('iadmin rmresc s3cache1_1858')
+            self.admin.assert_icommand('iadmin rmresc s3archive1_1858')
+            self.admin.assert_icommand('iadmin rmresc s3cache2_1858')
+            self.admin.assert_icommand('iadmin rmresc s3archive2_1858')
 
 class Test_Compound_With_S3_Resource_EU_Central_1(Test_Compound_With_S3_Resource):
     '''
