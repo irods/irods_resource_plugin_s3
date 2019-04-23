@@ -2194,15 +2194,12 @@ irods::error s3RedirectOpen(
         ret = _prop_map.get< std::string >( irods::RESOURCE_LOCATION, host_name );
         if((result = ASSERT_PASS(ret, "Failed to get the location property.")).ok() ) {
 
-            bool attached_mode, cacheless_mode;
-            get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
-
             // =-=-=-=-=-=-=-
             // if the status is down, vote no.
             if( INT_RESC_STATUS_DOWN == resc_status ) {
                 _out_vote = 0.0;
             }
-            else if( _curr_host == host_name) { // || !attached_mode ) {
+            else if( _curr_host == host_name) { 
                 // =-=-=-=-=-=-=-
                 // vote higher if we are on the same host
                 irods::error get_ret = register_archive_object(
