@@ -806,6 +806,132 @@ namespace irods_s3_cacheless {
     }
 
     // =-=-=-=-=-=-=-
+    // redirect_open - code to determine redirection for open operation
+    irods::error s3RedirectOpen(
+        irods::plugin_property_map&   _prop_map,
+        irods::file_object_ptr        _file_obj,
+        const std::string&             _resc_name,
+        const std::string&             _curr_host,
+        float&                         _out_vote ) {
+
+        irods::error result = SUCCESS();
+
+        // =-=-=-=-=-=-=-
+        // initially set a good default
+        _out_vote = 0.0;
+
+        // =-=-=-=-=-=-=-
+        // determine if the resource is down
+        int resc_status = 0;
+        irods::error get_ret = _prop_map.get< int >( irods::RESOURCE_STATUS, resc_status );
+        if ( ( result = ASSERT_PASS( get_ret, "Failed to get \"status\" property." ) ).ok() ) {
+
+            // =-=-=-=-=-=-=-
+            // if the status is down, vote no.
+            if ( INT_RESC_STATUS_DOWN != resc_status ) {
+
+                // =-=-=-=-=-=-=-
+                // get the resource host for comparison to curr host
+                std::string host_name;
+                get_ret = _prop_map.get< std::string >( irods::RESOURCE_LOCATION, host_name );
+                if ( ( result = ASSERT_PASS( get_ret, "Failed to get \"location\" property." ) ).ok() ) {
+
+                    // =-=-=-=-=-=-=-
+                    // set a flag to test if were at the curr host, if so we vote higher
+                    bool curr_host = ( _curr_host == host_name );
+
+                    // =-=-=-=-=-=-=-
+                    // make some flags to clarify decision making
+                    bool need_repl = ( _file_obj->repl_requested() > -1 );
+
+                    // =-=-=-=-=-=-=-
+                    // set up variables for iteration
+                    irods::error final_ret = SUCCESS();
+                    std::vector< irods::physical_object > objs = _file_obj->replicas();
+                    std::vector< irods::physical_object >::iterator itr = objs.begin();
+
+                    // =-=-=-=-=-=-=-
+                    // check to see if the replica is in this resource, if one is requested
+                    for ( ; itr != objs.end(); ++itr ) {
+                        // =-=-=-=-=-=-=-
+                        // run the hier string through the parser and get the last
+                        // entry.
+                        std::string last_resc;
+                        irods::hierarchy_parser parser;
+                        parser.set_string( itr->resc_hier() );
+                        parser.last_resc( last_resc );
+
+                        // =-=-=-=-=-=-=-
+                        // more flags to simplify decision making
+                        bool repl_us  = ( _file_obj->repl_requested() == itr->repl_num() );
+                        bool resc_us  = ( _resc_name == last_resc );
+                        bool is_dirty = ( itr->is_dirty() != 1 );
+
+                        // =-=-=-=-=-=-=-
+                        // success - correct resource and don't need a specific
+                        //           replication, or the repl nums match
+                        if ( resc_us ) {
+                            // =-=-=-=-=-=-=-
+                            // if a specific replica is requested then we
+                            // ignore all other criteria
+                            if ( need_repl ) {
+                                if ( repl_us ) {
+                                    _out_vote = 1.0;
+                                }
+                                else {
+                                    // =-=-=-=-=-=-=-
+                                    // repl requested and we are not it, vote
+                                    // very low
+                                    _out_vote = 0.25;
+                                }
+                            }
+                            else {
+                                // =-=-=-=-=-=-=-
+                                // if no repl is requested consider dirty flag
+                                if ( is_dirty ) {
+                                    // =-=-=-=-=-=-=-
+                                    // repl is dirty, vote very low
+                                    _out_vote = 0.25;
+                                }
+                                else {
+                                    // =-=-=-=-=-=-=-
+                                    // if our repl is not dirty then a local copy
+                                    // wins, otherwise vote middle of the road
+                                    if ( curr_host ) {
+                                        _out_vote = 1.0;
+                                    }
+                                    else {
+                                        _out_vote = 0.5;
+                                    }
+                                }
+                            }
+
+                            rodsLog(
+                                LOG_DEBUG,
+                                "open :: resc name [%s] curr host [%s] resc host [%s] vote [%f]",
+                                _resc_name.c_str(),
+                                _curr_host.c_str(),
+                                host_name.c_str(),
+                                _out_vote );
+
+                            break;
+
+                        } // if resc_us
+
+                    } // for itr
+                }
+            }
+            else {
+                result.code( SYS_RESC_IS_DOWN );
+                result = PASS( result );
+            }
+        }
+
+        return result;
+
+    } // S3RedirectOpen 
+
+    // =-=-=-=-=-=-=-
     // used to allow the resource to determine which host
     // should provide the requested operation
     irods::error s3RedirectPlugin(
@@ -850,8 +976,7 @@ namespace irods_s3_cacheless {
                             irods::UNLINK_OPERATION == (*_opr) ) {
                         // =-=-=-=-=-=-=-
                         // call redirect determination for 'get' operation
-                        result = s3RedirectOpen(
-                                     _ctx.comm(),
+                        result = irods_s3_cacheless::s3RedirectOpen(
                                      _ctx.prop_map(),
                                      file_obj,
                                      resc_name,
@@ -885,7 +1010,5 @@ namespace irods_s3_cacheless {
         const std::string* str ) {
         return SUCCESS();
     } // s3FileNotifyPlugin
-
-
 
 }
