@@ -49,6 +49,7 @@
 #include "curl.h"
 
 #include <rodsLog.h>
+#include <irods_stacktrace.hpp>
 
 using namespace std;
 
@@ -80,7 +81,8 @@ bool CacheFileStat::MakeCacheFileStatPath(const char* path, string& sfile_path, 
   if(is_create_dir){
     int result;
     if(0 != (result = mkdirp(top_path + mydirname(path), 0777))){
-      S3FS_PRN_ERR("failed to create dir(%s) by errno(%d).", path, result);
+		std::string tmp = top_path + mydirname(path);
+      //S3FS_PRN_ERR("failed to create dir(%s) by errno(%d).", path, result);
       return false;
     }
   }
@@ -552,6 +554,7 @@ bool PageList::Serialize(CacheFileStat& file, bool is_output)
       return false;
     }
     string       oneline;
+
     stringstream ssall(ptmp);
 
     // loaded
@@ -656,7 +659,7 @@ FdEntity::FdEntity(const char* tpath, const char* cpath)
 
 FdEntity::~FdEntity()
 {
-  Clear();
+  //Clear();
 
   if(is_lock_init){
     try{
@@ -1799,31 +1802,27 @@ void FdEntity::CleanupCache()
 //------------------------------------------------
 // FdManager class variable
 //------------------------------------------------
-FdManager       FdManager::singleton;
-pthread_mutex_t FdManager::fd_manager_lock;
-pthread_mutex_t FdManager::cache_cleanup_lock;
-pthread_mutex_t FdManager::reserved_diskspace_lock;
-bool            FdManager::is_lock_init(false);
-string          FdManager::cache_dir("");
-bool            FdManager::check_cache_dir_exist(false);
-size_t          FdManager::free_disk_space = 0;
+FdManager            FdManager::singleton;
+pthread_mutex_t      FdManager::fd_manager_lock;
+pthread_mutex_t      FdManager::cache_cleanup_lock;
+pthread_mutex_t      FdManager::reserved_diskspace_lock;
+bool                 FdManager::is_lock_init(false);
+thread_local string  FdManager::cache_dir("");
+bool                 FdManager::check_cache_dir_exist(false);
+size_t               FdManager::free_disk_space = 0;
 
 //------------------------------------------------
 // FdManager class methods
 //------------------------------------------------
-bool FdManager::SetCacheDir(const char* dir)
+bool FdManager::SetCacheDir(const std::string& dir)
 {
-  if(!dir || '\0' == dir[0]){
-    cache_dir = "";
-  }else{
-    cache_dir = dir;
-  }
+  FdManager::cache_dir = dir;
   return true;
 }
 
 bool FdManager::DeleteCacheDirectory(void)
 {
-  if(0 == FdManager::cache_dir.size()){
+  if(0 == cache_dir.size()){
     return true;
   }
   string cache_dir;
@@ -1840,7 +1839,7 @@ int FdManager::DeleteCacheFile(const char* path)
   if(!path){
     return -EIO;
   }
-  if(0 == FdManager::cache_dir.size()){
+  if(0 == cache_dir.size()){
     return 0;
   }
   string cache_path = "";
@@ -1873,12 +1872,12 @@ int FdManager::DeleteCacheFile(const char* path)
 
 bool FdManager::MakeCachePath(const char* path, string& cache_path, bool is_create_dir, bool is_mirror_path)
 {
-  if(0 == FdManager::cache_dir.size()){
+  if(0 == cache_dir.size()){
     cache_path = "";
     return true;
   }
 
-  string resolved_path(FdManager::cache_dir);
+  string resolved_path(cache_dir);
   if(!is_mirror_path){
     resolved_path += "/";
     resolved_path += bucket;
@@ -1891,7 +1890,8 @@ bool FdManager::MakeCachePath(const char* path, string& cache_path, bool is_crea
   if(is_create_dir){
     int result;
     if(0 != (result = mkdirp(resolved_path + mydirname(path), 0777))){
-      S3FS_PRN_ERR("failed to create dir(%s) by errno(%d).", path, result);
+		std::string tmp = resolved_path + mydirname(path);
+      //S3FS_PRN_ERR("failed to create dir(%s) by errno(%d).", path, result);
       return false;
     }
   }
@@ -1905,10 +1905,10 @@ bool FdManager::MakeCachePath(const char* path, string& cache_path, bool is_crea
 
 bool FdManager::CheckCacheTopDir(void)
 {
-  if(0 == FdManager::cache_dir.size()){
+  if(0 == cache_dir.size()){
     return true;
   }
-  string toppath(FdManager::cache_dir + "/" + bucket);
+  string toppath(cache_dir + "/" + bucket);
 
   return check_exist_dir_permission(toppath.c_str());
 }
@@ -1935,7 +1935,7 @@ bool FdManager::CheckCacheDirExist(void)
   if(!FdManager::check_cache_dir_exist){
     return true;
   }
-  if(0 == FdManager::cache_dir.size()){
+  if(0 == cache_dir.size()){
     return true;
   }
   // check the directory
@@ -1962,8 +1962,8 @@ uint64_t FdManager::GetFreeDiskSpace(const char* path)
 {
   struct statvfs vfsbuf;
   string         ctoppath;
-  if(0 < FdManager::cache_dir.size()){
-    ctoppath = FdManager::cache_dir + "/";
+  if(0 < cache_dir.size()){
+    ctoppath = cache_dir + "/";
     ctoppath = get_exist_directory_path(ctoppath);	// existed directory
     if(ctoppath != "/"){
       ctoppath += "/";
