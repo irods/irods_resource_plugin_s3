@@ -185,16 +185,16 @@ typedef std::map<std::string, class FdEntity*> fdent_map_t;   // key=path, value
 class FdManager
 {
   private:
-    static FdManager       singleton;
-    static pthread_mutex_t fd_manager_lock;
-    static pthread_mutex_t cache_cleanup_lock;
-    static pthread_mutex_t reserved_diskspace_lock;
-    static bool            is_lock_init;
-    static std::string     cache_dir;
-    static bool            check_cache_dir_exist;
-    static size_t          free_disk_space; // limit free disk space
+    static FdManager                    singleton;
+    static pthread_mutex_t              fd_manager_lock;
+    static pthread_mutex_t              cache_cleanup_lock;
+    static pthread_mutex_t              reserved_diskspace_lock;
+    static bool                         is_lock_init;
+    thread_local static std::string     cache_dir;
+    static bool                         check_cache_dir_exist;
+    static size_t                       free_disk_space; // limit free disk space
 
-    fdent_map_t            fent;
+    fdent_map_t                         fent;
 
   private:
     static uint64_t GetFreeDiskSpace(const char* path);
@@ -209,9 +209,9 @@ class FdManager
 
     static bool DeleteCacheDirectory(void);
     static int DeleteCacheFile(const char* path);
-    static bool SetCacheDir(const char* dir);
-    static bool IsCacheDir(void) { return (0 < FdManager::cache_dir.size()); }
-    static const char* GetCacheDir(void) { return FdManager::cache_dir.c_str(); }
+    static bool SetCacheDir(const std::string& dir);
+    static bool IsCacheDir(void) { return (0 < cache_dir.size()); }
+    static const char* GetCacheDir(void) { return cache_dir.c_str(); }
     static bool MakeCachePath(const char* path, std::string& cache_path, bool is_create_dir = true, bool is_mirror_path = false);
     static bool CheckCacheTopDir(void);
     static bool MakeRandomTempPath(const char* path, std::string& tmppath);

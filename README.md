@@ -92,6 +92,8 @@ An additional flag called HOST_MODE is used to enable cacheless mode.  The defau
 
 Note that the cacheless_detached mode is still a work-in-progress.
 
+The cacheless version uses a local cache directory temporarily during uploads and downloads.  This can be set using the S3_CACHE_DIR parameter in the context.  If it is not set a directory under /tmp will be created and used.
+
 The following is an example of how to configure a cacheless_attached S3 resource:
 
 ~~~~

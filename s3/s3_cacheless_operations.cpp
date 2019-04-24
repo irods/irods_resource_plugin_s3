@@ -9,6 +9,7 @@
 #include "s3fs/s3fs.h"
 #include "s3fs/s3fs_util.h"
 #include "s3fs/s3fs_auth.h"
+#include "s3fs/common.h"
 
 
 // =-=-=-=-=-=-=-
@@ -24,6 +25,7 @@
 #include <irods_resource_plugin.hpp>
 #include <irods_resource_redirect.hpp>
 #include <irods_stacktrace.hpp>
+#include <irods_random.hpp>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -34,6 +36,7 @@
 // =-=-=-=-=-=-=-
 // other includes
 #include <string>
+#include <iomanip>
 #include <fcntl.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
@@ -46,6 +49,21 @@ extern size_t g_retry_wait;
 extern S3ResponseProperties savedProperties;
 
 namespace irods_s3_cacheless {
+
+    int get64RandomBytes( char *buf ) {
+        const int num_random_bytes = 32;
+        const int num_hex_bytes = 2 * num_random_bytes;
+        unsigned char random_bytes[num_random_bytes];
+        irods::getRandomBytes( random_bytes, sizeof(random_bytes) );
+
+        std::stringstream ss;
+        for ( size_t i = 0; i < sizeof(random_bytes); ++i ) {
+            ss << std::hex << std::setw(2) << std::setfill('0') << (unsigned int)( random_bytes[i] );
+        }
+
+        snprintf( buf, num_hex_bytes + 1, "%s", ss.str().c_str() );
+        return 0;
+    }   
 
     irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map) {
 
@@ -90,6 +108,18 @@ namespace irods_s3_cacheless {
             rodsLog(LOG_ERROR, error_str.c_str());
             return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
+
+        // if cachedir is defined, use that else use /tmp/<resc_name>
+        std::string s3_cache_dir_str;
+        ret = _prop_map.get< std::string >(s3_cache_dir, s3_cache_dir_str);
+        if (!ret.ok()) {
+            const auto& shared_memory_name_salt = irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
+            std::string resc_name  = "";
+            ret = _prop_map.get< std::string >( irods::RESOURCE_NAME, resc_name);
+            s3_cache_dir_str = "/tmp/" + resc_name + shared_memory_name_salt;
+            _prop_map.set< std::string >(s3_cache_dir, s3_cache_dir_str);
+        }
+        FdManager::SetCacheDir(s3_cache_dir_str);
     
         if (boost::iequals(s3_protocol_str, "https")) {
             s3_protocol_str = "https";
@@ -492,11 +522,11 @@ namespace irods_s3_cacheless {
         FdEntity*   ent;
  
         // we are finished with only close if only one is open 
-        if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())){
-            FdManager::get()->Close(ent);
-
-            // iRODS does not have a flush operation so manually flush here
+        if(NULL != (ent = FdManager::get()->ExistOpen(path.c_str())) && !FileOffsetManager::get()->fd_exists(ent->GetFd())) {
             flush_buffer(path, ent->GetFd());
+            FdManager::get()->Close(ent);
+            StatCache::getStatCacheData()->DelStat(path.c_str());
+            FdManager::DeleteCacheFile(path.c_str());
         }
         S3FS_MALLOCTRIM(0);
         result.code(0);
