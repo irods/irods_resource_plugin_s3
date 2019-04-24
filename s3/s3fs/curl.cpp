@@ -363,9 +363,9 @@ std::string      S3fsCurl::ssekmsid            = "";
 sse_type_t       S3fsCurl::ssetype             = SSE_DISABLE;
 bool             S3fsCurl::is_content_md5      = false;
 bool             S3fsCurl::is_verbose          = false;
-string           S3fsCurl::AWSAccessKeyId;
-string           S3fsCurl::AWSSecretAccessKey;
-string           S3fsCurl::AWSAccessToken;
+thread_local string           S3fsCurl::AWSAccessKeyId;
+thread_local string           S3fsCurl::AWSSecretAccessKey;
+thread_local string           S3fsCurl::AWSAccessToken;
 time_t           S3fsCurl::AWSAccessTokenExpire= 0;
 bool             S3fsCurl::is_ecs              = false;
 bool             S3fsCurl::is_ibm_iam_auth     = false;
@@ -380,9 +380,9 @@ curlprogress_t   S3fsCurl::curl_progress;
 string           S3fsCurl::curl_ca_bundle;
 mimes_t          S3fsCurl::mimeTypes;
 string           S3fsCurl::userAgent;
-int              S3fsCurl::max_parallel_cnt    = 5;              // default
-off_t            S3fsCurl::multipart_size;//      = MULTIPART_SIZE; // default
-bool             S3fsCurl::is_sigv4            = true;           // default
+thread_local int              S3fsCurl::max_parallel_cnt    = 5;              // default
+thread_local off_t            S3fsCurl::multipart_size;//      = MULTIPART_SIZE; // default
+thread_local bool             S3fsCurl::is_sigv4            = true;           // default
 bool             S3fsCurl::is_ua               = true;           // default
 
 //-------------------------------------------------------------------

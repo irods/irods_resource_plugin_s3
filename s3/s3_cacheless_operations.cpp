@@ -115,8 +115,10 @@ namespace irods_s3_cacheless {
         S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_prop_map));
     
         service_path = "";
-        host = std::string(s3GetHostname(_prop_map));
-    
+        host = s3GetHostname(_prop_map);
+
+        _prop_map.get< std::string >(s3_region_name, endpoint); // if this fails use default
+
         return SUCCESS();
     }
 
@@ -224,18 +226,18 @@ namespace irods_s3_cacheless {
     // interface for POSIX Open
     irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
 
+        irods::error ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
+        }
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
-        irods::error ret = s3CheckParams( _ctx );
+        ret = s3CheckParams( _ctx );
         if(!ret.ok()) {
             std::stringstream msg;
             msg << __FUNCTION__ << " - Invalid parameters or physical path.";
             return PASSMSG(msg.str(), ret);
-        }
-
-        ret = set_s3_configuration_from_context(_ctx.prop_map());
-        if (!ret.ok()) {
-            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
         }
 
         bool needs_flush = false;
@@ -472,6 +474,11 @@ namespace irods_s3_cacheless {
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 
         irods::error result = SUCCESS();
+
+        result = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!result.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % result.result().c_str()));
+        }
 
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string path = fco->physical_path();
