@@ -343,47 +343,47 @@ static const std::string IAMCRED_ROLEARN = "RoleArn";
 #define CURLSHE_NOT_BUILT_IN        5
 #endif
 
-pthread_mutex_t  S3fsCurl::curl_handles_lock;
-pthread_mutex_t  S3fsCurl::curl_share_lock[SHARE_MUTEX_MAX];
-bool             S3fsCurl::is_initglobal_done  = false;
-CurlHandlerPool* S3fsCurl::sCurlPool           = NULL;
-int              S3fsCurl::sCurlPoolSize       = 32;
-CURLSH*          S3fsCurl::hCurlShare          = NULL;
-bool             S3fsCurl::is_cert_check       = true; // default
-bool             S3fsCurl::is_dns_cache        = true; // default
-bool             S3fsCurl::is_ssl_session_cache= true; // default
-long             S3fsCurl::connect_timeout     = 300;  // default
-time_t           S3fsCurl::readwrite_timeout   = 60;   // default
-int              S3fsCurl::retries             = 5;    // default
-bool             S3fsCurl::is_public_bucket    = false;
-string           S3fsCurl::default_acl         = "private";
-storage_class_t  S3fsCurl::storage_class       = STANDARD;
-sseckeylist_t    S3fsCurl::sseckeys;
-std::string      S3fsCurl::ssekmsid            = "";
-sse_type_t       S3fsCurl::ssetype             = SSE_DISABLE;
-bool             S3fsCurl::is_content_md5      = false;
-bool             S3fsCurl::is_verbose          = false;
-thread_local string           S3fsCurl::AWSAccessKeyId;
-thread_local string           S3fsCurl::AWSSecretAccessKey;
-thread_local string           S3fsCurl::AWSAccessToken;
-time_t           S3fsCurl::AWSAccessTokenExpire= 0;
-bool             S3fsCurl::is_ecs              = false;
-bool             S3fsCurl::is_ibm_iam_auth     = false;
-string           S3fsCurl::IAM_cred_url        = "http://169.254.169.254/latest/meta-data/iam/security-credentials/";
-size_t           S3fsCurl::IAM_field_count     = 4;
-string           S3fsCurl::IAM_token_field     = "Token";
-string           S3fsCurl::IAM_expiry_field    = "Expiration";
-string           S3fsCurl::IAM_role;
-long             S3fsCurl::ssl_verify_hostname = 1;    // default(original code...)
-curltime_t       S3fsCurl::curl_times;
-curlprogress_t   S3fsCurl::curl_progress;
-string           S3fsCurl::curl_ca_bundle;
-mimes_t          S3fsCurl::mimeTypes;
-string           S3fsCurl::userAgent;
-thread_local int              S3fsCurl::max_parallel_cnt    = 5;              // default
-thread_local off_t            S3fsCurl::multipart_size;//      = MULTIPART_SIZE; // default
-thread_local bool             S3fsCurl::is_sigv4            = true;           // default
-bool             S3fsCurl::is_ua               = true;           // default
+pthread_mutex_t     S3fsCurl::curl_handles_lock;
+pthread_mutex_t     S3fsCurl::curl_share_lock[SHARE_MUTEX_MAX];
+bool                S3fsCurl::is_initglobal_done  = false;
+CurlHandlerPool*    S3fsCurl::sCurlPool           = NULL;
+int                 S3fsCurl::sCurlPoolSize       = 32;
+CURLSH*             S3fsCurl::hCurlShare          = NULL;
+bool                S3fsCurl::is_cert_check       = true; // default
+bool                S3fsCurl::is_dns_cache        = true; // default
+bool                S3fsCurl::is_ssl_session_cache= true; // default
+long                S3fsCurl::connect_timeout     = 300;  // default
+time_t              S3fsCurl::readwrite_timeout   = 60;   // default
+int                 S3fsCurl::retries             = 5;    // default
+bool                S3fsCurl::is_public_bucket    = false;
+string              S3fsCurl::default_acl         = "private";
+storage_class_t     S3fsCurl::storage_class       = STANDARD;
+sseckeylist_t       S3fsCurl::sseckeys;
+std::string         S3fsCurl::ssekmsid            = "";
+sse_type_t          S3fsCurl::ssetype             = SSE_DISABLE;
+bool                S3fsCurl::is_content_md5      = false;
+bool                S3fsCurl::is_verbose          = false;
+thread_local string S3fsCurl::AWSAccessKeyId;
+thread_local string S3fsCurl::AWSSecretAccessKey;
+thread_local string S3fsCurl::AWSAccessToken;
+time_t              S3fsCurl::AWSAccessTokenExpire= 0;
+bool                S3fsCurl::is_ecs              = false;
+bool                S3fsCurl::is_ibm_iam_auth     = false;
+string              S3fsCurl::IAM_cred_url        = "http://169.254.169.254/latest/meta-data/iam/security-credentials/";
+size_t              S3fsCurl::IAM_field_count     = 4;
+string              S3fsCurl::IAM_token_field     = "Token";
+string              S3fsCurl::IAM_expiry_field    = "Expiration";
+string              S3fsCurl::IAM_role;
+long                S3fsCurl::ssl_verify_hostname = 1;    // default(original code...)
+curltime_t          S3fsCurl::curl_times;
+curlprogress_t      S3fsCurl::curl_progress;
+string              S3fsCurl::curl_ca_bundle;
+mimes_t             S3fsCurl::mimeTypes;
+string              S3fsCurl::userAgent;
+thread_local int    S3fsCurl::max_parallel_cnt    = 5;              // default
+thread_local off_t  S3fsCurl::multipart_size;//      = MULTIPART_SIZE; // default
+thread_local bool   S3fsCurl::is_sigv4            = true;           // default
+bool                S3fsCurl::is_ua               = true;           // default
 
 //-------------------------------------------------------------------
 // Class methods for S3fsCurl
