@@ -45,6 +45,7 @@ const std::string s3_signature_version{"S3_SIGNATURE_VERSION"};
 const std::string s3_region_name{"S3_REGIONNAME"};
 const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
+const std::string s3_cache_dir{"S3_CACHE_DIR"};
 
 const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
 const size_t S3_DEFAULT_RETRY_COUNT = 1;

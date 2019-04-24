@@ -173,22 +173,22 @@ typedef std::map<std::string, PXATTRVAL> xattrs_t;
 //
 // Global variables
 //
-extern bool           foreground;
-extern bool           nomultipart;
-extern bool           pathrequeststyle;
-extern bool           complement_stat;
-extern std::string    program_name;
-extern std::string    service_path;
-thread_local extern std::string    host;
-thread_local extern std::string    bucket;
-extern std::string    mount_prefix;
-thread_local extern std::string    endpoint;
-extern std::string    cipher_suites;
-extern std::string    instance_name;
-extern s3fs_log_level debug_level;
-extern const char*    s3fs_log_nest[S3FS_LOG_NEST_MAX];
-
-extern std::string    s3_protocol_str;
+extern bool                     foreground;
+extern bool                     nomultipart;
+extern bool                     pathrequeststyle;
+extern bool                     complement_stat;
+extern std::string              program_name;
+extern std::string              service_path;
+thread_local extern std::string host;
+thread_local extern std::string bucket;
+extern std::string              mount_prefix;
+thread_local extern std::string endpoint;
+extern std::string              cipher_suites;
+extern std::string              instance_name;
+extern s3fs_log_level           debug_level;
+extern const char*              s3fs_log_nest[S3FS_LOG_NEST_MAX];
+extern std::string              s3_protocol_str;
+//extern thread_local std::string s3_cache_dir_str;
 
 #endif // S3FS_COMMON_H_
 

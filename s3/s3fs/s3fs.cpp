@@ -89,23 +89,24 @@ typedef std::map<std::string, kvmap_t>     bucketkvmap_t;
 //-------------------------------------------------------------------
 // Global variables
 //-------------------------------------------------------------------
-bool foreground                   = false;
-bool nomultipart                  = false;
-bool pathrequeststyle             = true;
-bool complement_stat              = false;
+bool foreground                                 = false;
+bool nomultipart                                = false;
+bool pathrequeststyle                           = true;
+bool complement_stat                            = false;
 std::string program_name;
-std::string service_path          = "/";
-thread_local std::string host                  = "https://s3.amazonaws.com";
-thread_local std::string bucket                = "";
-thread_local std::string endpoint              = "us-east-1";
-std::string cipher_suites         = "";
-std::string instance_name         = "";
-s3fs_log_level debug_level        = S3FS_LOG_CRIT;
+std::string service_path                        = "/";
+thread_local std::string host                   = "https://s3.amazonaws.com";
+thread_local std::string bucket                 = "";
+thread_local std::string endpoint               = "us-east-1";
+std::string cipher_suites                       = "";
+std::string instance_name                       = "";
+s3fs_log_level debug_level                      = S3FS_LOG_CRIT;
 const char*    s3fs_log_nest[S3FS_LOG_NEST_MAX] = {"", "  ", "    ", "      "};
-std::string aws_profile           = "default";
+std::string aws_profile                         = "default";
+//thread_local std::string s3_cache_dir_str       = "";
 
 // flag to say whether we're doing http or https
-std::string s3_protocol_str       = "";
+std::string s3_protocol_str                     = "";
 
 //-------------------------------------------------------------------
 // Static variables
@@ -116,8 +117,8 @@ static mode_t mp_mode             = 0;    // mode of mount point
 static std::string mountpoint;
 static std::string passwd_file    = "";
 static bool noxmlns               = false;
-bool nocopyapi             = false;
-bool norenameapi           = false;
+bool nocopyapi                    = false;
+bool norenameapi                  = false;
 static uid_t s3fs_uid             = 0;
 static gid_t s3fs_gid             = 0;
 static bool is_s3fs_uid           = false;// default does not set.
