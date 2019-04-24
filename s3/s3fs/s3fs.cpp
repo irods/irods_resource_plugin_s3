@@ -95,9 +95,9 @@ bool pathrequeststyle             = true;
 bool complement_stat              = false;
 std::string program_name;
 std::string service_path          = "/";
-std::string host                  = "https://s3.amazonaws.com";
-std::string bucket                = "";
-std::string endpoint              = "us-east-1";
+thread_local std::string host                  = "https://s3.amazonaws.com";
+thread_local std::string bucket                = "";
+thread_local std::string endpoint              = "us-east-1";
 std::string cipher_suites         = "";
 std::string instance_name         = "";
 s3fs_log_level debug_level        = S3FS_LOG_CRIT;
@@ -128,8 +128,8 @@ static int max_keys_list_object   = 1000;// default is 1000
 
 static const std::string allbucket_fields_type = "";         // special key for mapping(This name is absolutely not used as a bucket name)
 static const std::string keyval_fields_type    = "\t";       // special key for mapping(This name is absolutely not used as a bucket name)
-static const std::string aws_accesskeyid       = "AWSAccessKeyId";
-static const std::string aws_secretkey         = "AWSSecretKey";
+thread_local static const std::string aws_accesskeyid       = "AWSAccessKeyId";
+thread_local static const std::string aws_secretkey         = "AWSSecretKey";
 
 //-------------------------------------------------------------------
 // Static functions : prototype

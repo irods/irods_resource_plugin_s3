@@ -227,16 +227,14 @@ class S3fsCurl
     static time_t           readwrite_timeout;
     static int              retries;
     static bool             is_public_bucket;
-    static std::string      default_acl;             // TODO: to enum
+    static std::string      default_acl;
     static storage_class_t  storage_class;
     static sseckeylist_t    sseckeys;
     static std::string      ssekmsid;
     static sse_type_t       ssetype;
     static bool             is_content_md5;
     static bool             is_verbose;
-    static std::string      AWSAccessKeyId;
-    static std::string      AWSSecretAccessKey;
-    static std::string      AWSAccessToken;
+    thread_local static std::string      AWSAccessToken;
     static time_t           AWSAccessTokenExpire;
     static bool             is_ecs;
     static bool             is_ibm_iam_auth;
@@ -251,10 +249,13 @@ class S3fsCurl
     static std::string      curl_ca_bundle;
     static mimes_t          mimeTypes;
     static std::string      userAgent;
-    static int              max_parallel_cnt;
-    static off_t            multipart_size;
-    static bool             is_sigv4;
     static bool             is_ua;             // User-Agent
+
+    thread_local static std::string          AWSAccessKeyId;
+    thread_local static std::string          AWSSecretAccessKey;
+    thread_local static int                  max_parallel_cnt;
+    thread_local static off_t                multipart_size;
+    thread_local static bool                 is_sigv4;
 
     // variables
     CURL*                hCurl;
