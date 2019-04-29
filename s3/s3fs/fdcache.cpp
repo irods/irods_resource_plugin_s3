@@ -40,6 +40,8 @@
 #include <list>
 #include <vector>
 #include <utime.h>
+#include <condition_variable>
+#include <mutex>
 
 #include "common.h"
 #include "fdcache.h"
@@ -327,8 +329,11 @@ bool PageList::Parse(off_t new_pos)
   return false;
 }
 
+// resize the page list from 0 to size
+//   is_loaded only used for new pages being created, flag for old pages remains unchanged
 bool PageList::Resize(size_t size, bool is_loaded)
 {
+rodsLog(LOG_NOTICE, "%s:%d (%s) size=%zu is_loaded=%d", __FILE__, __LINE__, __FUNCTION__, size, is_loaded);
   size_t total = Size();
 
   if(0 == total){
@@ -340,20 +345,23 @@ bool PageList::Resize(size_t size, bool is_loaded)
     pages.push_back(page);
 
   }else if(size < total){
-
-    if (0 == size) {
-		return Compress();
-    }
+	
+	if (0 == size) {
+	  return Compress();
+	}
 
     // cut area
     for(fdpage_list_t::iterator iter = pages.begin(); iter != pages.end(); ){
       if(static_cast<size_t>((*iter)->next()) <= size){
+		// page within size, continue 
         ++iter;
       }else{
         if(size <= static_cast<size_t>((*iter)->offset)){
+		  // page is outside the range, delete it
           delete *iter;
           iter = pages.erase(iter);
         }else{
+		  // current page extends beyond size, shrink it
           (*iter)->bytes = size - static_cast<size_t>((*iter)->offset);
         }
       }
@@ -383,22 +391,37 @@ bool PageList::IsPageLoaded(off_t start, size_t size) const
 
 bool PageList::SetPageLoadedStatus(off_t start, size_t size, bool is_loaded, bool is_compress)
 {
+rodsLog(LOG_NOTICE, "%s:%d (%s) start=%jd size=%zu is_loaded=%d Size()=%zu", __FILE__, __LINE__, __FUNCTION__, start, size, is_loaded, Size());
+rodsLog(LOG_NOTICE, "%s:%d (%s) Dump before SetPageLoadedStatus...", __FILE__, __LINE__, __FUNCTION__);
+Dump();
   size_t now_size = Size();
 
   if(now_size <= static_cast<size_t>(start)){
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     if(now_size < static_cast<size_t>(start)){
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
       // add
       Resize(static_cast<size_t>(start), false);
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     }
     Resize(static_cast<size_t>(start + size), is_loaded);
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
-  }else if(now_size <= static_cast<size_t>(start + size)){
+  }else if(now_size < static_cast<size_t>(start + size)){
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) Dump before cut...", __FILE__, __LINE__, __FUNCTION__);
+Dump();
     // cut
     Resize(static_cast<size_t>(start), false);
+rodsLog(LOG_NOTICE, "%s:%d (%s) Dump after before resize cut...", __FILE__, __LINE__, __FUNCTION__);
+Dump();
     // add
     Resize(static_cast<size_t>(start + size), is_loaded);
-
+rodsLog(LOG_NOTICE, "%s:%d (%s) Dump after resize...", __FILE__, __LINE__, __FUNCTION__);
+Dump();
   }else{
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     // start-size are inner pages area
     // parse "start", and "start + size" position
     Parse(start);
@@ -406,15 +429,20 @@ bool PageList::SetPageLoadedStatus(off_t start, size_t size, bool is_loaded, boo
 
     // set loaded flag
     for(fdpage_list_t::iterator iter = pages.begin(); iter != pages.end(); ++iter){
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
       if((*iter)->end() < start){
         continue;
       }else if(static_cast<off_t>(start + size) <= (*iter)->offset){
         break;
       }else{
+rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         (*iter)->loaded = is_loaded;
       }
     }
   }
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) Dump before compress...", __FILE__, __LINE__, __FUNCTION__, start, size, is_loaded);
+Dump();
   // compress area
   return (is_compress ? Compress() : true);
 }
@@ -466,6 +494,16 @@ size_t PageList::GetTotalUnloadedPageSize(off_t start, size_t size) const
   return restsize;
 }
 
+// return the list of pages between start and start+size that have not been loaded
+// merge pages as necessary
+//    - Iterate through pages:
+//    - skip pages that are less than start
+//    - skip pages that are already loaded
+//    - break out when encountering a page > end
+//    - for overlap that are not loaded
+//      - determine portion of overlap that we need loaded
+//      - add page to unloaded list merging with previous page if necessary
+//    - returns number of pages
 int PageList::GetUnloadedPages(fdpage_list_t& unloaded_list, off_t start, size_t size) const
 {
   // If size is 0, it means loading to end.
@@ -478,16 +516,20 @@ int PageList::GetUnloadedPages(fdpage_list_t& unloaded_list, off_t start, size_t
 
   for(fdpage_list_t::const_iterator iter = pages.begin(); iter != pages.end(); ++iter){
     if((*iter)->next() <= start){
+	  // current page is less than the new page, keep going
       continue;
     }
     if(next <= (*iter)->offset){
+	  // current page is after the new page, break out 
       break;
     }
     if((*iter)->loaded){
       continue; // already loaded
     }
 
+	// some overlap
     // page area
+	// split the page so that requested page is its own page in list
     off_t  page_start = max((*iter)->offset, start);
     off_t  page_next  = min((*iter)->next(), next);
     size_t page_size  = static_cast<size_t>(page_next - page_start);
@@ -615,11 +657,11 @@ void PageList::Dump(void)
 {
   int cnt = 0;
 
-  S3FS_PRN_DBG("pages = {");
+  S3FS_PRN_INFO("pages = {");
   for(fdpage_list_t::iterator iter = pages.begin(); iter != pages.end(); ++iter, ++cnt){
-    S3FS_PRN_DBG("  [%08d] -> {%014jd - %014zu : %s}", cnt, (intmax_t)((*iter)->offset), (*iter)->bytes, (*iter)->loaded ? "true" : "false");
+    S3FS_PRN_INFO("  [%08d] -> {%014jd - %014zu : %s}", cnt, (intmax_t)((*iter)->offset), (*iter)->bytes, (*iter)->loaded ? "true" : "false");
   }
-  S3FS_PRN_DBG("}");
+  S3FS_PRN_INFO("}");
 }
 
 //------------------------------------------------
@@ -643,7 +685,7 @@ int FdEntity::FillFile(int fd, unsigned char byte, size_t size, off_t start)
 // FdEntity methods
 //------------------------------------------------
 FdEntity::FdEntity(const char* tpath, const char* cpath)
-        : is_lock_init(false), path(SAFESTRPTR(tpath)), cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
+        : read_in_progress(false), is_lock_init(false), path(SAFESTRPTR(tpath)), cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
           fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
 {
   try{
@@ -669,6 +711,26 @@ FdEntity::~FdEntity()
     }
     is_lock_init = false;
   }
+}
+
+// if read is in progress, it waits for the read_object_cv and returns false
+// if read is not in progress, it sets the read_in_progress variable and returns true
+bool FdEntity::waitForRead() {
+	std::unique_lock<std::mutex> lck(cv_mtx);
+    if (!read_in_progress) {
+	    read_in_progress = true;
+	    return true;
+	} else {
+		// read is in progress, wait for a signal that it is done
+		read_object_cv.wait(lck);
+		return false;
+    }
+}
+
+void FdEntity::signalReadDone() {
+	std::unique_lock<std::mutex> lck(cv_mtx);
+	read_object_cv.notify_all();
+	read_in_progress = false;
 }
 
 void FdEntity::Clear(void)
@@ -1124,8 +1186,13 @@ bool FdEntity::SetAllStatus(bool is_loaded)
   return true;
 }
 
+// get unloaded page list between start and start+size
+// load the pages
+//
 int FdEntity::Load(off_t start, size_t size)
 {
+rodsLog(LOG_NOTICE, "%s:%d (%s), start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
+pagelist.Dump();
   S3FS_PRN_DBG("[path=%s][fd=%d][offset=%jd][size=%jd]", path.c_str(), fd, (intmax_t)start, (intmax_t)size);
 
   if(-1 == fd){
@@ -1146,9 +1213,11 @@ int FdEntity::Load(off_t start, size_t size)
       // check loading size
       size_t need_load_size = 0;
       if(static_cast<size_t>((*iter)->offset) < size_orgmeta){
-        // original file size(on S3) is smaller than request.
+        // if asking for more than the original file size, set need_load_size to the difference between original size and current offset 
         need_load_size = (static_cast<size_t>((*iter)->next()) <= size_orgmeta ? (*iter)->bytes : (size_orgmeta - (*iter)->offset));
       }
+
+	  // over_size is additional amount requested
       size_t over_size = (*iter)->bytes - need_load_size;
 
       // download
@@ -1187,10 +1256,12 @@ int FdEntity::Load(off_t start, size_t size)
       }
 
       // Set loaded flag
+
       pagelist.SetPageLoadedStatus((*iter)->offset, static_cast<off_t>((*iter)->bytes), true);
     }
     PageList::FreeList(unloaded_list);
   }
+  rodsLog(LOG_NOTICE, "%s:%d (%s), returning... start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
   return result;
 }
 
@@ -1594,6 +1665,7 @@ ssize_t FdEntity::Read(char* bytes, off_t start, size_t size, bool force_load)
 
   ssize_t rsize;
 
+rodsLog(LOG_NOTICE, "%s:%d (%s), start=%jd GetTotalUnloadedPageSize=%zu", __FILE__, __LINE__, __FUNCTION__, start, pagelist.GetTotalUnloadedPageSize(start, size));
 
   // check disk space
   if(0 < pagelist.GetTotalUnloadedPageSize(start, size)){
@@ -1621,7 +1693,11 @@ ssize_t FdEntity::Read(char* bytes, off_t start, size_t size, bool force_load)
     // Loading
     int result = 0;
     if(0 < size){
+rodsLog(LOG_NOTICE, "%s:%d (%s) before load...", __FILE__, __LINE__, __FUNCTION__, start, pagelist.GetTotalUnloadedPageSize(start, size));
+pagelist.Dump();
       result = Load(start, load_size);
+rodsLog(LOG_NOTICE, "%s:%d (%s) after load...", __FILE__, __LINE__, __FUNCTION__, start, pagelist.GetTotalUnloadedPageSize(start, size));
+pagelist.Dump();
     }
 
     FdManager::get()->FreeReservedDiskSpace(load_size);
@@ -2012,6 +2088,8 @@ FdManager::~FdManager()
     assert(false);
   }
 }
+
+
 
 FdEntity* FdManager::GetFdEntity(const char* path, int existfd)
 {
