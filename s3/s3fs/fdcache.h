@@ -22,6 +22,8 @@
 
 #include <sys/statvfs.h>
 #include "curl.h"
+#include <condition_variable>
+#include <mutex>
 
 //------------------------------------------------
 // CacheFileStat
@@ -178,6 +180,14 @@ class FdEntity
 
     bool ReserveDiskSpace(size_t size);
     void CleanupCache();
+
+	// if read is in progress, it waits for the read_object_cv and returns false
+	// if read is not in progress, it sets the read_in_progress variable and returns true
+	bool waitForRead();
+
+	// Precondition:  This thread got a true response from waitForRead().  Signals others to 
+	// continue.
+	void signalReadDone();
 };
 typedef std::map<std::string, class FdEntity*> fdent_map_t;   // key=path, value=FdEntity*
 
@@ -187,6 +197,8 @@ typedef std::map<std::string, class FdEntity*> fdent_map_t;   // key=path, value
 class FdManager
 {
   private:
+
+
     static FdManager                    singleton;
     static pthread_mutex_t              fd_manager_lock;
     static pthread_mutex_t              cache_cleanup_lock;
@@ -233,6 +245,7 @@ class FdManager
     bool Close(FdEntity* ent);
     bool ChangeEntityToTempPath(FdEntity* ent, const char* path);
     void CleanupCacheDir();
+
 };
 
 //------------------------------------------------
@@ -247,6 +260,8 @@ struct FdOffsetPair {
 class FileOffsetManager 
 {
   private:
+
+
     static FileOffsetManager singleton;
 	static int fd_counter;
     static pthread_mutex_t file_offset_manager_lock;
