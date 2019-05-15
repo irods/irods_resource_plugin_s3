@@ -643,7 +643,7 @@ int FdEntity::FillFile(int fd, unsigned char byte, size_t size, off_t start)
 // FdEntity methods
 //------------------------------------------------
 FdEntity::FdEntity(const char* tpath, const char* cpath)
-        : is_lock_init(false), refcnt(0), path(SAFESTRPTR(tpath)), cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
+        : is_lock_init(false), path(SAFESTRPTR(tpath)), cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
           fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
 {
   try{
@@ -696,7 +696,6 @@ void FdEntity::Clear(void)
     }
   }
   pagelist.Init(0, false);
-  refcnt        = 0;
   path          = "";
   cachepath     = "";
   is_modify     = false;
@@ -704,46 +703,30 @@ void FdEntity::Clear(void)
 
 void FdEntity::Close(void)
 {
-  S3FS_PRN_DBG("[path=%s][fd=%d][refcnt=%d]", path.c_str(), fd, (-1 != fd ? refcnt - 1 : refcnt));
+  S3FS_PRN_DBG("[path=%s][fd=%d]", path.c_str(), fd);
 
   if(-1 != fd){
     AutoLock auto_lock(&fdent_lock);
 
-    if(0 < refcnt){
-      refcnt--;
-    }
-    if(0 == refcnt){
-      if(0 != cachepath.size()){
-        CacheFileStat cfstat(path.c_str());
-        if(!pagelist.Serialize(cfstat, true)){
-          S3FS_PRN_WARN("failed to save cache stat file(%s).", path.c_str());
-        }
-      }
-      if(pfile){
-        fclose(pfile);
-        pfile = NULL;
-      }
-      fd = -1;
-
-      if(!mirrorpath.empty()){
-        if(-1 == unlink(mirrorpath.c_str())){
-          S3FS_PRN_WARN("failed to remove mirror cache file(%s) by errno(%d).", mirrorpath.c_str(), errno);
-        }
-        mirrorpath.erase();
+    if(0 != cachepath.size()){
+      CacheFileStat cfstat(path.c_str());
+      if(!pagelist.Serialize(cfstat, true)){
+        S3FS_PRN_WARN("failed to save cache stat file(%s).", path.c_str());
       }
     }
-  }
-}
+    if(pfile){
+      fclose(pfile);
+      pfile = NULL;
+    }
+    fd = -1;
 
-int FdEntity::Dup()
-{
-  S3FS_PRN_DBG("[path=%s][fd=%d][refcnt=%d]", path.c_str(), fd, (-1 != fd ? refcnt + 1 : refcnt));
-
-  if(-1 != fd){
-    AutoLock auto_lock(&fdent_lock);
-    refcnt++;
+    if(!mirrorpath.empty()){
+      if(-1 == unlink(mirrorpath.c_str())){
+        S3FS_PRN_WARN("failed to remove mirror cache file(%s) by errno(%d).", mirrorpath.c_str(), errno);
+      }
+      mirrorpath.erase();
+    }
   }
-  return fd;
 }
 
 //
@@ -814,8 +797,6 @@ int FdEntity::Open(headers_t* pmeta, ssize_t size, time_t time, bool no_fd_lock_
   }
 
   if(-1 != fd){
-    // already opened, needs to increment refcnt.
-    Dup();
 
     // check only file size(do not need to save cfs and time.
     if(0 <= size && pagelist.Size() != static_cast<size_t>(size)){
@@ -953,7 +934,6 @@ int FdEntity::Open(headers_t* pmeta, ssize_t size, time_t time, bool no_fd_lock_
   }
 
   // init internal data
-  refcnt    = 1;
   is_modify = false;
 
   // set original headers and size in it.
@@ -2147,7 +2127,6 @@ FdEntity* FdManager::ExistOpen(const char* path, int existfd, bool ignore_existf
         // found opened fd in map
         if(0 == strcmp((*iter).second->GetPath(), path)){
           ent = (*iter).second;
-          ent->Dup();
         }else{
           // found fd, but it is used another file(file descriptor is recycled)
           // so returns NULL.
@@ -2278,12 +2257,8 @@ void FdManager::CleanupCacheDirInternal(const std::string &path)
         continue;
       }
 
-      if(ent->IsMultiOpened()){
-        S3FS_PRN_DBG("skipping opened file: %s", next_path.c_str());
-      }else{
-        ent->CleanupCache();
-        S3FS_PRN_DBG("cleaned up: %s", next_path.c_str());
-      }
+      ent->CleanupCache();
+      S3FS_PRN_DBG("cleaned up: %s", next_path.c_str());
       Close(ent);
     }
   }
