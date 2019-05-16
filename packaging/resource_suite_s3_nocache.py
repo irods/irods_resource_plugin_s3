@@ -38,17 +38,24 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.testdir = "testdir"
 
         hostname = lib.get_hostname()
-        hostuser = getpass.getuser()
 
+        self.testbucket = '/justinkylejames-irods1'
         self.testresc = "TestResc"
-        self.testvault = "/tmp/" + hostuser + "/" + self.testresc
+        self.testvault = "/tmp/" + self.testresc
         self.anotherresc = "AnotherResc"
-        self.anothervault = "/tmp/" + hostuser + "/" + self.anotherresc
+        self.anothervault = "/tmp/" + self.anotherresc
+
+        self.s3_context = "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
+
+        self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
+
+        self.admin.assert_icommand("iadmin mkresc demoResc s3 " + hostname + ":" + self.testbucket + "/tmp/demoResc " + self.s3_context, 'STDOUT_SINGLELINE', 's3')
 
         self.admin.assert_icommand(
-            ['iadmin', "mkresc", self.testresc, 'unixfilesystem', hostname + ":" + self.testvault], 'STDOUT_SINGLELINE', 'unixfilesystem')
+            ['iadmin', "mkresc", self.testresc, 's3', hostname + ":" + self.testbucket + self.testvault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
         self.admin.assert_icommand(
-            ['iadmin', "mkresc", self.anotherresc, 'unixfilesystem', hostname + ":" + self.anothervault], 'STDOUT_SINGLELINE', 'unixfilesystem')
+            ['iadmin', "mkresc", self.anotherresc, 's3', hostname + ":" + self.testbucket + self.anothervault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
+
         with open(self.testfile, 'wt') as f:
             print('I AM A TESTFILE -- [' + self.testfile + ']', file=f, end='')
         self.admin.run_icommand(['imkdir', self.testdir])
@@ -71,34 +78,17 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             admin_session.run_icommand('irmtrash -M')
             admin_session.run_icommand(['iadmin', 'rmresc', self.testresc])
             admin_session.run_icommand(['iadmin', 'rmresc', self.anotherresc])
+            admin_session.assert_icommand("iadmin rmresc demoResc")
+            admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
             print("run_resource_teardown - END")
 
 
 class ResourceSuite_S3_NoCache(ResourceBase):
 
-    '''Define the tests to be run for a resource type.
-
-    This class is designed to be used as a base class by developers
-    when they write tests for their own resource plugins.
-
-    All these tests will be inherited and the developer can add
-    any new tests for new functionality or replace any tests
-    they need to modify.
-    '''
 
     ###################
     # iget
     ###################
-
-    def test_ibun_resource_failure_behavior(self):
-        lib.touch("file.tar")
-        resource = self.testresc
-        zone = self.admin.zone_name
-        self.user0.assert_icommand('iput file.tar ', 'EMPTY')
-        self.admin.assert_icommand('ibun -x -R {resource} file.tar /{zone}/home/rods/doesntmatter'.format(**locals()),
-                                   'STDERR_SINGLELINE', 'REPLICA_NOT_IN_RESC')
-        self.admin.assert_icommand('ibun -x -R notaResc file.tar /{zone}/home/rods/doesntmatter'.format(**locals()),
-                                   'STDERR_SINGLELINE', 'SYS_RESC_DOES_NOT_EXIST')
 
     def test_local_iget(self):
         # local setup
@@ -313,8 +303,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
 
         IrodsController().restart()
 
-    #@unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
-    #@unittest.skip('TODO remove this skip once big file is solved')
+    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
     def test_ssl_iput_small_and_large_files(self):
         # set up client and server side for ssl handshake
 
@@ -370,8 +359,6 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # restart iRODS server without altered environment
         IrodsController().restart()
 
-    #@unittest.skipIf(psutil.disk_usage('/').free < 20000000000, "not enough free space for 5 x 2.2GB file ( local + iput + 3 repl children )")
-    #@unittest.skip('TODO remove this skip once big file is solved')
     def test_local_iput_with_really_big_file__ticket_1623(self):
         filename = "reallybigfile.txt"
         # file size larger than 32 bit int
@@ -699,10 +686,12 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         doublesize = str(os.stat(doublefile).st_size)
 
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/%s/thirdrescVault" %
-                                   (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")   # create third resource
-        self.admin.assert_icommand("iadmin mkresc fourthresc unixfilesystem %s:/tmp/%s/fourthrescVault" %
-                                   (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
+        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:%s/tmp/%s/thirdrescVault %s" %
+                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")   # create third resource
+
+        self.admin.assert_icommand("iadmin mkresc fourthresc s3 %s:%s/tmp/%s/fourthrescVault %s" %
+                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
+
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")              # should not be listed
         self.admin.assert_icommand("iput " + filename)                                         # put file
         # replicate to test resource
@@ -780,8 +769,10 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         hostname = lib.get_hostname()
         hostuser = getpass.getuser()
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/%s/thirdrescVault" %
-                                   (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")  # create third resource
+        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:%s/tmp/%s/thirdrescVault %s" %
+                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create third resource
+
+
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
@@ -1072,3 +1063,281 @@ class ResourceSuite_S3_NoCache(ResourceBase):
 
 
 
+class Test_S3_NoCache(ResourceSuite_S3_NoCache, unittest.TestCase):
+    def test_iput_large_file_over_smaller(self):
+
+        file1 = "f1"
+        file2 = "f2"
+        filename_get = "f3"
+
+        file1_size = pow(2,20)
+        file2_size = 512*pow(2,20)
+
+        # create small and large files 
+        lib.make_file(file1, file1_size)
+        lib.make_file(file2, file2_size)
+
+        try:
+
+            # put small file  
+            self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
+
+            # write over small file with big file
+            self.admin.assert_icommand("iput -f %s" % file2)  # iput
+            self.admin.assert_icommand("ils -L %s" % file2, 'STDOUT_SINGLELINE', str(file2_size))  # should be listed
+
+            # get the file under a new name
+            self.admin.assert_icommand("iget -f %s %s" % (file2, filename_get))
+
+            # make sure the file that was put and got are the same
+            self.admin.assert_icommand("diff %s %s " % (file2, filename_get), 'EMPTY')
+
+        finally:
+
+            # local cleanup
+            self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(filename_get):
+                os.unlink(filename_get)
+
+
+    def test_iput_small_file_over_larger(self):
+
+        file1 = "f1"
+        file2 = "f2"
+        filename_get = "f3"
+
+        file1_size = 512*pow(2,20)
+        file2_size = pow(2,20)
+
+        # create small and large files 
+        lib.make_file(file1, file1_size)
+        lib.make_file(file2, file2_size)
+
+        try:
+            # put large file  
+            self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
+
+            # write over large file with small file
+            self.admin.assert_icommand("iput -f %s" % file2)  # iput
+            self.admin.assert_icommand("ils -L %s" % file2, 'STDOUT_SINGLELINE', str(file2_size))  # should be listed
+
+            # get the file under a new name
+            self.admin.assert_icommand("iget -f %s %s" % (file2, filename_get))
+
+            # make sure the file that was put and got are the same
+            self.admin.assert_icommand("diff %s %s " % (file2, filename_get), 'EMPTY')
+
+        finally:
+
+            # local cleanup
+            self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(filename_get):
+                os.unlink(filename_get)
+
+
+
+    def test_simultaneous_open_writes(self):
+
+        rule_file_path = 'test_simultaneous_open_writes.r'
+
+        rule_str = '''
+test_simultaneous_open_writes {
+            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+            msiDataObjWrite(*fd, "abcd", *len)
+            msiDataObjClose(*fd, *status)
+
+
+            # multiple open simultaneously 
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
+
+            msiDataObjLseek(*fd1, 4, "SEEK_SET", *status)
+            msiDataObjLseek(*fd2, 14, "SEEK_SET", *status)
+            msiDataObjLseek(*fd3, 24, "SEEK_SET", *status)
+
+            msiDataObjWrite(*fd3, "CCCCCCCCCC", *len)
+            msiDataObjWrite(*fd2, "BBBBBBBBBB", *len)
+            msiDataObjWrite(*fd1, "AAAAAAAAAA", *len)
+
+            msiDataObjClose(*fd1, *status)
+            msiDataObjClose(*fd2, *status)
+            msiDataObjClose(*fd3, *status)
+
+            # open write close consecutively
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 34, "SEEK_SET", *status)
+            msiDataObjWrite(*fd1, "XXXXXXXXXX", *len)
+            msiDataObjClose(*fd1, *status)
+
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
+            msiDataObjLseek(*fd2, 44, "SEEK_SET", *status)
+            msiDataObjWrite(*fd2, "YYYYYYYYYY", *len)
+            msiDataObjClose(*fd2, *status)
+
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
+            msiDataObjLseek(*fd3, 54, "SEEK_SET", *status)
+            msiDataObjWrite(*fd3, "ZZZZZZZZZZ", *len)
+            msiDataObjClose(*fd3, *status)
+        }
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+        try:
+            with open(rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str)
+
+            self.admin.assert_icommand("irule -F %s" % rule_file_path)
+            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdAAAAAAAAAABBBBBBBBBBCCCCCCCCCCXXXXXXXXXXYYYYYYYYYYZZZZZZZZZZ')
+        finally:
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            if os.path.exists(rule_file_path):
+                os.unlink(rule_file_path)
+
+
+    def test_seek_end(self):
+
+        rule_file_path = 'test_seek_end.r'
+
+        rule_str = '''
+test_seek_end {
+            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+            msiDataObjWrite(*fd, "abcdefg", *len)
+            msiDataObjClose(*fd, *status)
+
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 0, "SEEK_END", *status)
+            msiDataObjWrite(*fd1, "hijk", *len)
+            msiDataObjClose(*fd1, *status)
+        }
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+        try:
+            with open(rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str)
+
+            self.admin.assert_icommand("irule -F %s" % rule_file_path)
+            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdefghijk')
+        finally:
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            if os.path.exists(rule_file_path):
+                os.unlink(rule_file_path)
+
+
+    def test_seek_cur(self):
+
+        rule_file_path = 'test_seek_cur.r'
+
+        rule_str = '''
+test_seek_end {
+            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+            msiDataObjWrite(*fd, "abcdefg", *len)
+            msiDataObjClose(*fd, *status)
+
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 2, "SEEK_SET", *status)
+            msiDataObjLseek(*fd1, 2, "SEEK_CUR", *status)
+            msiDataObjWrite(*fd1, "hijk", *len)
+            msiDataObjClose(*fd1, *status)
+        }
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+        try:
+            with open(rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str)
+
+            self.admin.assert_icommand("irule -F %s" % rule_file_path)
+            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdhijk')
+        finally:
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            if os.path.exists(rule_file_path):
+                os.unlink(rule_file_path)
+
+
+    def test_small_write_read_in_large_file(self):
+
+        rule_str_write = '''
+test_small_write {
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/f1++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 1024000, "SEEK_SET", *status)
+            msiDataObjWrite(*fd1, "abcdef", *len)
+            msiDataObjClose(*fd1, *status)
+        }
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+
+        rule_str_read = '''
+test_small_read {
+            msiDataObjOpen("objPath=/tempZone/home/otherrods/f1++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjLseek(*fd1, 1024000, "SEEK_SET", *status)
+            msiDataObjRead(*fd1, 6, *buf)
+            msiDataObjClose(*fd1, *status)
+            writeLine("stdout", "buf=*buf")
+        }
+INPUT null
+OUTPUT ruleExecOut
+        '''
+
+        file1 = 'f1'
+        write_rule_file_path = 'test_small_write.r'
+        read_rule_file_path = 'test_small_read.r'
+
+        try:
+            file1_size = 512*pow(2,20)
+
+            # create and put large file
+            lib.make_file(file1, file1_size)
+            self.admin.assert_icommand("iput %s /tempZone/home/otherrods/%s" % (file1, file1))  # iput
+
+            with open(write_rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str_write)
+
+            with open(read_rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str_read)
+
+            self.admin.assert_icommand("irule -F %s" % write_rule_file_path)
+
+            before_read_time = time.time()
+            self.admin.assert_icommand("irule -F %s" % read_rule_file_path, 'STDOUT_SINGLELINE', 'buf=abcdef')
+            after_read_time = time.time()
+
+            self.assertLess(after_read_time - before_read_time, .01)
+                
+
+        finally:
+
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/%s" % file1, 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+
+            if os.path.exists(write_rule_file_path):
+                os.unlink(write_rule_file_path)
+
+            if os.path.exists(read_rule_file_path):
+                os.unlink(read_rule_file_path)
