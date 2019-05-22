@@ -1325,7 +1325,9 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("irule -F %s" % read_rule_file_path, 'STDOUT_SINGLELINE', 'buf=abcdef')
             after_read_time = time.time()
 
-            self.assertLess(after_read_time - before_read_time, .01)
+            # small reads should not read entire file, make sure the read took less than three seconds
+            # (should be much lower than that)
+            self.assertLess(after_read_time - before_read_time, 3)
                 
 
         finally:

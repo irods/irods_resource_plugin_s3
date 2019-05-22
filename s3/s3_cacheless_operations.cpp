@@ -391,11 +391,9 @@ namespace irods_s3_cacheless {
           result.code(0);
           return result;
         }
-rodsLog(LOG_NOTICE, "%s:%d (%s) [_len=%d][offset=%jd][realsize=%zu]", __FILE__, __LINE__, __FUNCTION__, _len, offset, realsize);
 
-        // Go ahead and read entire file
+        // If we are not the first thread, go ahead and read entire file or wait until it has been read
         bool thread_controls_read = ent->waitForRead();
-rodsLog(LOG_NOTICE, "%s:%d (%s) ***** thread_controls_read = %d *****", __FILE__, __LINE__, __FUNCTION__, thread_controls_read);
 
         // read the file size into st.st_size to mimic posix read semantics
         // TODO check performance of this.
@@ -414,20 +412,19 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) ***** thread_controls_read = %d *****", __FILE__
 
         if (thread_controls_read) {
             // preload entire file to cache
-ent->pagelist.Dump();
             ent->Load(0, realsize);
-rodsLog(LOG_NOTICE, "%s:%d (%s) ----------------------- original read done ----------------------------", __FILE__, __LINE__, __FUNCTION__);
             ent->signalReadDone();
         } 
     
-        // now this should just read from cache 
+        // now this should just read from cache unless we are the first reader
         //readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, true);
         readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, false);
         if(0 > readReturnVal){
           S3FS_PRN_WARN("failed to read file(%s). result=%jd", path.c_str(), (intmax_t)readReturnVal);
           return ERROR(S3_GET_ERROR, (boost::format("%s: failed to read file(%s)") % __FUNCTION__ % path.c_str()));
         }
-        //FdManager::get()->Close(ent);
+
+        ent->decrementSimultaneousReadCount();
        
         // ent->Read returns the size of the buffer but posix requires
         // we return the actual amount read 
