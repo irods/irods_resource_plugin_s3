@@ -333,7 +333,6 @@ bool PageList::Parse(off_t new_pos)
 //   is_loaded only used for new pages being created, flag for old pages remains unchanged
 bool PageList::Resize(size_t size, bool is_loaded)
 {
-rodsLog(LOG_NOTICE, "%s:%d (%s) size=%zu is_loaded=%d", __FILE__, __LINE__, __FUNCTION__, size, is_loaded);
   size_t total = Size();
 
   if(0 == total){
@@ -391,37 +390,21 @@ bool PageList::IsPageLoaded(off_t start, size_t size) const
 
 bool PageList::SetPageLoadedStatus(off_t start, size_t size, bool is_loaded, bool is_compress)
 {
-rodsLog(LOG_NOTICE, "%s:%d (%s) start=%jd size=%zu is_loaded=%d Size()=%zu", __FILE__, __LINE__, __FUNCTION__, start, size, is_loaded, Size());
-rodsLog(LOG_NOTICE, "%s:%d (%s) Dump before SetPageLoadedStatus...", __FILE__, __LINE__, __FUNCTION__);
-Dump();
   size_t now_size = Size();
 
   if(now_size <= static_cast<size_t>(start)){
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     if(now_size < static_cast<size_t>(start)){
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
       // add
       Resize(static_cast<size_t>(start), false);
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     }
     Resize(static_cast<size_t>(start + size), is_loaded);
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
   }else if(now_size < static_cast<size_t>(start + size)){
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
-
-rodsLog(LOG_NOTICE, "%s:%d (%s) Dump before cut...", __FILE__, __LINE__, __FUNCTION__);
-Dump();
     // cut
     Resize(static_cast<size_t>(start), false);
-rodsLog(LOG_NOTICE, "%s:%d (%s) Dump after before resize cut...", __FILE__, __LINE__, __FUNCTION__);
-Dump();
     // add
     Resize(static_cast<size_t>(start + size), is_loaded);
-rodsLog(LOG_NOTICE, "%s:%d (%s) Dump after resize...", __FILE__, __LINE__, __FUNCTION__);
-Dump();
   }else{
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
     // start-size are inner pages area
     // parse "start", and "start + size" position
     Parse(start);
@@ -429,20 +412,16 @@ rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
 
     // set loaded flag
     for(fdpage_list_t::iterator iter = pages.begin(); iter != pages.end(); ++iter){
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
       if((*iter)->end() < start){
         continue;
       }else if(static_cast<off_t>(start + size) <= (*iter)->offset){
         break;
       }else{
-rodsLog(LOG_NOTICE, "%s:%d (%s)", __FILE__, __LINE__, __FUNCTION__);
         (*iter)->loaded = is_loaded;
       }
     }
   }
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) Dump before compress...", __FILE__, __LINE__, __FUNCTION__, start, size, is_loaded);
-Dump();
   // compress area
   return (is_compress ? Compress() : true);
 }
@@ -685,7 +664,8 @@ int FdEntity::FillFile(int fd, unsigned char byte, size_t size, off_t start)
 // FdEntity methods
 //------------------------------------------------
 FdEntity::FdEntity(const char* tpath, const char* cpath)
-        : read_in_progress(false), is_lock_init(false), path(SAFESTRPTR(tpath)), cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
+        : simultaneous_read_count(0), background_read_in_progress(false), is_lock_init(false), path(SAFESTRPTR(tpath)), 
+		  cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
           fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
 {
   try{
@@ -713,12 +693,36 @@ FdEntity::~FdEntity()
   }
 }
 
+
+unsigned int FdEntity::incrementSimultaneousReadCount() {
+    AutoLock auto_lock(&fdent_lock);
+	return ++simultaneous_read_count;
+}
+
+void FdEntity::decrementSimultaneousReadCount() {
+    AutoLock auto_lock(&fdent_lock);
+	--simultaneous_read_count;
+}
+
 // if read is in progress, it waits for the read_object_cv and returns false
-// if read is not in progress, it sets the read_in_progress variable and returns true
+// if read is not in progress, it sets the background_read_in_progress variable and returns true
 bool FdEntity::waitForRead() {
+
+    unsigned int read_count = incrementSimultaneousReadCount();
+
+	// TODO what if background read thread does a notify right here
+	// before the wait()?
+
 	std::unique_lock<std::mutex> lck(cv_mtx);
-    if (!read_in_progress) {
-	    read_in_progress = true;
+
+	// if we are the only read just return and
+	// let Read() get the data
+	if (read_count == 1) {
+		return false;
+	}
+
+    if (!background_read_in_progress) {
+	    background_read_in_progress = true;
 	    return true;
 	} else {
 		// read is in progress, wait for a signal that it is done
@@ -730,7 +734,7 @@ bool FdEntity::waitForRead() {
 void FdEntity::signalReadDone() {
 	std::unique_lock<std::mutex> lck(cv_mtx);
 	read_object_cv.notify_all();
-	read_in_progress = false;
+	background_read_in_progress = false;
 }
 
 void FdEntity::Clear(void)
@@ -1191,8 +1195,6 @@ bool FdEntity::SetAllStatus(bool is_loaded)
 //
 int FdEntity::Load(off_t start, size_t size)
 {
-rodsLog(LOG_NOTICE, "%s:%d (%s), start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
-pagelist.Dump();
   S3FS_PRN_DBG("[path=%s][fd=%d][offset=%jd][size=%jd]", path.c_str(), fd, (intmax_t)start, (intmax_t)size);
 
   if(-1 == fd){
@@ -1261,7 +1263,6 @@ pagelist.Dump();
     }
     PageList::FreeList(unloaded_list);
   }
-  rodsLog(LOG_NOTICE, "%s:%d (%s), returning... start=%jd size=%zu", __FILE__, __LINE__, __FUNCTION__, start, size);
   return result;
 }
 
@@ -1665,21 +1666,19 @@ ssize_t FdEntity::Read(char* bytes, off_t start, size_t size, bool force_load)
 
   ssize_t rsize;
 
-rodsLog(LOG_NOTICE, "%s:%d (%s), start=%jd GetTotalUnloadedPageSize=%zu", __FILE__, __LINE__, __FUNCTION__, start, pagelist.GetTotalUnloadedPageSize(start, size));
-
   // check disk space
   if(0 < pagelist.GetTotalUnloadedPageSize(start, size)){
     // load size(for prefetch)
     size_t load_size = size;
-    if(static_cast<size_t>(start + size) < pagelist.Size()){
-      size_t prefetch_max_size = max(size, static_cast<size_t>(S3fsCurl::GetMultipartSize() * S3fsCurl::GetMaxParallelCount()));
-
-      if(static_cast<size_t>(start + prefetch_max_size) < pagelist.Size()){
-        load_size = prefetch_max_size;
-      }else{
-        load_size = static_cast<size_t>(pagelist.Size() - start);
-      }
-    }
+//    if(static_cast<size_t>(start + size) < pagelist.Size()){
+//      size_t prefetch_max_size = max(size, static_cast<size_t>(S3fsCurl::GetMultipartSize() * S3fsCurl::GetMaxParallelCount()));
+//
+//      if(static_cast<size_t>(start + prefetch_max_size) < pagelist.Size()){
+//        load_size = prefetch_max_size;
+//      }else{
+//        load_size = static_cast<size_t>(pagelist.Size() - start);
+//      }
+//    }
 
     if(!ReserveDiskSpace(load_size)){
       S3FS_PRN_WARN("could not reserve disk space for pre-fetch download");
@@ -1693,11 +1692,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s), start=%jd GetTotalUnloadedPageSize=%zu", __FILE
     // Loading
     int result = 0;
     if(0 < size){
-rodsLog(LOG_NOTICE, "%s:%d (%s) before load...", __FILE__, __LINE__, __FUNCTION__, start, pagelist.GetTotalUnloadedPageSize(start, size));
-pagelist.Dump();
       result = Load(start, load_size);
-rodsLog(LOG_NOTICE, "%s:%d (%s) after load...", __FILE__, __LINE__, __FUNCTION__, start, pagelist.GetTotalUnloadedPageSize(start, size));
-pagelist.Dump();
     }
 
     FdManager::get()->FreeReservedDiskSpace(load_size);
