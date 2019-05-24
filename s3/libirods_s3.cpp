@@ -137,7 +137,7 @@ int get_booleans_from_host_mode(const std::string& host_mode_str,
     return 0;
 }
 
-static void get_modes_from_properties(irods::plugin_property_map& _prop_map, 
+void get_modes_from_properties(irods::plugin_property_map& _prop_map, 
         bool& attached_mode, bool& cacheless_mode) {
 
     // defaults
@@ -1961,6 +1961,7 @@ irods::error s3RedirectCreate(
     int resc_status = 0;
     std::string host_name;
 
+
     // =-=-=-=-=-=-=-
     // determine if the resource is down
     ret = _prop_map.get< int >( irods::RESOURCE_STATUS, resc_status );
@@ -1971,9 +1972,6 @@ irods::error s3RedirectCreate(
         ret = _prop_map.get< std::string >( irods::RESOURCE_LOCATION, host_name );
         if((result = ASSERT_PASS(ret, "Failed to get location property.")).ok() ) {
 
-            bool attached_mode, cacheless_mode;
-            get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
-
             // =-=-=-=-=-=-=-
             // if the status is down, vote no.
             if( INT_RESC_STATUS_DOWN == resc_status ) {
@@ -1982,7 +1980,7 @@ irods::error s3RedirectCreate(
 
             // =-=-=-=-=-=-=-
             // vote higher if we are on the same host or if we are in detached mode
-            else if( _curr_host == host_name) { // || !attached_mode ) {
+            else if( _curr_host == host_name ) {
                 _out_vote = 1.0;
             } else {
                 _out_vote = 0.5;
