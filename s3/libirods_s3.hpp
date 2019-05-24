@@ -177,6 +177,10 @@ irods::error s3CopyFile(
 /// @brief Checks the basic operation parameters and updates the physical path in the file object
 irods::error s3CheckParams(irods::plugin_context& _ctx ); 
 
+
+void get_modes_from_properties(irods::plugin_property_map& _prop_map, 
+        bool& attached_mode, bool& cacheless_mode); 
+
 bool determine_unlink_for_repl_policy(
     rsComm_t*          _comm,
     const std::string& _logical_path,

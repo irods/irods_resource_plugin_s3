@@ -664,7 +664,7 @@ int FdEntity::FillFile(int fd, unsigned char byte, size_t size, off_t start)
 // FdEntity methods
 //------------------------------------------------
 FdEntity::FdEntity(const char* tpath, const char* cpath)
-        : simultaneous_read_count(0), background_read_in_progress(false), is_lock_init(false), path(SAFESTRPTR(tpath)), 
+        : is_lock_init(false), simultaneous_read_count(0), path(SAFESTRPTR(tpath)), 
 		  cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
           fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
 {
@@ -691,50 +691,6 @@ FdEntity::~FdEntity()
     }
     is_lock_init = false;
   }
-}
-
-
-unsigned int FdEntity::incrementSimultaneousReadCount() {
-    AutoLock auto_lock(&fdent_lock);
-	return ++simultaneous_read_count;
-}
-
-void FdEntity::decrementSimultaneousReadCount() {
-    AutoLock auto_lock(&fdent_lock);
-	--simultaneous_read_count;
-}
-
-// if read is in progress, it waits for the read_object_cv and returns false
-// if read is not in progress, it sets the background_read_in_progress variable and returns true
-bool FdEntity::waitForRead() {
-
-    unsigned int read_count = incrementSimultaneousReadCount();
-
-	// TODO what if background read thread does a notify right here
-	// before the wait()?
-
-	std::unique_lock<std::mutex> lck(cv_mtx);
-
-	// if we are the only read just return and
-	// let Read() get the data
-	if (read_count == 1) {
-		return false;
-	}
-
-    if (!background_read_in_progress) {
-	    background_read_in_progress = true;
-	    return true;
-	} else {
-		// read is in progress, wait for a signal that it is done
-		read_object_cv.wait(lck);
-		return false;
-    }
-}
-
-void FdEntity::signalReadDone() {
-	std::unique_lock<std::mutex> lck(cv_mtx);
-	read_object_cv.notify_all();
-	background_read_in_progress = false;
 }
 
 void FdEntity::Clear(void)
@@ -1046,9 +1002,6 @@ bool FdEntity::OpenAndLoadAll(headers_t* pmeta, size_t* size, bool force_load)
   if(force_load){
     SetAllStatusUnloaded();
   }
-  //
-  // TODO: possibly do background for delay loading
-  //
   if(0 != (result = Load())){
     S3FS_PRN_ERR("could not download, result(%d)", result);
     return false;
@@ -2367,8 +2320,6 @@ std::map<int, FdOffsetPair> FileOffsetManager::offset_map;
 // FileOffsetManager methods
 //------------------------------------------------
 
-// TODO handle wrapping of fd_counter
-
 FileOffsetManager::FileOffsetManager()  {
 
     if(this == get()){
@@ -2419,7 +2370,6 @@ int FileOffsetManager::create_entry(int fd) {
 
 // check if entry exists with s3fs file descriptor 
 bool FileOffsetManager::fd_exists(int fd) {
-	// TODO make it more efficient
     for (auto iter = offset_map.begin(); iter != offset_map.end(); ++iter) {
 		if (iter->second.fd == fd) {
 			return true;

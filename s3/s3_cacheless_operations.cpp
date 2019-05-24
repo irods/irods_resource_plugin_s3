@@ -26,6 +26,7 @@
 #include <irods_resource_redirect.hpp>
 #include <irods_stacktrace.hpp>
 #include <irods_random.hpp>
+#include <irods/irods_resource_backport.hpp>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -221,11 +222,6 @@ namespace irods_s3_cacheless {
 
         int result;
 
-        // TODO this doesn't really do anything
-        std::string bucket;
-        std::string key;
-        parseS3Path(fco->physical_path(), bucket, key);
-
         result = create_file_object(path);
         StatCache::getStatCacheData()->DelStat(path.c_str());
         if(result != 0){
@@ -392,11 +388,7 @@ namespace irods_s3_cacheless {
           return result;
         }
 
-        // If we are not the first thread, go ahead and read entire file or wait until it has been read
-        bool thread_controls_read = ent->waitForRead();
-
         // read the file size into st.st_size to mimic posix read semantics
-        // TODO check performance of this.
         struct stat st;
         headers_t meta;
         int returnVal = //get_object_attribute(path.c_str(), &st, &meta, true, NULL, true);    // no truncate cache
@@ -410,22 +402,36 @@ namespace irods_s3_cacheless {
             return result;
         }
 
-        if (thread_controls_read) {
-            // preload entire file to cache
-            ent->Load(0, realsize);
-            ent->signalReadDone();
-        } 
+        // - First thread will just get the mutex below and return immediately
+        //   and get the data from S3 when Read() is called.
+        // - Second thread will do a full load of data into cache.
+        // - Third and subsequent threads will wait for this load (due to mutex lock)
+        //   and then read their part from cache.
+        {
+	        std::unique_lock<std::mutex> lck(ent->cv_mtx);
+
+	        ++(ent->simultaneous_read_count);
+
+            if (ent->simultaneous_read_count == 2) {
+
+                // This thread is doing a full load. 
+                ent->Load(0, realsize);
+            }
+        }
+
     
         // now this should just read from cache unless we are the first reader
-        //readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, true);
         readReturnVal = ent->Read(static_cast<char*>(_buf), offset, _len, false);
         if(0 > readReturnVal){
           S3FS_PRN_WARN("failed to read file(%s). result=%jd", path.c_str(), (intmax_t)readReturnVal);
           return ERROR(S3_GET_ERROR, (boost::format("%s: failed to read file(%s)") % __FUNCTION__ % path.c_str()));
         }
 
-        ent->decrementSimultaneousReadCount();
-       
+        {
+	        std::unique_lock<std::mutex> lck(ent->cv_mtx);
+	        --(ent->simultaneous_read_count);
+        }
+
         // ent->Read returns the size of the buffer but posix requires
         // we return the actual amount read 
         int bytes_read = 0;
@@ -498,11 +504,6 @@ namespace irods_s3_cacheless {
         if(0 > (retVal = ent->Write(static_cast<const char*>(_buf), offset, _len))){
             S3FS_PRN_WARN("failed to write file(%s). result=%jd", path.c_str(), (intmax_t)retVal);
         }
-        // TODO just uncommented this
-        //FdManager::get()->Close(ent);
-
-        // irods has no flush operation so have to manually flush at the end of the write
-        //flush_buffer(path, ent->GetFd());
 
         FileOffsetManager::get()->adjustOffset(irods_fd, _len);
 
@@ -662,7 +663,6 @@ namespace irods_s3_cacheless {
         irods::file_object_ptr fco = boost::dynamic_pointer_cast< irods::file_object >( _ctx.fco() );
         std::string path = fco->physical_path();
 
-        // TODO not sure why I need to do this
         // clear stat for reading fresh stat.
         // (if object stat is changed, we refresh it. then s3fs gets always
         // stat when s3fs open the object).
@@ -1013,6 +1013,45 @@ namespace irods_s3_cacheless {
                 // get the name of this resource
                 ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name );
                 if((result = ASSERT_PASS(ret, "Failed to get resource name property.")).ok() ) {
+
+                    // if we are in detached mode, set the location to current host
+                    bool attached_mode, cacheless_mode;
+                    get_modes_from_properties(_ctx.prop_map(), attached_mode, cacheless_mode);
+
+                    if (!attached_mode && _curr_host) {
+
+                        // set the hostname to the local host
+                        _ctx.prop_map().set<std::string>(irods::RESOURCE_LOCATION, *_curr_host);
+
+                        rodsServerHost_t* host = nullptr;
+                        rodsLong_t resc_id = 0;
+
+                        ret = _ctx.prop_map().get<rodsLong_t>( irods::RESOURCE_ID, resc_id );
+                        if ( !ret.ok() ) { 
+                            std::string msg("get_property in s3RedirectPlugin failed to get irods::RESOURCE _ID");
+                            return PASSMSG( msg, ret );
+                        }
+
+                        ret = irods::get_resource_property< rodsServerHost_t* >( resc_id, irods::RESOURCE_HOST, host );
+                        if ( !ret.ok() ) { 
+                            std::string msg("get_resource_property in s3RedirectPlugin for detached mode failed");
+                            return PASSMSG( msg, ret );
+                        }
+                      
+                        // pave over host->hostName->name in rodsServerHost_t 
+                        free(host->hostName->name);
+                        host->hostName->name = static_cast<char*>(malloc(strlen(_curr_host->c_str()) + 1));
+                        strcpy(host->hostName->name, _curr_host->c_str()); 
+                        host->localFlag = LOCAL_HOST;
+
+                        ret = irods::set_resource_property< rodsServerHost_t* >( resc_name, irods::RESOURCE_HOST, host );
+                        if ( !ret.ok() ) { 
+                            std::string msg("set_resource_property in s3RedirectPlugin for detached mode failed");
+                            return PASSMSG( msg, ret );
+                        }
+
+                    }
+
 
                     // =-=-=-=-=-=-=-
                     // add ourselves to the hierarchy parser by default
