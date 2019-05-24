@@ -1343,3 +1343,73 @@ OUTPUT ruleExecOut
 
             if os.path.exists(read_rule_file_path):
                 os.unlink(read_rule_file_path)
+
+
+    def test_detached_mode(self):
+
+        # in non-topology HOSTNAME_3 is just local host so it really doesn't test detached mode
+        # but in topology it will
+
+        file1 = "f1"
+        file2 = "f2"
+        #resource_host = test.settings.HOSTNAME_3 
+        resource_host = "irods.org" 
+
+        # change demoResc to use detached mode
+        s3_context_detached = "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached"
+
+        self.admin.assert_icommand("iadmin modresc demoResc context %s" % s3_context_detached , 'EMPTY')
+        self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
+
+        # create file to put 
+        lib.make_file(file1, 100)
+
+        try:
+
+            # put small file  
+            self.admin.assert_icommand("iput %s" % file1)  # iput
+
+            # get file  
+            self.admin.assert_icommand("iget %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.admin.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # local cleanup
+            self.admin.assert_icommand("irm -f " + file1, 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+
+
+    def test_attached_mode_invalid_resource_host(self):
+
+        # in non-topology HOSTNAME_3 is just local host so it really doesn't test detached mode
+        # but in topology it will
+
+        file1 = "f1"
+        #resource_host = test.settings.HOSTNAME_3 
+        resource_host = "irods.org" 
+
+        self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
+
+        # create file to put 
+        lib.make_file(file1, 100)
+
+        try:
+
+            # put small file  
+            self.admin.assert_icommand("iput %s" % file1, 'STDERR_SINGLELINE', 'USER_SOCK_CONNECT_ERR')  # iput
+
+        finally:
+
+            # local cleanup
+            hostname = lib.get_hostname()
+            self.admin.assert_icommand("iadmin modresc demoResc host %s" % hostname, 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)

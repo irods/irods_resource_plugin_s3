@@ -112,13 +112,12 @@ class PageList
 class FdEntity
 {
   private:
-	unsigned int            simultaneous_read_count;
-	bool                    background_read_in_progress;
-	std::condition_variable read_object_cv;
-	std::mutex              cv_mtx;
     pthread_mutex_t         fdent_lock;
     bool                    is_lock_init;
   public:
+	unsigned int            simultaneous_read_count;
+	std::condition_variable read_object_cv;
+	std::mutex              cv_mtx;
     PageList                pagelist;
   private:
     std::string             path;           // object path
@@ -182,21 +181,6 @@ class FdEntity
 
     bool ReserveDiskSpace(size_t size);
     void CleanupCache();
-
-	// - If this is the first read, it just returns false.  
-	// - If read is in progress, but no other thread has started a full file download, then it 
-	//   returns true. The caller of waitForRead must call signalReadDone() after the full file read
-	//   has been completed. 
-	// - If a read is in progress and another thread has started the full file download, it waits
-	//   for a condition variable indicating that the full file download has completed and then 
-	//   returns false.
-	bool waitForRead();
-
-	// Precondition:  This thread got a true response from waitForRead().  Signals others to 
-	// continue.
-	void signalReadDone();
-
-    void decrementSimultaneousReadCount(); 
 };
 typedef std::map<std::string, class FdEntity*> fdent_map_t;   // key=path, value=FdEntity*
 
