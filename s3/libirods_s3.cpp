@@ -752,7 +752,7 @@ ssize_t s3GetMPUThreads (
     return threads;
 }
 
-static bool s3GetEnableMD5 (
+bool s3GetEnableMD5 (
     irods::plugin_property_map& _prop_map )
 {
     irods::error ret;
