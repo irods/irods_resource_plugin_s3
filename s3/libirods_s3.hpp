@@ -54,6 +54,7 @@ std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
+bool s3GetEnableMD5(irods::plugin_property_map& _prop_map);
 
 typedef struct S3Auth {
     char accessKeyId[MAX_NAME_LEN];

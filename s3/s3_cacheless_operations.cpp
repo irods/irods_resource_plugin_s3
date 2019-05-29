@@ -144,6 +144,9 @@ namespace irods_s3_cacheless {
     
         // set number of simultaneous threads
         S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_prop_map));
+
+        // set the MD5 flag
+        S3fsCurl::SetContentMd5(s3GetEnableMD5(_prop_map));
     
         service_path = "";
         host = s3GetHostname(_prop_map);

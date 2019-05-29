@@ -232,7 +232,6 @@ class S3fsCurl
     static sseckeylist_t            sseckeys;
     static std::string              ssekmsid;
     static sse_type_t               ssetype;
-    static bool                     is_content_md5;
     static bool                     is_verbose;
     thread_local static std::string AWSAccessToken;
     static time_t                   AWSAccessTokenExpire;
@@ -251,6 +250,7 @@ class S3fsCurl
     static std::string              userAgent;
     static bool                     is_ua;             // User-Agent
 
+    thread_local static bool        is_content_md5;
     thread_local static std::string AWSAccessKeyId;
     thread_local static std::string AWSSecretAccessKey;
     thread_local static int         max_parallel_cnt;
