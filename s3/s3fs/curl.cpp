@@ -118,7 +118,7 @@ static string url_to_host(const std::string &url)
   } else if (url.compare(0, https.size(), https) == 0) {
     host = url.substr(https.size());
   } else {
-    assert(!"url does not begin with http:// or https://");
+	host = url;
   }
 
   size_t idx;
@@ -2050,6 +2050,7 @@ int S3fsCurl::RequestPerform(void)
 
   // 1 attempt + retries...
   for(int retrycnt = S3fsCurl::retries; 0 < retrycnt; retrycnt--){
+
     // Requests
     CURLcode curlCode = curl_easy_perform(hCurl);
 
@@ -2066,7 +2067,7 @@ int S3fsCurl::RequestPerform(void)
           return 0;
         }
         if(500 <= LastResponseCode){
-          S3FS_PRN_ERR("HTTP response code = %ld Body Text: %s", LastResponseCode, (bodydata ? bodydata->str() : ""));
+          S3FS_PRN_ERR("HTTP response code = %ld Body Text: %s Head Text: %s", LastResponseCode, (bodydata ? bodydata->str() : ""), (headdata ? headdata->str() : ""));
           sleep(4);
           break; 
         }
@@ -2074,7 +2075,7 @@ int S3fsCurl::RequestPerform(void)
         // Service response codes which are >= 400 && < 500
         switch(LastResponseCode){
           case 400:
-            S3FS_PRN_ERR("HTTP response code %ld, returning EIO. Body Text: %s", LastResponseCode, (bodydata ? bodydata->str() : ""));
+            S3FS_PRN_ERR("HTTP response code %ld, returning EIO. Body Text: [%s] Head Text: [%s]", LastResponseCode, (bodydata ? bodydata->str() : ""), (headdata ? headdata->str() : ""));
             return -EIO;
 
           case 403:
@@ -2417,7 +2418,7 @@ void S3fsCurl::insertV4Headers()
   const std::string realpath = pathrequeststyle ? "/" + bucket + server_path : server_path;
 
   //string canonical_headers, signed_headers;
-  requestHeaders = curl_slist_sort_insert(requestHeaders, "host", get_bucket_host().c_str());
+  requestHeaders = curl_slist_sort_insert(requestHeaders, "Host", get_bucket_host().c_str());
   requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-content-sha256", contentSHA256.c_str());
   requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-date", date8601.c_str());
 	
@@ -4323,10 +4324,9 @@ bool MakeUrlResource(const char* realpath, string& resourcepath, string& url)
   return true;
 }
 
-string prepare_url(const char* url)
+/*string prepare_url(const char* url)
 {
   return std::string(url);
-  //return std::string("http://" )+ std::string(url);
 
   string uri;
   string host;
@@ -4361,24 +4361,18 @@ string prepare_url(const char* url)
   S3FS_PRN_DBG("URL changed is %s", url_str.c_str());
 
   return std::string("http://" )+ url_str;
-}
+}*/
 
 
-/*string prepare_url(const char *url)
+string prepare_url(const char *url)
 {
   S3FS_PRN_DBG("URL is %s", url);
 
-  std::string url_lower = url;
-  boost::to_lower(url_lower);
+  std::string url_str = string(url);
 
-  return url_lower;
-}*/
-/*  
   string uri;
   string host;
   string path;
-  string url_str = string(url);
-  return url_str;
 
   string token = string("/") + bucket;
   int bucket_pos = url_str.find(token);
@@ -4410,7 +4404,6 @@ string prepare_url(const char* url)
 
   return url_str;
 }
-*/
 
 /*
 * Local variables:
