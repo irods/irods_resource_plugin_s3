@@ -11,6 +11,15 @@ import os
 import psutil
 import sys
 import time
+import platform
+import random
+import string
+
+try:
+   import boto3
+except ImportError:
+   print('This test requires boto3: perhaps try pip install boto3')
+   exit()
 
 if sys.version_info < (2, 7):
     import unittest2 as unittest
@@ -39,22 +48,35 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
 
         hostname = lib.get_hostname()
 
-        self.testbucket = '/justinkylejames-irods1'
+
+        # set up s3 bucket
+        s3 = boto3.resource('s3', region_name=self.s3region)
+
+        distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
+        self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
+        self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
+        self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
+        if self.s3region == 'us-east-1':
+            self.bucket = s3.create_bucket(Bucket=self.s3bucketname)
+        else:
+            self.bucket = s3.create_bucket(Bucket=self.s3bucketname,
+                                           CreateBucketConfiguration={'LocationConstraint': self.s3region})
+
         self.testresc = "TestResc"
         self.testvault = "/tmp/" + self.testresc
         self.anotherresc = "AnotherResc"
         self.anothervault = "/tmp/" + self.anotherresc
 
-        self.s3_context = "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
+        self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3signature_version)
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
-        self.admin.assert_icommand("iadmin mkresc demoResc s3 " + hostname + ":" + self.testbucket + "/tmp/demoResc " + self.s3_context, 'STDOUT_SINGLELINE', 's3')
+        self.admin.assert_icommand("iadmin mkresc demoResc s3 " + hostname + ":/" + self.s3bucketname + "/tmp/demoResc " + self.s3_context, 'STDOUT_SINGLELINE', 's3')
 
         self.admin.assert_icommand(
-            ['iadmin', "mkresc", self.testresc, 's3', hostname + ":" + self.testbucket + self.testvault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
+            ['iadmin', "mkresc", self.testresc, 's3', hostname + ":/" + self.s3bucketname + self.testvault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
         self.admin.assert_icommand(
-            ['iadmin', "mkresc", self.anotherresc, 's3', hostname + ":" + self.testbucket + self.anothervault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
+            ['iadmin', "mkresc", self.anotherresc, 's3', hostname + ":/" + self.s3bucketname + self.anothervault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
 
         with open(self.testfile, 'wt') as f:
             print('I AM A TESTFILE -- [' + self.testfile + ']', file=f, end='')
@@ -66,7 +88,6 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         print('run_resource_setup - END')
 
     def tearDown(self):
-        pass
         print("run_resource_teardown - BEGIN")
         os.unlink(self.testfile)
         self.admin.run_icommand('icd')
@@ -81,6 +102,11 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             admin_session.assert_icommand("iadmin rmresc demoResc")
             admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
             print("run_resource_teardown - END")
+
+        # delete s3 bucket
+        for obj in self.bucket.objects.all():
+            obj.delete()
+        self.bucket.delete()
 
 
 class ResourceSuite_S3_NoCache(ResourceBase):
@@ -686,11 +712,11 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         doublesize = str(os.stat(doublefile).st_size)
 
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:%s/tmp/%s/thirdrescVault %s" %
-                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")   # create third resource
+        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")   # create third resource
 
-        self.admin.assert_icommand("iadmin mkresc fourthresc s3 %s:%s/tmp/%s/fourthrescVault %s" %
-                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
+        self.admin.assert_icommand("iadmin mkresc fourthresc s3 %s:/%s/tmp/%s/fourthrescVault %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
 
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")              # should not be listed
         self.admin.assert_icommand("iput " + filename)                                         # put file
@@ -769,8 +795,8 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         hostname = lib.get_hostname()
         hostuser = getpass.getuser()
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:%s/tmp/%s/thirdrescVault %s" %
-                                   (hostname, self.testbucket, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create third resource
+        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create third resource
 
 
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
@@ -1062,8 +1088,9 @@ class ResourceSuite_S3_NoCache(ResourceBase):
             os.unlink(filepath)
 
 
+# specific test cases unique to cacheless S3
+class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
 
-class Test_S3_NoCache(ResourceSuite_S3_NoCache, unittest.TestCase):
     def test_iput_large_file_over_smaller(self):
 
         file1 = "f1"
@@ -1073,13 +1100,13 @@ class Test_S3_NoCache(ResourceSuite_S3_NoCache, unittest.TestCase):
         file1_size = pow(2,20)
         file2_size = 512*pow(2,20)
 
-        # create small and large files 
+        # create small and large files
         lib.make_file(file1, file1_size)
         lib.make_file(file2, file2_size)
 
         try:
 
-            # put small file  
+            # put small file
             self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
 
             # write over small file with big file
@@ -1114,12 +1141,12 @@ class Test_S3_NoCache(ResourceSuite_S3_NoCache, unittest.TestCase):
         file1_size = 512*pow(2,20)
         file2_size = pow(2,20)
 
-        # create small and large files 
+        # create small and large files
         lib.make_file(file1, file1_size)
         lib.make_file(file2, file2_size)
 
         try:
-            # put large file  
+            # put large file
             self.admin.assert_icommand("iput %s %s" % (file1, file2))  # iput
 
             # write over large file with small file
@@ -1157,7 +1184,7 @@ test_simultaneous_open_writes {
             msiDataObjClose(*fd, *status)
 
 
-            # multiple open simultaneously 
+            # multiple open simultaneously
             msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
             msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
             msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
@@ -1328,7 +1355,7 @@ OUTPUT ruleExecOut
             # small reads should not read entire file, make sure the read took less than three seconds
             # (should be much lower than that)
             self.assertLess(after_read_time - before_read_time, 3)
-                
+
 
         finally:
 
@@ -1352,24 +1379,24 @@ OUTPUT ruleExecOut
 
         file1 = "f1"
         file2 = "f2"
-        #resource_host = test.settings.HOSTNAME_3 
-        resource_host = "irods.org" 
+        #resource_host = test.settings.HOSTNAME_3
+        resource_host = "irods.org"
 
         # change demoResc to use detached mode
-        s3_context_detached = "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached"
+        s3_context_detached = "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1"
 
         self.admin.assert_icommand("iadmin modresc demoResc context %s" % s3_context_detached , 'EMPTY')
         self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
 
-        # create file to put 
+        # create file to put
         lib.make_file(file1, 100)
 
         try:
 
-            # put small file  
+            # put small file
             self.admin.assert_icommand("iput %s" % file1)  # iput
 
-            # get file  
+            # get file
             self.admin.assert_icommand("iget %s %s" % (file1, file2))  # iput
 
             # make sure the file that was put and got are the same
@@ -1392,17 +1419,17 @@ OUTPUT ruleExecOut
         # but in topology it will
 
         file1 = "f1"
-        #resource_host = test.settings.HOSTNAME_3 
-        resource_host = "irods.org" 
+        #resource_host = test.settings.HOSTNAME_3
+        resource_host = "irods.org"
 
         self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
 
-        # create file to put 
+        # create file to put
         lib.make_file(file1, 100)
 
         try:
 
-            # put small file  
+            # put small file
             self.admin.assert_icommand("iput %s" % file1, 'STDERR_SINGLELINE', 'USER_SOCK_CONNECT_ERR')  # iput
 
         finally:
@@ -1413,3 +1440,33 @@ OUTPUT ruleExecOut
 
             if os.path.exists(file1):
                 os.unlink(file1)
+
+
+
+class Test_S3_NoCache_V4(Test_S3_NoCache_Base, unittest.TestCase):
+
+    def __init__(self, *args, **kwargs):
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3signature_version=4
+        super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
+
+class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
+    '''
+    This also tests signature V4 with the x-amz-date header.
+    '''
+    def __init__(self, *args, **kwargs):
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='eu-central-1'
+        self.s3endPoint='s3.eu-central-1.amazonaws.com'
+        self.s3signature_version=4
+        super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
+
+class Test_S3_NoCache_V2(Test_S3_NoCache_Base, unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3signature_version=2
+        super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
