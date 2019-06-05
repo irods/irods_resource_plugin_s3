@@ -6,9 +6,7 @@ import datetime
 import filecmp
 import getpass
 import hashlib
-import itertools
 import os
-import psutil
 import sys
 import time
 import platform
@@ -27,7 +25,6 @@ else:
     import unittest
 
 from .. import test
-from . import settings
 from .. import lib
 from ..configuration import IrodsConfig
 from ..controller import IrodsController
@@ -151,7 +148,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         filename = "original.txt"
         filepath = lib.create_local_testfile(filename)
         updated_filename = "updated_file_with_longer_filename.txt"
-        updated_filepath = lib.create_local_testfile(updated_filename)
+        lib.create_local_testfile(updated_filename)
         retrievedfile = "retrievedfile.txt"
         # assertions
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
@@ -201,7 +198,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # should be listed once
 
         # local cleanup
-        output = commands.getstatusoutput('rm ' + filepath)
+        commands.getstatusoutput('rm ' + filepath)
 
     ###################
     # imv
@@ -363,7 +360,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
 
             # do the encrypted put
             filename = "encryptedfile.txt"
-            filepath = lib.create_local_testfile(filename)
+            lib.create_local_testfile(filename)
             self.admin.assert_icommand(['iinit', self.admin.password])  # reinitialize
             # small file
             self.admin.assert_icommand("iput " + filename)  # encrypted put - small file
@@ -414,9 +411,6 @@ class ResourceSuite_S3_NoCache(ResourceBase):
     def test_local_iput_overwrite(self):
         self.admin.assert_icommand_fail("iput " + self.testfile)  # fail, already exists
         self.admin.assert_icommand("iput -f " + self.testfile)  # iput again, force
-
-    def test_local_iput_recursive(self):
-        recursivedirname = "dir"
 
     def test_local_iput_lower_checksum(self):
         # local setup
@@ -709,7 +703,6 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         hostuser = getpass.getuser()
         doublefile = "doublefile.txt"
         lib.execute_command("cat %s %s > %s" % (filename, filename, doublefile), use_unsafe_shell=True)
-        doublesize = str(os.stat(doublefile).st_size)
 
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
@@ -955,7 +948,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         trashpath = "/" + self.admin.zone_name + "/trash/home/" + self.admin.username + \
             "/" + self.admin._session_id
         # loop
-        for i in range(many_times):
+        for _ in range(many_times):
             self.admin.assert_icommand("iput " + filename, "EMPTY")  # put the file
             self.admin.assert_icommand("irm " + filename, "EMPTY")  # delete the file
             self.admin.assert_icommand("ils -L " + trashpath, 'STDOUT_SINGLELINE', filename)
