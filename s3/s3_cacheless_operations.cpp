@@ -138,6 +138,8 @@ namespace irods_s3_cacheless {
             S3fsCurl::SetSignatureV4(false);
         }
     
+        nomultipart = !s3GetEnableMultiPartUpload(_prop_map);
+
         // set multipart size
         //    Note:  SetMultipartSize takes value in MB so need to convert back from bytes to MB.
         S3fsCurl::SetMultipartSize(s3GetMPUChunksize(_prop_map) / (1024ULL * 1024ULL));

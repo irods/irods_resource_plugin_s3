@@ -80,7 +80,6 @@ To encrypt during the network transport to S3, use `S3_PROTO=HTTPS` (the default
 The S3 plugin may be used in cacheless mode.  In this case the resource can be standalone and does not require an associated cache and compound resource.  This is still being actively developed and not all features that exist for cache mode have been implemented at this time.  The following have not been implemented or have not been tested at this time.
 
 * Muliple hosts in a comma separated list in S3_DEFAULT_HOSTNAME.
-* S3_ENABLE_MPU flag
 * ARCHIVE_NAMING_POLICY flag
 
 An additional flag called HOST_MODE is used to enable cacheless mode.  The default value for this is archive_attached which provides the legacy functionality.  The valid settings are as follows:
