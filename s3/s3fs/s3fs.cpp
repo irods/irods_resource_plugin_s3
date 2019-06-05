@@ -478,7 +478,7 @@ int rename_object(const char* from, const char* to)
 
   FdManager::get()->Rename(from, to);
 
-  result = s3fs_unlink(from);
+  s3fs_unlink(from);
   result = 0;
   StatCache::getStatCacheData()->DelStat(to);
 

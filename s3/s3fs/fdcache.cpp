@@ -83,8 +83,6 @@ bool CacheFileStat::MakeCacheFileStatPath(const char* path, string& sfile_path, 
   if(is_create_dir){
     int result;
     if(0 != (result = mkdirp(top_path + mydirname(path), 0777))){
-		std::string tmp = top_path + mydirname(path);
-      //S3FS_PRN_ERR("failed to create dir(%s) by errno(%d).", path, result);
       return false;
     }
   }
@@ -1894,8 +1892,6 @@ bool FdManager::MakeCachePath(const char* path, string& cache_path, bool is_crea
   if(is_create_dir){
     int result;
     if(0 != (result = mkdirp(resolved_path + mydirname(path), 0777))){
-		std::string tmp = resolved_path + mydirname(path);
-      //S3FS_PRN_ERR("failed to create dir(%s) by errno(%d).", path, result);
       return false;
     }
   }
