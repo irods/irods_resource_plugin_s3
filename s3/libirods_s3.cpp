@@ -2268,12 +2268,13 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
     s3_resource* resc = new s3_resource(_inst_name, _context);
 
     // default modes
-    bool attached_mode = true, cacheless_mode = false;
+    bool cacheless_mode = false;
 
     std::string host_mode_str;
     irods::error ret = resc->get_property(host_mode , host_mode_str); 
 
     if (ret.ok()) {
+        bool attached_mode = true;
         get_booleans_from_host_mode(host_mode_str, attached_mode, cacheless_mode);
     } 
 
