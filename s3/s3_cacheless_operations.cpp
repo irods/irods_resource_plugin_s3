@@ -408,7 +408,7 @@ namespace irods_s3_cacheless {
       
         // check real file size
         size_t realsize;
-        if(!ent->GetSize(realsize) || realsize <= 0){
+        if(!ent->GetSize(realsize) || realsize == 0){
           S3FS_PRN_DBG("file size is 0, so break to read.");
           FdManager::get()->Close(ent);
           result.code(0);
@@ -690,8 +690,8 @@ namespace irods_s3_cacheless {
           }
           _statbuf->st_blksize = 4096;
           _statbuf->st_blocks  = get_blocks(_statbuf->st_size);
+          S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", key.c_str(), (unsigned int)(_statbuf->st_uid), (unsigned int)(_statbuf->st_gid), _statbuf->st_mode);
         }
-        S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", key.c_str(), (unsigned int)(_statbuf->st_uid), (unsigned int)(_statbuf->st_gid), _statbuf->st_mode);
         S3FS_MALLOCTRIM(0);
       
         return SUCCESS();
