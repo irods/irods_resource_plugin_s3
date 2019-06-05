@@ -777,7 +777,7 @@ bool s3GetEnableMD5 (
 }
 
 
-static bool s3GetEnableMultiPartUpload (
+bool s3GetEnableMultiPartUpload (
     irods::plugin_property_map& _prop_map )
 {
     irods::error ret;
