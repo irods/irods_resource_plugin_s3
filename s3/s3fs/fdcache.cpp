@@ -138,7 +138,7 @@ bool CacheFileStat::DeleteCacheFileStatDirectory(void)
 {
   string top_path = FdManager::GetCacheDir();
 
-  if(top_path.empty() || bucket.empty()){
+  if(top_path.empty() || 0 == strlen(bucket)){
     return true;
   }
   top_path       += "/.";
@@ -1809,7 +1809,7 @@ pthread_mutex_t      FdManager::fd_manager_lock;
 pthread_mutex_t      FdManager::cache_cleanup_lock;
 pthread_mutex_t      FdManager::reserved_diskspace_lock;
 bool                 FdManager::is_lock_init(false);
-thread_local string  FdManager::cache_dir("");
+thread_local char    FdManager::cache_dir[MAX_NAME_LEN] = {0};
 bool                 FdManager::check_cache_dir_exist(false);
 size_t               FdManager::free_disk_space = 0;
 
@@ -1818,13 +1818,13 @@ size_t               FdManager::free_disk_space = 0;
 //------------------------------------------------
 bool FdManager::SetCacheDir(const std::string& dir)
 {
-  FdManager::cache_dir = dir;
+  strncpy(FdManager::cache_dir, dir.c_str(), MAX_NAME_LEN - 1);
   return true;
 }
 
 bool FdManager::DeleteCacheDirectory(void)
 {
-  if(0 == cache_dir.size()){
+  if(0 == strlen(cache_dir)){
     return true;
   }
   string cache_dir;
@@ -1841,7 +1841,7 @@ int FdManager::DeleteCacheFile(const char* path)
   if(!path){
     return -EIO;
   }
-  if(0 == cache_dir.size()){
+  if(0 == strlen(cache_dir)){
     return 0;
   }
   string cache_path = "";
@@ -1874,7 +1874,7 @@ int FdManager::DeleteCacheFile(const char* path)
 
 bool FdManager::MakeCachePath(const char* path, string& cache_path, bool is_create_dir, bool is_mirror_path)
 {
-  if(0 == cache_dir.size()){
+  if(0 == strlen(cache_dir)){
     cache_path = "";
     return true;
   }
@@ -1905,10 +1905,10 @@ bool FdManager::MakeCachePath(const char* path, string& cache_path, bool is_crea
 
 bool FdManager::CheckCacheTopDir(void)
 {
-  if(0 == cache_dir.size()){
+  if(0 == strlen(cache_dir)){
     return true;
   }
-  string toppath(cache_dir + "/" + bucket);
+  string toppath(std::string(cache_dir) + "/" + bucket);
 
   return check_exist_dir_permission(toppath.c_str());
 }
@@ -1935,17 +1935,17 @@ bool FdManager::CheckCacheDirExist(void)
   if(!FdManager::check_cache_dir_exist){
     return true;
   }
-  if(0 == cache_dir.size()){
+  if(0 == strlen(cache_dir)){
     return true;
   }
   // check the directory
   struct stat st;
-  if(0 != stat(cache_dir.c_str(), &st)){
-    S3FS_PRN_ERR("could not access to cache directory(%s) by errno(%d).", cache_dir.c_str(), errno);
+  if(0 != stat(cache_dir, &st)){
+    S3FS_PRN_ERR("could not access to cache directory(%s) by errno(%d).", cache_dir, errno);
     return false;
   }
   if(!S_ISDIR(st.st_mode)){
-    S3FS_PRN_ERR("the cache directory(%s) is not directory.", cache_dir.c_str());
+    S3FS_PRN_ERR("the cache directory(%s) is not directory.", cache_dir);
     return false;
   }
   return true;
@@ -1962,8 +1962,8 @@ uint64_t FdManager::GetFreeDiskSpace(const char* path)
 {
   struct statvfs vfsbuf;
   string         ctoppath;
-  if(0 < cache_dir.size()){
-    ctoppath = cache_dir + "/";
+  if(0 < strlen(cache_dir)){
+    ctoppath = std::string(cache_dir) + "/";
     ctoppath = get_exist_directory_path(ctoppath);	// existed directory
     if(ctoppath != "/"){
       ctoppath += "/";
@@ -2249,7 +2249,7 @@ void FdManager::CleanupCacheDirInternal(const std::string &path)
 {
   DIR*           dp;
   struct dirent* dent;
-  std::string    abs_path = cache_dir + "/" + bucket + path;
+  std::string    abs_path = std::string(cache_dir) + "/" + bucket + path;
 
   if(NULL == (dp = opendir(abs_path.c_str()))){
     S3FS_PRN_ERR("could not open cache dir(%s) - errno(%d)", abs_path.c_str(), errno);

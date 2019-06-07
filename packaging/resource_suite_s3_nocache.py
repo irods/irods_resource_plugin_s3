@@ -1373,7 +1373,7 @@ OUTPUT ruleExecOut
         file1 = "f1"
         file2 = "f2"
         #resource_host = test.settings.HOSTNAME_3
-        resource_host = "irods.org"
+        resource_host = "152.54.3.140"  # irods.org
 
         # change demoResc to use detached mode
         s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3EnableMPU, self.s3signature_version)
@@ -1413,7 +1413,7 @@ OUTPUT ruleExecOut
 
         file1 = "f1"
         #resource_host = test.settings.HOSTNAME_3
-        resource_host = "irods.org"
+        resource_host = "152.54.3.140"  # irods.org
 
         self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
 
