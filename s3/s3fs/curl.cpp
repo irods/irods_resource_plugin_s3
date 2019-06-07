@@ -59,6 +59,7 @@
 #include <boost/algorithm/string.hpp>  
 
 #include <rodsLog.h>
+#include <rodsDef.h>
 
 using namespace std;
 
@@ -134,7 +135,7 @@ static string get_bucket_host()
   /*if(!pathrequeststyle){
     return bucket + "." + url_to_host(host);
   }*/
-  return url_to_host(host);
+  return url_to_host(std::string(host));
 }
 
 // compare ETag ignoring quotes
@@ -363,9 +364,9 @@ std::string         S3fsCurl::ssekmsid            = "";
 sse_type_t          S3fsCurl::ssetype             = SSE_DISABLE;
 thread_local bool   S3fsCurl::is_content_md5      = false;
 bool                S3fsCurl::is_verbose          = false;
-thread_local string S3fsCurl::AWSAccessKeyId;
-thread_local string S3fsCurl::AWSSecretAccessKey;
-thread_local string S3fsCurl::AWSAccessToken;
+thread_local char   S3fsCurl::AWSAccessKeyId[MAX_NAME_LEN] = {0};
+thread_local char   S3fsCurl::AWSSecretAccessKey[MAX_NAME_LEN] = {0};
+thread_local char   S3fsCurl::AWSAccessToken[MAX_NAME_LEN] = {0};
 time_t              S3fsCurl::AWSAccessTokenExpire= 0;
 bool                S3fsCurl::is_ecs              = false;
 bool                S3fsCurl::is_ibm_iam_auth     = false;
@@ -1165,8 +1166,8 @@ bool S3fsCurl::SetAccessKey(const char* AccessKeyId, const char* SecretAccessKey
   if((!S3fsCurl::is_ibm_iam_auth && (!AccessKeyId || '\0' == AccessKeyId[0])) || !SecretAccessKey || '\0' == SecretAccessKey[0]){
     return false;
   }
-  AWSAccessKeyId     = AccessKeyId;
-  AWSSecretAccessKey = SecretAccessKey;
+  strncpy(AWSAccessKeyId, AccessKeyId, MAX_NAME_LEN - 1);
+  strncpy(AWSSecretAccessKey, SecretAccessKey, MAX_NAME_LEN - 1);
   return true;
 }
 
@@ -1530,13 +1531,13 @@ bool S3fsCurl::SetIAMCredentials(const char* response)
     return false;
   }
 
-  S3fsCurl::AWSAccessToken       = keyval[string(S3fsCurl::IAM_token_field)];
+  strncpy(S3fsCurl::AWSAccessToken, keyval[string(S3fsCurl::IAM_token_field)].c_str(), MAX_NAME_LEN - 1);
 
   if(S3fsCurl::is_ibm_iam_auth){
     S3fsCurl::AWSAccessTokenExpire = strtol(keyval[string(S3fsCurl::IAM_expiry_field)].c_str(), NULL, 10);
   }else{
-    S3fsCurl::AWSAccessKeyId       = keyval[string(IAMCRED_ACCESSKEYID)];
-    S3fsCurl::AWSSecretAccessKey   = keyval[string(IAMCRED_SECRETACCESSKEY)];
+    strncpy(S3fsCurl::AWSAccessKeyId, keyval[string(IAMCRED_ACCESSKEYID)].c_str(), MAX_NAME_LEN - 1);
+    strncpy(S3fsCurl::AWSSecretAccessKey, keyval[string(IAMCRED_SECRETACCESSKEY)].c_str(), MAX_NAME_LEN - 1);
     S3fsCurl::AWSAccessTokenExpire = cvtIAMExpireStringToTime(keyval[S3fsCurl::IAM_expiry_field].c_str());
   }
 
@@ -2229,7 +2230,7 @@ string S3fsCurl::CalcSignatureV2(const string& method, const string& strMD5, con
   string StringToSign;
 
   if(0 < S3fsCurl::IAM_role.size() || S3fsCurl::is_ecs){
-    requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-security-token", S3fsCurl::AWSAccessToken.c_str());
+    requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-security-token", S3fsCurl::AWSAccessToken);
   }
 
   StringToSign += method + "\n";
@@ -2239,8 +2240,10 @@ string S3fsCurl::CalcSignatureV2(const string& method, const string& strMD5, con
   StringToSign += get_canonical_headers(requestHeaders, true);
   StringToSign += resource;
 
-  const void* key            = S3fsCurl::AWSSecretAccessKey.data();
-  int key_len                = S3fsCurl::AWSSecretAccessKey.size();
+  std::string awsSecretAccessKey(S3fsCurl::AWSSecretAccessKey);
+
+  const void* key            = awsSecretAccessKey.data();
+  int key_len                = awsSecretAccessKey.size();
   const unsigned char* sdata = reinterpret_cast<const unsigned char*>(StringToSign.data());
   int sdata_len              = StringToSign.size();
   unsigned char* md          = NULL;
@@ -2267,7 +2270,7 @@ string S3fsCurl::CalcSignature(const string& method, const string& canonical_uri
   string uriencode;
 
   if(0 < S3fsCurl::IAM_role.size()  || S3fsCurl::is_ecs){
-    requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-security-token", S3fsCurl::AWSAccessToken.c_str());
+    requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-security-token", S3fsCurl::AWSAccessToken);
   }
 
   uriencode = urlEncode(canonical_uri);
@@ -2292,11 +2295,11 @@ string S3fsCurl::CalcSignature(const string& method, const string& canonical_uri
   unsigned char *kDate, *kRegion, *kService, *kSigning, *sRequest               = NULL;
   unsigned int  kDate_len,kRegion_len, kService_len, kSigning_len, sRequest_len = 0;
   char          hexsRequest[64 + 1];
-  int           kSecret_len = snprintf(kSecret, sizeof(kSecret), "AWS4%s", S3fsCurl::AWSSecretAccessKey.c_str());
+  int           kSecret_len = snprintf(kSecret, sizeof(kSecret), "AWS4%s", S3fsCurl::AWSSecretAccessKey);
   unsigned int  cnt;
 
   s3fs_HMAC256(kSecret, kSecret_len, reinterpret_cast<const unsigned char*>(strdate.data()), strdate.size(), &kDate, &kDate_len);
-  s3fs_HMAC256(kDate, kDate_len, reinterpret_cast<const unsigned char*>(endpoint.c_str()), endpoint.size(), &kRegion, &kRegion_len);
+  s3fs_HMAC256(kDate, kDate_len, reinterpret_cast<const unsigned char*>(endpoint), strlen(endpoint), &kRegion, &kRegion_len);
   s3fs_HMAC256(kRegion, kRegion_len, reinterpret_cast<const unsigned char*>("s3"), sizeof("s3") - 1, &kService, &kService_len);
   s3fs_HMAC256(kService, kService_len, reinterpret_cast<const unsigned char*>("aws4_request"), sizeof("aws4_request") - 1, &kSigning, &kSigning_len);
   free(kDate);
@@ -2416,7 +2419,7 @@ void S3fsCurl::insertV4Headers()
   get_date_sigv3(strdate, date8601);
 
   string contentSHA256 = payload_hash.empty() ? empty_payload_hash : payload_hash;
-  const std::string realpath = pathrequeststyle ? "/" + bucket + server_path : server_path;
+  const std::string realpath = pathrequeststyle ? "/" + std::string(bucket) + server_path : server_path;
 
   //string canonical_headers, signed_headers;
   requestHeaders = curl_slist_sort_insert(requestHeaders, "Host", get_bucket_host().c_str());
@@ -2425,7 +2428,7 @@ void S3fsCurl::insertV4Headers()
 	
   if(!S3fsCurl::IsPublicBucket()){
     string Signature = CalcSignature(op, realpath, query_string + (type == REQTYPE_PREMULTIPOST ? "=" : ""), strdate, contentSHA256, date8601);
-    string auth = "AWS4-HMAC-SHA256 Credential=" + AWSAccessKeyId + "/" + strdate + "/" + endpoint +
+    string auth = "AWS4-HMAC-SHA256 Credential=" + std::string(AWSAccessKeyId) + "/" + strdate + "/" + endpoint +
         "/s3/aws4_request, SignedHeaders=" + get_sorted_header_keys(requestHeaders) + ", Signature=" + Signature;
     requestHeaders = curl_slist_sort_insert(requestHeaders, "Authorization", auth.c_str());
   }
@@ -2448,17 +2451,17 @@ void S3fsCurl::insertV2Headers()
   }
   if(!S3fsCurl::IsPublicBucket()){
     string Signature = CalcSignatureV2(op, get_header_value(requestHeaders, "Content-MD5"), get_header_value(requestHeaders, "Content-Type"), date, resource);
-    requestHeaders   = curl_slist_sort_insert(requestHeaders, "Authorization", string("AWS " + AWSAccessKeyId + ":" + Signature).c_str());
+    requestHeaders   = curl_slist_sort_insert(requestHeaders, "Authorization", string("AWS " + std::string(AWSAccessKeyId) + ":" + Signature).c_str());
   }
 }
 
 void S3fsCurl::insertIBMIAMHeaders()
 {
-  requestHeaders = curl_slist_sort_insert(requestHeaders, "Authorization", ("Bearer " + S3fsCurl::AWSAccessToken).c_str());
+  requestHeaders = curl_slist_sort_insert(requestHeaders, "Authorization", ("Bearer " + std::string(S3fsCurl::AWSAccessToken)).c_str());
 
   if(op == "PUT" && path == mount_prefix + "/"){
     // ibm-service-instance-id header is required for bucket creation requests
-    requestHeaders = curl_slist_sort_insert(requestHeaders, "ibm-service-instance-id", S3fsCurl::AWSAccessKeyId.c_str());
+    requestHeaders = curl_slist_sort_insert(requestHeaders, "ibm-service-instance-id", S3fsCurl::AWSAccessKeyId);
   }
 }
 
@@ -2550,7 +2553,7 @@ int S3fsCurl::GetIAMCredentials(void)
     // make contents
     postContent += "grant_type=urn:ibm:params:oauth:grant-type:apikey";
     postContent += "&response_type=cloud_iam";
-    postContent += "&apikey=" + S3fsCurl::AWSSecretAccessKey;
+    postContent += "&apikey=" + std::string(S3fsCurl::AWSSecretAccessKey);
 
     // set postdata
     postdata             = reinterpret_cast<const unsigned char*>(postContent.c_str());
@@ -4312,7 +4315,7 @@ bool MakeUrlResource(const char* realpath, string& resourcepath, string& url)
     return false;
   }
   resourcepath = urlEncode(service_path + bucket + realpath);
-  url          = host + resourcepath;
+  url          = std::string(host) + resourcepath;
 
   // if s3_protocol_str is set to either https or http, add this to url
   // otherwise leave it alone and let curl figure it out
@@ -4388,7 +4391,7 @@ string prepare_url(const char *url)
   uri  = url_str.substr(0, uri_length);
 
   if(!pathrequeststyle){
-    host = bucket + "." + url_str.substr(uri_length, bucket_pos - uri_length).c_str();
+    host = std::string(bucket) + "." + url_str.substr(uri_length, bucket_pos - uri_length).c_str();
     path = url_str.substr((bucket_pos + bucket_length));
   }else{
     host = url_str.substr(uri_length, bucket_pos - uri_length).c_str();
@@ -4396,7 +4399,7 @@ string prepare_url(const char *url)
     if('/' != part[0]){
       part = "/" + part;
     }
-    path = "/" + bucket + part;
+    path = std::string("/") + bucket + part;
   }
 
   url_str = uri + host + path;
