@@ -151,9 +151,11 @@ namespace irods_s3_cacheless {
         S3fsCurl::SetContentMd5(s3GetEnableMD5(_prop_map));
     
         //service_path = "";
-        host = s3GetHostname(_prop_map);
+        strncpy(host, s3GetHostname(_prop_map).c_str(), MAX_NAME_LEN-1);
 
-        _prop_map.get< std::string >(s3_region_name, endpoint); // if this fails use default
+        std::string endpoint_str;
+        _prop_map.get< std::string >(s3_region_name, endpoint_str); // if this fails use default
+        strncpy(endpoint, endpoint_str.c_str(), MAX_NAME_LEN-1);
 
         return SUCCESS();
     }
@@ -229,7 +231,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
         int result;
@@ -289,7 +291,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
         // clear stat for reading fresh stat.
@@ -379,7 +381,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
         int irods_fd = fco->file_descriptor(); 
@@ -507,7 +509,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
         int irods_fd = fco->file_descriptor(); 
@@ -568,7 +570,7 @@ namespace irods_s3_cacheless {
         if(!result.ok()) {
             return PASS(result);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
         // remove entry from FileOffsetManager
@@ -619,7 +621,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
         int result;
@@ -667,7 +669,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
         int returnVal;
@@ -732,7 +734,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
         // clear stat for reading fresh stat.
@@ -856,7 +858,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
-        ::bucket = bucket;
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         from_key = "/" + from_key;
 
         std::string new_file_key;

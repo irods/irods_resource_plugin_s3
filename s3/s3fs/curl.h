@@ -28,6 +28,8 @@
 #include <curl/curl.h>
 #include "common.h"
 
+#include <rodsDef.h>
+
 //----------------------------------------------
 // Symbols
 //----------------------------------------------
@@ -233,7 +235,7 @@ class S3fsCurl
     static std::string              ssekmsid;
     static sse_type_t               ssetype;
     static bool                     is_verbose;
-    thread_local static std::string AWSAccessToken;
+    thread_local static char        AWSAccessToken[MAX_NAME_LEN];
     static time_t                   AWSAccessTokenExpire;
     static bool                     is_ecs;
     static bool                     is_ibm_iam_auth;
@@ -251,8 +253,8 @@ class S3fsCurl
     static bool                     is_ua;             // User-Agent
 
     thread_local static bool        is_content_md5;
-    thread_local static std::string AWSAccessKeyId;
-    thread_local static std::string AWSSecretAccessKey;
+    thread_local static char        AWSAccessKeyId[MAX_NAME_LEN];
+    thread_local static char        AWSSecretAccessKey[MAX_NAME_LEN];
     thread_local static int         max_parallel_cnt;
     thread_local static off_t       multipart_size;
     thread_local static bool        is_sigv4;
@@ -386,10 +388,10 @@ class S3fsCurl
     static bool GetVerbose(void) { return S3fsCurl::is_verbose; }
     static bool SetAccessKey(const char* AccessKeyId, const char* SecretAccessKey);
     static bool IsSetAccessKeyID(void){
-                  return (0 < S3fsCurl::AWSAccessKeyId.size());
+                  return (0 < strlen(S3fsCurl::AWSAccessKeyId));
                 }
     static bool IsSetAccessKeys(void){
-                  return (0 < S3fsCurl::IAM_role.size() || ((0 < S3fsCurl::AWSAccessKeyId.size() || S3fsCurl::is_ibm_iam_auth) && 0 < S3fsCurl::AWSSecretAccessKey.size()));
+                  return (0 < S3fsCurl::IAM_role.size() || ((0 < strlen(S3fsCurl::AWSAccessKeyId) || S3fsCurl::is_ibm_iam_auth) && 0 < strlen(S3fsCurl::AWSSecretAccessKey)));
                 }
     static long SetSslVerifyHostname(long value);
     static long GetSslVerifyHostname(void) { return S3fsCurl::ssl_verify_hostname; }

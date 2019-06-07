@@ -95,15 +95,14 @@ bool pathrequeststyle                           = true;
 bool complement_stat                            = false;
 std::string program_name;
 std::string service_path                        = "/";
-thread_local std::string host                   = "https://s3.amazonaws.com";
-thread_local std::string bucket                 = "";
-thread_local std::string endpoint               = "us-east-1";
+thread_local char host[MAX_NAME_LEN]            = {0}; //"https://s3.amazonaws.com";
+thread_local char bucket[MAX_NAME_LEN]          = {0};
+thread_local char endpoint[MAX_NAME_LEN]        = {0}; //"us-east-1";
 std::string cipher_suites                       = "";
 std::string instance_name                       = "";
 s3fs_log_level debug_level                      = S3FS_LOG_CRIT;
 const char*    s3fs_log_nest[S3FS_LOG_NEST_MAX] = {"", "  ", "    ", "      "};
 std::string aws_profile                         = "default";
-//thread_local std::string s3_cache_dir_str       = "";
 
 // flag to say whether we're doing http or https
 std::string s3_protocol_str                     = "";
@@ -129,8 +128,6 @@ static int max_keys_list_object   = 1000;// default is 1000
 
 static const std::string allbucket_fields_type = "";         // special key for mapping(This name is absolutely not used as a bucket name)
 static const std::string keyval_fields_type    = "\t";       // special key for mapping(This name is absolutely not used as a bucket name)
-thread_local static const std::string aws_accesskeyid       = "AWSAccessKeyId";
-thread_local static const std::string aws_secretkey         = "AWSSecretKey";
 
 //-------------------------------------------------------------------
 // Static functions : prototype
@@ -1029,13 +1026,13 @@ int s3fs_check_service(void)
       string    expectregion;
       if(check_region_error(body->str(), expectregion)){
         // not specified endpoint, so try to connect to expected region.
-        S3FS_PRN_CRIT("Could not connect wrong region %s, so retry to connect region %s.", endpoint.c_str(), expectregion.c_str());
-        endpoint = expectregion;
+        S3FS_PRN_CRIT("Could not connect wrong region %s, so retry to connect region %s.", endpoint, expectregion.c_str());
+        strncpy(endpoint, expectregion.c_str(), MAX_NAME_LEN-1);
         if(S3fsCurl::IsSignatureV4()){
-            if(host == "http://s3.amazonaws.com"){
-                host = "http://s3-" + endpoint + ".amazonaws.com";
-            }else if(host == "https://s3.amazonaws.com"){
-                host = "https://s3-" + endpoint + ".amazonaws.com";
+            if(0 == strncmp(host, "http://s3.amazonaws.com", MAX_NAME_LEN)){
+                strncpy(host, (std::string("http://s3-") + endpoint + ".amazonaws.com").c_str(), MAX_NAME_LEN - 1);
+            }else if(0 == strncmp(host, "https://s3.amazonaws.com", MAX_NAME_LEN)){
+                strncpy(host, (std::string("http://s3-") + endpoint + ".amazonaws.com").c_str(), MAX_NAME_LEN - 1);
             }
         }
 
@@ -1061,20 +1058,20 @@ int s3fs_check_service(void)
     // check errors(after retrying)
     if(0 > res && responseCode != 200 && responseCode != 301){
       if(responseCode == 400){
-        S3FS_PRN_CRIT("Bad Request(host=%s) - result of checking service.", host.c_str());
+        S3FS_PRN_CRIT("Bad Request(host=%s) - result of checking service.", host);
 
       }else if(responseCode == 403){
-        S3FS_PRN_CRIT("invalid credentials(host=%s) - result of checking service.", host.c_str());
+        S3FS_PRN_CRIT("invalid credentials(host=%s) - result of checking service.", host);
 
       }else if(responseCode == 404){
-        S3FS_PRN_CRIT("bucket not found(host=%s) - result of checking service.", host.c_str());
+        S3FS_PRN_CRIT("bucket not found(host=%s) - result of checking service.", host);
 
       }else if(responseCode == CURLE_OPERATION_TIMEDOUT){
         // unable to connect
-        S3FS_PRN_CRIT("unable to connect bucket and timeout(host=%s) - result of checking service.", host.c_str());
+        S3FS_PRN_CRIT("unable to connect bucket and timeout(host=%s) - result of checking service.", host);
       }else{
         // another error
-        S3FS_PRN_CRIT("unable to connect(host=%s) - result of checking service.", host.c_str());
+        S3FS_PRN_CRIT("unable to connect(host=%s) - result of checking service.", host);
       }
       return EXIT_FAILURE;
     }
