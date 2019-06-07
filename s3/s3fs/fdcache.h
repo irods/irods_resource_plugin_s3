@@ -198,7 +198,7 @@ class FdManager
     static pthread_mutex_t              cache_cleanup_lock;
     static pthread_mutex_t              reserved_diskspace_lock;
     static bool                         is_lock_init;
-    thread_local static std::string     cache_dir;
+    thread_local static char            cache_dir[MAX_NAME_LEN];
     static bool                         check_cache_dir_exist;
     static size_t                       free_disk_space; // limit free disk space
 
@@ -218,8 +218,8 @@ class FdManager
     static bool DeleteCacheDirectory(void);
     static int DeleteCacheFile(const char* path);
     static bool SetCacheDir(const std::string& dir);
-    static bool IsCacheDir(void) { return (0 < cache_dir.size()); }
-    static const char* GetCacheDir(void) { return cache_dir.c_str(); }
+    static bool IsCacheDir(void) { return (0 < strlen(cache_dir)); }
+    static const char* GetCacheDir(void) { return cache_dir; }
     static bool MakeCachePath(const char* path, std::string& cache_path, bool is_create_dir = true, bool is_mirror_path = false);
     static bool CheckCacheTopDir(void);
     static bool MakeRandomTempPath(const char* path, std::string& tmppath);
