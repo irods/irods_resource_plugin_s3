@@ -2498,6 +2498,106 @@ bool FileOffsetManager::getFd(int irods_fd, int& fd) {
 }
 
 
+//------------------------------------------------
+// FileOffsetManager class variable
+//------------------------------------------------
+DirectoryListStreamManager                 DirectoryListStreamManager::singleton;
+pthread_mutex_t                            DirectoryListStreamManager::directory_stream_manager_lock;
+bool                                       DirectoryListStreamManager::is_lock_init;
+std::map<std::string, DirectoryListStream> DirectoryListStreamManager::directory_list_map; 
+
+//------------------------------------------------
+// DirectoryListStreamManager methods
+//------------------------------------------------
+
+DirectoryListStreamManager::DirectoryListStreamManager()  {
+
+    if(this == get()){
+        try{
+            pthread_mutex_init(&directory_stream_manager_lock, NULL);
+            is_lock_init = true;
+        }catch(exception& e){
+            is_lock_init = false;
+            S3FS_PRN_CRIT("failed to init mutex for FileOffsetManager");
+        }
+    }else{
+        assert(false);
+    }
+}
+
+DirectoryListStreamManager::~DirectoryListStreamManager() {
+
+    if(this == get()){
+  
+        if(is_lock_init){
+            try{
+                pthread_mutex_destroy(&directory_stream_manager_lock);
+            }catch(exception& e){
+                S3FS_PRN_CRIT("failed to destroy mutex in ~FileOffsetManager");
+            }
+            is_lock_init = false;
+        }
+    }else{
+        assert(false);
+    }
+}
+
+bool DirectoryListStreamManager::key_exists(const std::string& key) {
+    AutoLock auto_lock(&directory_stream_manager_lock);
+	return directory_list_map.find( key ) != directory_list_map.end();
+}
+
+bool DirectoryListStreamManager::delete_entry(const std::string& key) {
+
+    AutoLock auto_lock(&directory_stream_manager_lock);
+
+    auto iter = directory_list_map.find(key);
+	if (iter == directory_list_map.end()) {
+		return false;
+    }
+
+	directory_list_map.erase(iter);
+	return true;
+}
+
+
+bool DirectoryListStreamManager::get_next_entry(const std::string& key, std::string& next_entry) {
+
+    AutoLock auto_lock(&directory_stream_manager_lock);
+
+    auto iter = directory_list_map.find(key);
+	if (iter == directory_list_map.end()) {
+		return false;
+    }
+
+	DirectoryListStream& dls = iter->second;
+	dls.current_index++;
+
+	if (dls.current_index >= dls.objects.size()) {
+		return false;
+	}
+
+	next_entry = dls.objects[dls.current_index];
+
+	return true;
+}
+
+void DirectoryListStreamManager::add_entry(const std::string& key, const std::string& object_name) {
+    
+    AutoLock auto_lock(&directory_stream_manager_lock);
+    auto iter = directory_list_map.find(key);
+
+	if (iter == directory_list_map.end()) {
+		DirectoryListStream dls;
+		dls.current_index = -1;   // always increment when getting next so start with -1
+		dls.objects.push_back(object_name);
+		directory_list_map[key] = dls;
+	} else {
+        DirectoryListStream& dls = iter->second;
+		dls.objects.push_back(object_name);
+	}
+}
+	
 /*
 * Local variables:
 * tab-width: 4
