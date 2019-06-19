@@ -254,6 +254,7 @@ class S3fsCurl
     thread_local static std::string AWSAccessKeyId;
     thread_local static std::string AWSSecretAccessKey;
     thread_local static int         max_parallel_cnt;
+	thread_local static int         max_multireq;
     thread_local static off_t       multipart_size;
     thread_local static bool        is_sigv4;
 
@@ -395,6 +396,8 @@ class S3fsCurl
     static long GetSslVerifyHostname(void) { return S3fsCurl::ssl_verify_hostname; }
     static int SetMaxParallelCount(int value);
     static int GetMaxParallelCount(void) { return S3fsCurl::max_parallel_cnt; }
+	static int SetMaxMultiRequest(int max);
+	static int GetMaxMultiRequest(void) { return S3fsCurl::max_multireq; }
     static bool SetIsECS(bool flag);
     static bool SetIsIBMIAMAuth(bool flag);
     static size_t SetIAMFieldCount(size_t field_count);

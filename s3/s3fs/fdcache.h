@@ -184,6 +184,7 @@ class FdEntity
 };
 typedef std::map<std::string, class FdEntity*> fdent_map_t;   // key=path, value=FdEntity*
 
+
 //------------------------------------------------
 // class FdManager
 //------------------------------------------------
@@ -265,6 +266,8 @@ class FileOffsetManager
   public:
     FileOffsetManager();
     ~FileOffsetManager();
+	FileOffsetManager(const FileOffsetManager&) = delete;
+	FileOffsetManager& operator=(const FileOffsetManager&) = delete;
 
     // Reference singleton
     static FileOffsetManager * get(void) { return &singleton; }
@@ -282,6 +285,39 @@ class FileOffsetManager
 	static bool getFd(int irods_fd, int& fd);
 	static bool adjustOffset(int irods_fd, off_t delta);
 
+};
+
+//------------------------------------------------
+// DirectoryListStream - used for iterating over 
+// a list of objects in a directory to mimic what
+// is done when calling readdir to iterate over objects.
+//------------------------------------------------
+struct DirectoryListStream {
+	size_t                   current_index;     
+	std::vector<std::string> objects;
+};
+
+class DirectoryListStreamManager
+{
+  private:
+    static DirectoryListStreamManager singleton;
+    static pthread_mutex_t            directory_stream_manager_lock;
+    static bool                       is_lock_init;
+
+	// maps directory entry to offset
+	static std::map<std::string, DirectoryListStream> directory_list_map; 
+  public:
+	static bool key_exists(const std::string& key);
+	static bool delete_entry(const std::string& key);
+	static bool get_next_entry(const std::string& key, std::string& next_entry);
+	static void add_entry(const std::string& key, const std::string& object_name);
+    DirectoryListStreamManager();
+    ~DirectoryListStreamManager();
+	DirectoryListStreamManager(const DirectoryListStreamManager&) = delete;
+	DirectoryListStreamManager& operator=(const DirectoryListStreamManager&) = delete;
+
+    // Reference singleton
+    static DirectoryListStreamManager* get(void) { return &singleton; }
 };
 
 #endif // FD_CACHE_H_

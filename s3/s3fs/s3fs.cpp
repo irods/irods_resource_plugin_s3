@@ -136,7 +136,6 @@ thread_local static const std::string aws_secretkey         = "AWSSecretKey";
 // Static functions : prototype
 //-------------------------------------------------------------------
 static FdEntity* get_local_fent(const char* path, bool is_load = false);
-static int list_bucket(const char* path, S3ObjList& head, const char* delimiter, bool check_content_only = false);
 static int directory_empty(const char* path);
 static bool is_truncated(xmlDocPtr doc);
 static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathContextPtr ctx, 
@@ -562,7 +561,7 @@ int rename_large_object(const char* from, const char* to)
   return 0; //s3fs_unlink(from);
 }
 
-static int list_bucket(const char* path, S3ObjList& head, const char* delimiter, bool check_content_only)
+int list_bucket(const char* path, S3ObjList& head, const char* delimiter, bool check_content_only)
 {
   string    s3_realpath;
   string    query_delimiter;;
@@ -1107,5 +1106,4 @@ static int s3fs_unlink(const char* path)
 
   return result;
 }
-
 
