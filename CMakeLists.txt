@@ -99,6 +99,7 @@ target_link_libraries(
   irods_common
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
+  ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so
   ${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
   ${IRODS_EXTERNALS_FULLPATH_JANSSON}/lib/libjansson.so
   ${OPENSSL_CRYPTO_LIBRARY}
