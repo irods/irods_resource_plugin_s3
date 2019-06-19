@@ -24,6 +24,7 @@
 #include <irods_string_tokenize.hpp>
 #include <irods_resource_plugin.hpp>
 #include <irods_resource_redirect.hpp>
+#include <irods_collection_object.hpp>
 #include <irods_stacktrace.hpp>
 #include <irods_random.hpp>
 #include <irods/irods_resource_backport.hpp>
@@ -33,6 +34,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
+#include <boost/filesystem/path.hpp>
 
 // =-=-=-=-=-=-=-
 // other includes
@@ -826,7 +828,84 @@ namespace irods_s3_cacheless {
     // interface for POSIX readdir
     irods::error s3FileReaddirPlugin( irods::plugin_context& _ctx,
                                       struct rodsDirent**     _dirent_ptr ) {
+
+
+        // =-=-=-=-=-=-=-
+        // check incoming parameters
+        irods::error ret = s3CheckParams( _ctx );
+        if (!ret.ok()) {
+            std::stringstream msg;
+            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
+            return PASSMSG(msg.str(), ret);
+        }
+
+        ret = set_s3_configuration_from_context(_ctx.prop_map());
+        if (!ret.ok()) {
+            return ERROR(S3_INIT_ERROR, (boost::format("init cacheless mode returned error %s") % ret.result().c_str()));
+        }
+
+        irods::collection_object_ptr fco = boost::dynamic_pointer_cast< irods::collection_object >( _ctx.fco() );
+        std::string path = fco->physical_path();
+
+        std::string bucket;
+        std::string key;
+        ret = parseS3Path(path, bucket, key);
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+        strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
+        key = "/" + key;
+
+        S3ObjList head;
+        int result;
+
+        S3FS_PRN_INFO("[path=%s]", path.c_str());
+
+        if (!(DirectoryListStreamManager::get()->key_exists(key))) {
+
+            // Do not have entries cached.  Go ahead and retrieve them
+
+            // get a list of all the objects
+            if ((result = list_bucket(key.c_str(), head, "/")) != 0) {
+              return ERROR(S3_FILE_STAT_ERR, (boost::format("list_bucket returns error(%d).") % result));
+            }
+
+            if (head.IsEmpty()) {
+                return SUCCESS();
+            }
+
+            // Send stats caching.
+            std::string strpath = path;
+            if (strcmp(path.c_str(), "/") != 0) {
+                strpath += "/";
+            }
+
+            s3obj_list_t objects;
+            head.GetNameList(objects);
+
+            for (auto& object : objects) {
+                DirectoryListStreamManager::get()->add_entry(key, object);
+            }
+        }
+
+
+        std::string next_entry;
+        if (DirectoryListStreamManager::get()->get_next_entry(key, next_entry)) {
+
+           std::string object_key = key + "/" + next_entry;
+           struct stat st;
+           headers_t meta;
+           if (0 != (result = get_object_attribute(object_key.c_str(), &st, &meta, true, NULL, true))) {
+               return ERROR(S3_FILE_STAT_ERR, (boost::format("get_object_attribute on %s returns error(%d).") % object_key.c_str() % result));
+           }
+           *_dirent_ptr = ( rodsDirent_t* ) malloc( sizeof( rodsDirent_t ) );
+           boost::filesystem::path p(object_key.c_str());
+           strcpy((*_dirent_ptr)->d_name, p.filename().string().c_str()); 
+
+        }
+
         return SUCCESS();
+
     } // s3FileReaddirPlugin
 
     // =-=-=-=-=-=-=-

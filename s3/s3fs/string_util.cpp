@@ -384,6 +384,7 @@ unsigned char* s3fs_decode64(const char* input, size_t* plength)
   return result;
 }
 
+
 /*
 * Local variables:
 * tab-width: 4

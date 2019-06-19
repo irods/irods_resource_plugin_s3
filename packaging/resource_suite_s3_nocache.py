@@ -45,6 +45,8 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
 
         hostname = lib.get_hostname()
 
+        # set up aws configuration
+        self.set_up_aws_config_dir()
 
         # set up s3 bucket
         s3 = boto3.resource('s3', region_name=self.s3region)
@@ -105,6 +107,30 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             obj.delete()
         self.bucket.delete()
 
+    def set_up_aws_config_dir(self):
+        # read access keys from keypair file
+        with open(self.keypairfile) as f:
+            aws_access_key_id = f.readline().rstrip()
+            aws_secret_access_key = f.readline().rstrip()
+
+        # make config dir
+        aws_cfg_dir_path = os.path.join(os.path.expanduser('~'), '.aws')
+        try:
+            os.makedirs(aws_cfg_dir_path)
+        except OSError:
+            if not os.path.isdir(aws_cfg_dir_path):
+                raise
+
+        # make config file
+        with open(os.path.join(aws_cfg_dir_path, 'config'), 'w') as cfg_file:
+            cfg_file.write('[default]\n')
+            cfg_file.write('region=' + self.s3region + '\n')
+
+        # make credentials file
+        with open(os.path.join(aws_cfg_dir_path, 'credentials'), 'w') as cred_file:
+            cred_file.write('[default]\n')
+            cred_file.write('aws_access_key_id = ' + aws_access_key_id + '\n')
+            cred_file.write('aws_secret_access_key = ' + aws_secret_access_key + '\n')
 
 class ResourceSuite_S3_NoCache(ResourceBase):
 
@@ -1434,3 +1460,21 @@ OUTPUT ruleExecOut
             if os.path.exists(file1):
                 os.unlink(file1)
 
+
+    def recursive_register_from_s3_bucket(self):
+
+        # create some files on s3
+        client = boto3.client('s3')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/f1')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/f2')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/f3')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir1/f1')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir1/f2')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir1/f3')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir2/f1')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir2/f2')
+        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir2/f3')
+
+        self.admin.assert_icommand("ireg -C /%s/basedir %s/basedir" % (self.s3bucketname, self.admin.session_collection))
+        file_count = self.admin.run_icommand('''iquest "%s" "SELECT count(DATA_ID) where COLL_NAME like '%/basedir%'"''')[0]
+        self.assertEquals(file_count, u'9\n')

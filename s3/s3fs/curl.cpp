@@ -1707,7 +1707,7 @@ bool S3fsCurl::ResetHandle(void)
     curl_easy_setopt(hCurl, CURLOPT_SSL_VERIFYPEER, false);
   }
   if(S3fsCurl::is_verbose){
-    curl_easy_setopt(hCurl, CURLOPT_VERBOSE, true);
+    //curl_easy_setopt(hCurl, CURLOPT_VERBOSE, true);
     if(!foreground){
       curl_easy_setopt(hCurl, CURLOPT_DEBUGFUNCTION, S3fsCurl::CurlDebugFunc);
     }
@@ -1950,6 +1950,7 @@ bool S3fsCurl::RemakeHandle(void)
       curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, (void*)bodydata);
       curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
       curl_easy_setopt(hCurl, CURLOPT_HTTPHEADER, requestHeaders);
+	  //curl_easy_setopt(hCurl, CURLOPT_VERBOSE, 1);
       break;
 
     case REQTYPE_PREMULTIPOST:
@@ -2448,7 +2449,6 @@ void S3fsCurl::insertV2Headers()
   if(op != "PUT" && op != "POST"){
       requestHeaders = curl_slist_sort_insert(requestHeaders, "Content-Type", NULL);
   }
-
   if(!S3fsCurl::IsPublicBucket()){
     string Signature = CalcSignatureV2(op, get_header_value(requestHeaders, "Content-MD5"), get_header_value(requestHeaders, "Content-Type"), date, resource);
     requestHeaders   = curl_slist_sort_insert(requestHeaders, "Authorization", string("AWS " + std::string(AWSAccessKeyId) + ":" + Signature).c_str());
@@ -3152,6 +3152,7 @@ int S3fsCurl::ListBucketRequest(const char* tpath, const char* query)
   curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, (void*)bodydata);
   curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
   curl_easy_setopt(hCurl, CURLOPT_HTTPHEADER, requestHeaders);
+  //curl_easy_setopt(hCurl, CURLOPT_VERBOSE, 1);
   S3fsCurl::AddUserAgent(hCurl);        // put User-Agent
 
   return RequestPerform();
