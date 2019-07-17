@@ -12,11 +12,12 @@ import time
 import platform
 import random
 import string
+import io
 
 try:
-   import boto3
+   from minio import Minio
 except ImportError:
-   print('This test requires boto3: perhaps try pip install boto3')
+   print('This test requires minio: perhaps try pip install minio')
    exit()
 
 if sys.version_info < (2, 7):
@@ -45,21 +46,17 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
 
         hostname = lib.get_hostname()
 
-        # set up aws configuration
-        self.set_up_aws_config_dir()
+        # read aws keys
+        self.read_aws_keys()
 
         # set up s3 bucket
-        s3 = boto3.resource('s3', region_name=self.s3region)
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
 
         distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
         self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
         self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
-        if self.s3region == 'us-east-1':
-            self.bucket = s3.create_bucket(Bucket=self.s3bucketname)
-        else:
-            self.bucket = s3.create_bucket(Bucket=self.s3bucketname,
-                                           CreateBucketConfiguration={'LocationConstraint': self.s3region})
+        s3_client.make_bucket(self.s3bucketname, location=self.s3region)
 
         self.testresc = "TestResc"
         self.testvault = "/tmp/" + self.testresc
@@ -103,9 +100,16 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             print("run_resource_teardown - END")
 
         # delete s3 bucket
-        for obj in self.bucket.objects.all():
-            obj.delete()
-        self.bucket.delete()
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
+        s3_client.remove_objects(self.s3bucketname, objects)
+        s3_client.remove_bucket(self.s3bucketname)
+
+    def read_aws_keys(self):
+        # read access keys from keypair file
+        with open(self.keypairfile) as f:
+            self.aws_access_key_id = f.readline().rstrip()
+            self.aws_secret_access_key = f.readline().rstrip()
 
     def set_up_aws_config_dir(self):
         # read access keys from keypair file
@@ -1399,7 +1403,7 @@ OUTPUT ruleExecOut
         file1 = "f1"
         file2 = "f2"
         #resource_host = test.settings.HOSTNAME_3
-        resource_host = "152.54.3.140"  # irods.org
+        resource_host = "irods.org"
 
         # change demoResc to use detached mode
         s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3EnableMPU, self.s3signature_version)
@@ -1439,7 +1443,7 @@ OUTPUT ruleExecOut
 
         file1 = "f1"
         #resource_host = test.settings.HOSTNAME_3
-        resource_host = "152.54.3.140"  # irods.org
+        resource_host = "irods.org"
 
         self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
 
@@ -1464,16 +1468,28 @@ OUTPUT ruleExecOut
     def recursive_register_from_s3_bucket(self):
 
         # create some files on s3
-        client = boto3.client('s3')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/f1')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/f2')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/f3')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir1/f1')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir1/f2')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir1/f3')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir2/f1')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir2/f2')
-        client.put_object(Body='random test data', Bucket=self.s3bucketname, Key='basedir/subdir2/f3')
+        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        file_contents = b'random test data'
+        f = io.BytesIO(file_contents)
+        size = len(file_contents)
+
+        s3_client.put_object(self.s3bucketname, 'basedir/f1', f, size)
+        f.seek(0)
+        s3_client.put_object(self.s3bucketname, 'basedir/f2', f, size)
+        f.seek(0)
+        s3_client.put_object(self.s3bucketname, 'basedir/f3', f, size)
+        f.seek(0)
+        s3_client.put_object(self.s3bucketname, 'basedir/subdir1/f1', f, size)
+        f.seek(0)
+        s3_client.put_object(self.s3bucketname, 'basedir/subdir1/f2', f, size)
+        f.seek(0)
+        s3_client.put_object(self.s3bucketname, 'basedir/subdir1/f3', f, size)
+        f.seek(0)
+        s3_client.put_object(self.s3bucketname, 'basedir/subdir2/f1', f, size)
+        f.seek(0)
+        s3_client.put_object(self.s3bucketname, 'basedir/subdir2/f2', f, size)
+        f.seek(0)
+        s3_client.put_object(self.s3bucketname, 'basedir/subdir2/f3', f, size)
 
         self.admin.assert_icommand("ireg -C /%s/basedir %s/basedir" % (self.s3bucketname, self.admin.session_collection))
         file_count = self.admin.run_icommand('''iquest "%s" "SELECT count(DATA_ID) where COLL_NAME like '%/basedir%'"''')[0]
