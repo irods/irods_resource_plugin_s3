@@ -1,7 +1,7 @@
 try:
-   import boto3
+   from minio import Minio
 except ImportError:
-   print('This test requires boto3: perhaps try pip install boto3')
+   print('This test requires minio: perhaps try pip install minio')
    exit()
 
 from botocore.client import Config
@@ -103,9 +103,12 @@ class Test_Compound_With_S3_GCS_Resource(resource_suite.ResourceSuite, ChunkyDev
         super(Test_Compound_With_S3_GCS_Resource, self).tearDown()
 
         # delete s3 bucket
-        for obj in self.bucket.objects.all():
-            obj.delete()
-        self.bucket.delete()
+        try:
+            for obj in self.bucket.objects.all():
+                obj.delete()
+            self.bucket.delete()
+        except client.exceptions.NoSuchBucket:
+            pass
 
         # tear down resources
         with session.make_session_for_existing_admin() as admin_session:
@@ -118,30 +121,11 @@ class Test_Compound_With_S3_GCS_Resource(resource_suite.ResourceSuite, ChunkyDev
 
         shutil.rmtree(IrodsConfig().irods_directory + "/cacheRescVault", ignore_errors=True)
 
-    def set_up_aws_config_dir(self):
+    def read_aws_keys(self):
         # read access keys from keypair file
         with open(self.keypairfile) as f:
-            aws_access_key_id = f.readline().rstrip()
-            aws_secret_access_key = f.readline().rstrip()
-
-        # make config dir
-        aws_cfg_dir_path = os.path.join(os.path.expanduser('~'), '.aws')
-        try:
-            os.makedirs(aws_cfg_dir_path)
-        except OSError:
-            if not os.path.isdir(aws_cfg_dir_path):
-                raise
-
-        # make config file
-        with open(os.path.join(aws_cfg_dir_path, 'config'), 'w') as cfg_file:
-            cfg_file.write('[default]\n')
-            cfg_file.write('region=' + self.s3region + '\n')
-
-        # make credentials file
-        with open(os.path.join(aws_cfg_dir_path, 'credentials'), 'w') as cred_file:
-            cred_file.write('[default]\n')
-            cred_file.write('aws_access_key_id = ' + aws_access_key_id + '\n')
-            cred_file.write('aws_secret_access_key = ' + aws_secret_access_key + '\n')
+            self.aws_access_key_id = f.readline().rstrip()
+            self.aws_secret_access_key = f.readline().rstrip()
 
     def test_irm_specific_replica(self):
         self.admin.assert_icommand("ils -L "+self.testfile,'STDOUT_SINGLELINE',self.testfile) # should be listed

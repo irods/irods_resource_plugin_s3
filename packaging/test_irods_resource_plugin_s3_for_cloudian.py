@@ -1,7 +1,7 @@
 try:
-   import boto3
+   from minio import Minio
 except ImportError:
-   print('This test requires boto3: perhaps try pip install boto3')
+   print('This test requires minio: perhaps try pip install minio')
    exit()
 
 import commands
@@ -44,21 +44,16 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
            self.skipTest("skipping ssl tests on ubuntu 12")
 
         # set up aws configuration
-        self.set_up_aws_config_dir()
+        self.read_aws_keys()
 
         # set up s3 bucket
         #s3 = boto3.resource('s3', region_name=self.s3region)
-	s3_session = boto3.session.Session()
-	s3 = s3_session.resource(service_name='s3',endpoint_url='http://'+self.s3endPoint)
-        
+        s3_client = Minio('http://' + self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
         self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
         self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
-        if self.s3region == 'us-east-1':
-            self.bucket = s3.create_bucket(Bucket=self.s3bucketname)
-        else:
-            self.bucket = s3.create_bucket(Bucket=self.s3bucketname,
-                                           CreateBucketConfiguration={'LocationConstraint': self.s3region})
+        s3_client.make_bucket(self.s3bucketname, location=self.s3region)
 
         # set up resources
         hostname = lib.get_hostname()
@@ -93,9 +88,10 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         print(self.bucket)
 
         # delete s3 bucket
-        for obj in self.bucket.objects.all():
-            obj.delete()
-        self.bucket.delete()
+        s3_client = Minio('http://' + self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
+        s3_client.remove_objects(self.s3bucketname, objects)
+        s3_client.remove_bucket(self.s3bucketname)
 
         # tear down resources
         with session.make_session_for_existing_admin() as admin_session:
@@ -108,30 +104,11 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
         shutil.rmtree(IrodsConfig().irods_directory + "/cacheRescVault", ignore_errors=True)
 
-    def set_up_aws_config_dir(self):
+    def read_aws_keys(self):
         # read access keys from keypair file
         with open(self.keypairfile) as f:
-            aws_access_key_id = f.readline().rstrip()
-            aws_secret_access_key = f.readline().rstrip()
-
-        # make config dir
-        aws_cfg_dir_path = os.path.join(os.path.expanduser('~'), '.aws')
-        try:
-            os.makedirs(aws_cfg_dir_path)
-        except OSError:
-            if not os.path.isdir(aws_cfg_dir_path):
-                raise
-
-        # make config file
-        with open(os.path.join(aws_cfg_dir_path, 'config'), 'w') as cfg_file:
-            cfg_file.write('[default]\n')
-            cfg_file.write('region=' + self.s3region + '\n')
-
-        # make credentials file
-        with open(os.path.join(aws_cfg_dir_path, 'credentials'), 'w') as cred_file:
-            cred_file.write('[default]\n')
-            cred_file.write('aws_access_key_id = ' + aws_access_key_id + '\n')
-            cred_file.write('aws_secret_access_key = ' + aws_secret_access_key + '\n')
+            self.aws_access_key_id = f.readline().rstrip()
+            self.aws_secret_access_key = f.readline().rstrip()
 
     def test_irm_specific_replica(self):
         self.admin.assert_icommand("ils -L "+self.testfile,'STDOUT_SINGLELINE',self.testfile) # should be listed
