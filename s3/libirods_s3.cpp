@@ -2507,6 +2507,11 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
             irods::RESOURCE_OP_REBALANCE,
             std::function<irods::error(irods::plugin_context&)>(
                 irods_s3_archive::s3FileRebalance ) );
+
+        resc->add_operation<const std::string*>(
+            irods::RESOURCE_OP_NOTIFY,
+            std::function<irods::error(irods::plugin_context&, const std::string*)>(
+                irods_s3_archive::s3FileNotifyPlugin ) ); 
     } 
 
     // set some properties necessary for backporting to iRODS legacy code
