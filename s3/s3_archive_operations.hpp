@@ -120,6 +120,8 @@ namespace irods_s3_archive {
     // code which would rebalance the resource, S3 does not rebalance.
     irods::error s3FileRebalance( irods::plugin_context& _ctx ); 
 
+    irods::error s3FileNotifyPlugin( irods::plugin_context& _ctx, const std::string* str );
+
 }
 
 #endif
