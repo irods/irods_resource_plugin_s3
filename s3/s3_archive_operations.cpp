@@ -630,4 +630,10 @@ namespace irods_s3_archive {
 
     } // s3FileRebalance
 
+    irods::error s3FileNotifyPlugin( irods::plugin_context& _ctx, 
+        const std::string* str ) {
+        return SUCCESS();
+    } // s3FileNotifyPlugin
+
+
 }
