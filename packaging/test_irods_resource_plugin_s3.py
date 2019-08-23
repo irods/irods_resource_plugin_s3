@@ -13,6 +13,7 @@ import re
 import shutil
 import string
 import subprocess
+import urllib3
 
 from resource_suite_s3_nocache import Test_S3_NoCache_Base
 
@@ -51,7 +52,23 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         self.read_aws_keys()
 
         # set up s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        try:
+            httpClient = urllib3.poolmanager.ProxyManager(
+                os.environ['http_proxy'],
+                timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
+                cert_reqs='CERT_REQUIRED',
+                retries=urllib3.Retry(
+                    total=5,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+        except KeyError:
+            httpClient = None
+        s3_client = Minio(self.s3endPoint,
+                          access_key=self.aws_access_key_id,
+                          secret_key=self.aws_secret_access_key,
+                          http_client=httpClient)
 
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
         self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
@@ -89,7 +106,24 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         super(Test_Compound_With_S3_Resource, self).tearDown()
 
         # delete s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        try:
+            httpClient = urllib3.poolmanager.ProxyManager(
+                os.environ['http_proxy'],
+                timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
+                cert_reqs='CERT_REQUIRED',
+                retries=urllib3.Retry(
+                    total=5,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+        except KeyError:
+            httpClient = None
+        s3_client = Minio(self.s3endPoint,
+                          access_key=self.aws_access_key_id,
+                          secret_key=self.aws_secret_access_key,
+                          http_client=httpClient)
+
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
         s3_client.remove_objects(self.s3bucketname, objects)
         s3_client.remove_bucket(self.s3bucketname)
