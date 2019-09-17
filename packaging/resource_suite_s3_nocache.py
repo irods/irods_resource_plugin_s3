@@ -1258,6 +1258,40 @@ OUTPUT ruleExecOut
                 os.unlink(rule_file_path)
 
 
+    def test_read_write_zero_length_file_issue_1890(self):
+
+        rule_file_path = 'test_issue_1890.r'
+
+        rule_str = '''
+test_open_write_close {
+    msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+    msiDataObjClose(*fd, *status)
+    msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_RDWR", *fd1)
+    msiDataObjRead(*fd1, 10, *buf)
+    msiDataObjLseek(*fd1, 0, "SEEK_SET", *status)
+    msiDataObjWrite(*fd1, "XXXXXXXXXX", *len)
+    msiDataObjLseek(*fd1, 5, "SEEK_SET", *status)
+    msiDataObjWrite(*fd1, "YYYY", *len)
+    msiDataObjClose(*fd1, *status)
+
+}
+INPUT null
+OUTPUT ruleExecOut
+
+        '''
+
+        try:
+            with open(rule_file_path, 'w') as rule_file:
+                rule_file.write(rule_str)
+
+            self.admin.assert_icommand("irule -F %s" % rule_file_path)
+            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'XXXXXYYYYX')
+        finally:
+            # local cleanup
+            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            if os.path.exists(rule_file_path):
+                os.unlink(rule_file_path)
+
     def test_seek_end(self):
 
         rule_file_path = 'test_seek_end.r'
