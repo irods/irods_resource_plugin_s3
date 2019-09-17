@@ -181,7 +181,6 @@ namespace irods_s3_cacheless {
         if (NULL != (ent = FdManager::get()->ExistOpen(path.c_str(), fh))) {
             //ent->UpdateMtime();
             ent->Flush(false);
-            //FdManager::get()->Close(ent);
         }
         S3FS_MALLOCTRIM(0);
         return;
@@ -414,7 +413,6 @@ namespace irods_s3_cacheless {
         size_t realsize;
         if(!ent->GetSize(realsize) || realsize == 0){
           S3FS_PRN_DBG("file size is 0, so break to read.");
-          FdManager::get()->Close(ent);
           result.code(0);
           return result;
         }
@@ -690,7 +688,6 @@ namespace irods_s3_cacheless {
             if(ent->GetStats(tmpstbuf)){
               _statbuf->st_size = tmpstbuf.st_size;
             }
-            //FdManager::get()->Close(ent);
           }
           _statbuf->st_blksize = 4096;
           _statbuf->st_blocks  = get_blocks(_statbuf->st_size);
