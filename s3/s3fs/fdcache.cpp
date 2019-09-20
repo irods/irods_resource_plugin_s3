@@ -1964,7 +1964,7 @@ uint64_t FdManager::GetFreeDiskSpace(const char* path)
   string         ctoppath;
   if(0 < strlen(cache_dir)){
     ctoppath = std::string(cache_dir) + "/";
-    ctoppath = get_exist_directory_path(ctoppath);	// existed directory
+    ctoppath = get_exist_directory_path(ctoppath);    // existed directory
     if(ctoppath != "/"){
       ctoppath += "/";
     }
