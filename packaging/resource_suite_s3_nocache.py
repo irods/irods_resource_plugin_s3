@@ -1199,18 +1199,19 @@ class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
     def test_simultaneous_open_writes(self):
 
         rule_file_path = 'test_simultaneous_open_writes.r'
+        target_obj = '/'.join([self.user0.session_collection, 'file1.txt'])
 
         rule_str = '''
-test_simultaneous_open_writes {
-            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+test_simultaneous_open_writes {{
+            msiDataObjCreate("{target_obj}", "destRescName=demoResc", *fd)
             msiDataObjWrite(*fd, "abcd", *len)
             msiDataObjClose(*fd, *status)
 
 
             # multiple open simultaneously
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
 
             msiDataObjLseek(*fd1, 4, "SEEK_SET", *status)
             msiDataObjLseek(*fd2, 14, "SEEK_SET", *status)
@@ -1225,35 +1226,35 @@ test_simultaneous_open_writes {
             msiDataObjClose(*fd3, *status)
 
             # open write close consecutively
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
             msiDataObjLseek(*fd1, 34, "SEEK_SET", *status)
             msiDataObjWrite(*fd1, "XXXXXXXXXX", *len)
             msiDataObjClose(*fd1, *status)
 
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd2)
             msiDataObjLseek(*fd2, 44, "SEEK_SET", *status)
             msiDataObjWrite(*fd2, "YYYYYYYYYY", *len)
             msiDataObjClose(*fd2, *status)
 
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd3)
             msiDataObjLseek(*fd3, 54, "SEEK_SET", *status)
             msiDataObjWrite(*fd3, "ZZZZZZZZZZ", *len)
             msiDataObjClose(*fd3, *status)
-        }
+        }}
 INPUT null
 OUTPUT ruleExecOut
 
-        '''
+        '''.format(**locals())
 
         try:
             with open(rule_file_path, 'w') as rule_file:
                 rule_file.write(rule_str)
 
-            self.admin.assert_icommand("irule -F %s" % rule_file_path)
-            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdAAAAAAAAAABBBBBBBBBBCCCCCCCCCCXXXXXXXXXXYYYYYYYYYYZZZZZZZZZZ')
+            self.user0.assert_icommand("irule -F %s" % rule_file_path)
+            self.user0.assert_icommand("iget {target_obj} -".format(**locals()), 'STDOUT_SINGLELINE', 'abcdAAAAAAAAAABBBBBBBBBBCCCCCCCCCCXXXXXXXXXXYYYYYYYYYYZZZZZZZZZZ')
         finally:
             # local cleanup
-            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
             if os.path.exists(rule_file_path):
                 os.unlink(rule_file_path)
 
@@ -1261,12 +1262,13 @@ OUTPUT ruleExecOut
     def test_read_write_zero_length_file_issue_1890(self):
 
         rule_file_path = 'test_issue_1890.r'
+        target_obj = '/'.join([self.user0.session_collection, 'file1.txt'])
 
         rule_str = '''
-test_open_write_close {
-    msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+test_open_write_close {{
+    msiDataObjCreate("{target_obj}", "destRescName=demoResc", *fd)
     msiDataObjClose(*fd, *status)
-    msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_RDWR", *fd1)
+    msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_RDWR", *fd1)
     msiDataObjRead(*fd1, 10, *buf)
     msiDataObjLseek(*fd1, 0, "SEEK_SET", *status)
     msiDataObjWrite(*fd1, "XXXXXXXXXX", *len)
@@ -1274,53 +1276,54 @@ test_open_write_close {
     msiDataObjWrite(*fd1, "YYYY", *len)
     msiDataObjClose(*fd1, *status)
 
-}
+}}
 INPUT null
 OUTPUT ruleExecOut
 
-        '''
+        '''.format(**locals())
 
         try:
             with open(rule_file_path, 'w') as rule_file:
                 rule_file.write(rule_str)
 
-            self.admin.assert_icommand("irule -F %s" % rule_file_path)
-            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'XXXXXYYYYX')
+            self.user0.assert_icommand("irule -F %s" % rule_file_path)
+            self.user0.assert_icommand("iget {target_obj} -".format(**locals()), 'STDOUT_SINGLELINE', 'XXXXXYYYYX')
         finally:
             # local cleanup
-            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
             if os.path.exists(rule_file_path):
                 os.unlink(rule_file_path)
 
     def test_seek_end(self):
 
         rule_file_path = 'test_seek_end.r'
+        target_obj = '/'.join([self.user0.session_collection, 'file1.txt'])
 
         rule_str = '''
-test_seek_end {
-            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+test_seek_end {{
+            msiDataObjCreate("{target_obj}", "destRescName=demoResc", *fd)
             msiDataObjWrite(*fd, "abcdefg", *len)
             msiDataObjClose(*fd, *status)
 
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
             msiDataObjLseek(*fd1, 0, "SEEK_END", *status)
             msiDataObjWrite(*fd1, "hijk", *len)
             msiDataObjClose(*fd1, *status)
-        }
+        }}
 INPUT null
 OUTPUT ruleExecOut
 
-        '''
+        '''.format(**locals())
 
         try:
             with open(rule_file_path, 'w') as rule_file:
                 rule_file.write(rule_str)
 
-            self.admin.assert_icommand("irule -F %s" % rule_file_path)
-            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdefghijk')
+            self.user0.assert_icommand("irule -F %s" % rule_file_path)
+            self.user0.assert_icommand("iget {target_obj} -".format(**locals()), 'STDOUT_SINGLELINE', 'abcdefghijk')
         finally:
             # local cleanup
-            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
             if os.path.exists(rule_file_path):
                 os.unlink(rule_file_path)
 
@@ -1328,63 +1331,65 @@ OUTPUT ruleExecOut
     def test_seek_cur(self):
 
         rule_file_path = 'test_seek_cur.r'
+        target_obj = '/'.join([self.user0.session_collection, 'file1.txt'])
 
         rule_str = '''
-test_seek_end {
-            msiDataObjCreate("/tempZone/home/otherrods/file1.txt", "destRescName=demoResc", *fd)
+test_seek_end {{
+            msiDataObjCreate("{target_obj}", "destRescName=demoResc", *fd)
             msiDataObjWrite(*fd, "abcdefg", *len)
             msiDataObjClose(*fd, *status)
 
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/file1.txt++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
             msiDataObjLseek(*fd1, 2, "SEEK_SET", *status)
             msiDataObjLseek(*fd1, 2, "SEEK_CUR", *status)
             msiDataObjWrite(*fd1, "hijk", *len)
             msiDataObjClose(*fd1, *status)
-        }
+        }}
 INPUT null
 OUTPUT ruleExecOut
 
-        '''
+        '''.format(**locals())
 
         try:
             with open(rule_file_path, 'w') as rule_file:
                 rule_file.write(rule_str)
 
-            self.admin.assert_icommand("irule -F %s" % rule_file_path)
-            self.admin.assert_icommand("iget /tempZone/home/otherrods/file1.txt -", 'STDOUT_SINGLELINE', 'abcdhijk')
+            self.user0.assert_icommand("irule -F %s" % rule_file_path)
+            self.user0.assert_icommand("iget {target_obj} -".format(**locals()), 'STDOUT_SINGLELINE', 'abcdhijk')
         finally:
             # local cleanup
-            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/file1.txt")
+            self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
             if os.path.exists(rule_file_path):
                 os.unlink(rule_file_path)
 
 
     def test_small_write_read_in_large_file(self):
 
+        target_obj = '/'.join([self.user0.session_collection, 'f1'])
         rule_str_write = '''
-test_small_write {
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/f1++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+test_small_write {{
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
             msiDataObjLseek(*fd1, 1024000, "SEEK_SET", *status)
             msiDataObjWrite(*fd1, "abcdef", *len)
             msiDataObjClose(*fd1, *status)
-        }
+        }}
 INPUT null
 OUTPUT ruleExecOut
 
-        '''
+        '''.format(**locals())
 
 
         rule_str_read = '''
-test_small_read {
-            msiDataObjOpen("objPath=/tempZone/home/otherrods/f1++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+test_small_read {{
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
             msiDataObjLseek(*fd1, 1024000, "SEEK_SET", *status)
             msiDataObjRead(*fd1, 6, *buf)
             msiDataObjClose(*fd1, *status)
             writeLine("stdout", "buf=*buf")
-        }
+        }}
 INPUT null
 OUTPUT ruleExecOut
-        '''
+        '''.format(**locals())
 
         file1 = 'f1'
         write_rule_file_path = 'test_small_write.r'
@@ -1395,7 +1400,7 @@ OUTPUT ruleExecOut
 
             # create and put large file
             lib.make_file(file1, file1_size)
-            self.admin.assert_icommand("iput %s /tempZone/home/otherrods/%s" % (file1, file1))  # iput
+            self.user0.assert_icommand("iput {file1} {target_obj}".format(**locals()))  # iput
 
             with open(write_rule_file_path, 'w') as rule_file:
                 rule_file.write(rule_str_write)
@@ -1403,10 +1408,10 @@ OUTPUT ruleExecOut
             with open(read_rule_file_path, 'w') as rule_file:
                 rule_file.write(rule_str_read)
 
-            self.admin.assert_icommand("irule -F %s" % write_rule_file_path)
+            self.user0.assert_icommand("irule -F %s" % write_rule_file_path)
 
             before_read_time = time.time()
-            self.admin.assert_icommand("irule -F %s" % read_rule_file_path, 'STDOUT_SINGLELINE', 'buf=abcdef')
+            self.user0.assert_icommand("irule -F %s" % read_rule_file_path, 'STDOUT_SINGLELINE', 'buf=abcdef')
             after_read_time = time.time()
 
             # small reads should not read entire file, make sure the read took less than three seconds
@@ -1417,7 +1422,7 @@ OUTPUT ruleExecOut
         finally:
 
             # local cleanup
-            self.admin.assert_icommand("irm -f /tempZone/home/otherrods/%s" % file1, 'EMPTY')
+            self.user0.assert_icommand("irm -f {target_obj}".format(**locals()), 'EMPTY')
 
             if os.path.exists(file1):
                 os.unlink(file1)
