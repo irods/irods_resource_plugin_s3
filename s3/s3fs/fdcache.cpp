@@ -2306,11 +2306,11 @@ void FdManager::FreeReservedDiskSpace(size_t size)
 //------------------------------------------------
 // FileOffsetManager class variable
 //------------------------------------------------
-FileOffsetManager           FileOffsetManager::singleton;
 int                         FileOffsetManager::fd_counter = 0;
 pthread_mutex_t             FileOffsetManager::file_offset_manager_lock;
 bool                        FileOffsetManager::is_lock_init;
 std::map<int, FdOffsetPair> FileOffsetManager::offset_map; 
+FileOffsetManager           FileOffsetManager::singleton;
 
 //------------------------------------------------
 // FileOffsetManager methods
@@ -2336,8 +2336,6 @@ FileOffsetManager::~FileOffsetManager() {
 
     if(this == get()){
   
-        offset_map.clear();
-    
         if(is_lock_init){
             try{
                 pthread_mutex_destroy(&file_offset_manager_lock);
@@ -2501,10 +2499,10 @@ bool FileOffsetManager::getFd(int irods_fd, int& fd) {
 //------------------------------------------------
 // FileOffsetManager class variable
 //------------------------------------------------
-DirectoryListStreamManager                 DirectoryListStreamManager::singleton;
 pthread_mutex_t                            DirectoryListStreamManager::directory_stream_manager_lock;
 bool                                       DirectoryListStreamManager::is_lock_init;
 std::map<std::string, DirectoryListStream> DirectoryListStreamManager::directory_list_map; 
+DirectoryListStreamManager                 DirectoryListStreamManager::singleton;
 
 //------------------------------------------------
 // DirectoryListStreamManager methods
