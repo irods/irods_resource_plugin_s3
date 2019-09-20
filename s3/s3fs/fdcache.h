@@ -115,9 +115,9 @@ class FdEntity
     pthread_mutex_t         fdent_lock;
     bool                    is_lock_init;
   public:
-	unsigned int            simultaneous_read_count;
-	std::condition_variable read_object_cv;
-	std::mutex              cv_mtx;
+    unsigned int            simultaneous_read_count;
+    std::condition_variable read_object_cv;
+    std::mutex              cv_mtx;
     PageList                pagelist;
   private:
     std::string             path;           // object path
@@ -247,8 +247,8 @@ class FdManager
 //------------------------------------------------
 
 struct FdOffsetPair {
-	int fd;         // the file descriptor stored in FdManager::fd
-	off_t offset;   // the offset
+    int fd;         // the file descriptor stored in FdManager::fd
+    off_t offset;   // the offset
 };
 
 class FileOffsetManager 
@@ -257,33 +257,33 @@ class FileOffsetManager
 
 
     static FileOffsetManager singleton;
-	static int fd_counter;
+    static int fd_counter;
     static pthread_mutex_t file_offset_manager_lock;
     static bool            is_lock_init;
 
-	// maps irods_fd -> (FdManager::fd and offset)
-	static std::map<int, FdOffsetPair> offset_map; 
+    // maps irods_fd -> (FdManager::fd and offset)
+    static std::map<int, FdOffsetPair> offset_map; 
   public:
     FileOffsetManager();
     ~FileOffsetManager();
-	FileOffsetManager(const FileOffsetManager&) = delete;
-	FileOffsetManager& operator=(const FileOffsetManager&) = delete;
+    FileOffsetManager(const FileOffsetManager&) = delete;
+    FileOffsetManager& operator=(const FileOffsetManager&) = delete;
 
     // Reference singleton
     static FileOffsetManager * get(void) { return &singleton; }
 
-	// returns the file descriptor that will be saved in iRODS
+    // returns the file descriptor that will be saved in iRODS
     static int create_entry(int fd);
 
-    // returns true iff fd (s3fs file descriptor) exists	
+    // returns true iff fd (s3fs file descriptor) exists    
     static bool fd_exists(int fd); 
 
-	static bool delete_entry(int irods_fd);
-	static bool setOffset(int irods_fd, off_t offset);
-	static bool getOffset(int irods_fd, off_t& offset);
-	static bool setFd(int irods_fd, int fd);
-	static bool getFd(int irods_fd, int& fd);
-	static bool adjustOffset(int irods_fd, off_t delta);
+    static bool delete_entry(int irods_fd);
+    static bool setOffset(int irods_fd, off_t offset);
+    static bool getOffset(int irods_fd, off_t& offset);
+    static bool setFd(int irods_fd, int fd);
+    static bool getFd(int irods_fd, int& fd);
+    static bool adjustOffset(int irods_fd, off_t delta);
 
 };
 
@@ -293,8 +293,8 @@ class FileOffsetManager
 // is done when calling readdir to iterate over objects.
 //------------------------------------------------
 struct DirectoryListStream {
-	size_t                   current_index;     
-	std::vector<std::string> objects;
+    size_t                   current_index;     
+    std::vector<std::string> objects;
 };
 
 class DirectoryListStreamManager
@@ -304,17 +304,17 @@ class DirectoryListStreamManager
     static pthread_mutex_t            directory_stream_manager_lock;
     static bool                       is_lock_init;
 
-	// maps directory entry to offset
-	static std::map<std::string, DirectoryListStream> directory_list_map; 
+    // maps directory entry to offset
+    static std::map<std::string, DirectoryListStream> directory_list_map; 
   public:
-	static bool key_exists(const std::string& key);
-	static bool delete_entry(const std::string& key);
-	static bool get_next_entry(const std::string& key, std::string& next_entry);
-	static void add_entry(const std::string& key, const std::string& object_name);
+    static bool key_exists(const std::string& key);
+    static bool delete_entry(const std::string& key);
+    static bool get_next_entry(const std::string& key, std::string& next_entry);
+    static void add_entry(const std::string& key, const std::string& object_name);
     DirectoryListStreamManager();
     ~DirectoryListStreamManager();
-	DirectoryListStreamManager(const DirectoryListStreamManager&) = delete;
-	DirectoryListStreamManager& operator=(const DirectoryListStreamManager&) = delete;
+    DirectoryListStreamManager(const DirectoryListStreamManager&) = delete;
+    DirectoryListStreamManager& operator=(const DirectoryListStreamManager&) = delete;
 
     // Reference singleton
     static DirectoryListStreamManager* get(void) { return &singleton; }

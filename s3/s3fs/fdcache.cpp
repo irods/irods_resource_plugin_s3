@@ -342,23 +342,23 @@ bool PageList::Resize(size_t size, bool is_loaded)
     pages.push_back(page);
 
   }else if(size < total){
-	
-	if (0 == size) {
-	  return Compress();
-	}
+    
+    if (0 == size) {
+      return Compress();
+    }
 
     // cut area
     for(fdpage_list_t::iterator iter = pages.begin(); iter != pages.end(); ){
       if(static_cast<size_t>((*iter)->next()) <= size){
-		// page within size, continue 
+        // page within size, continue 
         ++iter;
       }else{
         if(size <= static_cast<size_t>((*iter)->offset)){
-		  // page is outside the range, delete it
+          // page is outside the range, delete it
           delete *iter;
           iter = pages.erase(iter);
         }else{
-		  // current page extends beyond size, shrink it
+          // current page extends beyond size, shrink it
           (*iter)->bytes = size - static_cast<size_t>((*iter)->offset);
         }
       }
@@ -493,20 +493,20 @@ int PageList::GetUnloadedPages(fdpage_list_t& unloaded_list, off_t start, size_t
 
   for(fdpage_list_t::const_iterator iter = pages.begin(); iter != pages.end(); ++iter){
     if((*iter)->next() <= start){
-	  // current page is less than the new page, keep going
+      // current page is less than the new page, keep going
       continue;
     }
     if(next <= (*iter)->offset){
-	  // current page is after the new page, break out 
+      // current page is after the new page, break out 
       break;
     }
     if((*iter)->loaded){
       continue; // already loaded
     }
 
-	// some overlap
+    // some overlap
     // page area
-	// split the page so that requested page is its own page in list
+    // split the page so that requested page is its own page in list
     off_t  page_start = max((*iter)->offset, start);
     off_t  page_next  = min((*iter)->next(), next);
     size_t page_size  = static_cast<size_t>(page_next - page_start);
@@ -663,7 +663,7 @@ int FdEntity::FillFile(int fd, unsigned char byte, size_t size, off_t start)
 //------------------------------------------------
 FdEntity::FdEntity(const char* tpath, const char* cpath)
         : is_lock_init(false), simultaneous_read_count(0), path(SAFESTRPTR(tpath)), 
-		  cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
+          cachepath(SAFESTRPTR(cpath)), mirrorpath(""),
           fd(-1), pfile(NULL), is_modify(false), size_orgmeta(0), upload_id(""), mp_start(0), mp_size(0)
 {
   try{
@@ -1170,7 +1170,7 @@ int FdEntity::Load(off_t start, size_t size)
         need_load_size = (static_cast<size_t>((*iter)->next()) <= size_orgmeta ? (*iter)->bytes : (size_orgmeta - (*iter)->offset));
       }
 
-	  // over_size is additional amount requested
+      // over_size is additional amount requested
       size_t over_size = (*iter)->bytes - need_load_size;
 
       // download
@@ -1964,7 +1964,7 @@ uint64_t FdManager::GetFreeDiskSpace(const char* path)
   string         ctoppath;
   if(0 < strlen(cache_dir)){
     ctoppath = std::string(cache_dir) + "/";
-    ctoppath = get_exist_directory_path(ctoppath);	// existed directory
+    ctoppath = get_exist_directory_path(ctoppath);    // existed directory
     if(ctoppath != "/"){
       ctoppath += "/";
     }
@@ -2319,7 +2319,7 @@ std::map<int, FdOffsetPair> FileOffsetManager::offset_map;
 FileOffsetManager::FileOffsetManager()  {
 
     if(this == get()){
-		//fd_counter = 0;
+        //fd_counter = 0;
         try{
             pthread_mutex_init(&file_offset_manager_lock, NULL);
             is_lock_init = true;
@@ -2356,23 +2356,23 @@ int FileOffsetManager::create_entry(int fd) {
      
     AutoLock auto_lock(&file_offset_manager_lock);
 
-	FdOffsetPair fd_offset_pair;
-	fd_offset_pair.fd = fd;
-	fd_offset_pair.offset = 0;
+    FdOffsetPair fd_offset_pair;
+    fd_offset_pair.fd = fd;
+    fd_offset_pair.offset = 0;
 
-	FileOffsetManager::offset_map.insert(std::pair<int, FdOffsetPair>(++fd_counter, fd_offset_pair));
-	return fd_counter;
+    FileOffsetManager::offset_map.insert(std::pair<int, FdOffsetPair>(++fd_counter, fd_offset_pair));
+    return fd_counter;
 }
 
 // check if entry exists with s3fs file descriptor 
 bool FileOffsetManager::fd_exists(int fd) {
     for (auto iter = offset_map.begin(); iter != offset_map.end(); ++iter) {
-		if (iter->second.fd == fd) {
-			return true;
-	    }
-	}
-	return false;
-}	
+        if (iter->second.fd == fd) {
+            return true;
+        }
+    }
+    return false;
+}    
 
 
 // delete entry from offset_map
@@ -2382,13 +2382,13 @@ bool FileOffsetManager::delete_entry(int irods_fd) {
    
     auto iter = offset_map.find(irods_fd);
 
-	if (iter == offset_map.end()) {
-		return false;
+    if (iter == offset_map.end()) {
+        return false;
     }
 
-	offset_map.erase(iter);
+    offset_map.erase(iter);
 
-	return true;
+    return true;
 
 }
 
@@ -2399,18 +2399,18 @@ bool FileOffsetManager::setOffset(int irods_fd, off_t _offset) {
     }
     AutoLock auto_lock(&file_offset_manager_lock);
 
-	auto iter = offset_map.find(irods_fd);
+    auto iter = offset_map.find(irods_fd);
  
-    // make sure fd is in map	
+    // make sure fd is in map    
     if(iter == offset_map.end()) {
-		return false;
+        return false;
     }
 
-	FdOffsetPair fd_offset_pair;
-	fd_offset_pair.fd = iter->second.fd;
-	fd_offset_pair.offset = _offset;
+    FdOffsetPair fd_offset_pair;
+    fd_offset_pair.fd = iter->second.fd;
+    fd_offset_pair.offset = _offset;
 
-	iter->second = fd_offset_pair;
+    iter->second = fd_offset_pair;
     return true;
 }
 
@@ -2421,11 +2421,11 @@ bool FileOffsetManager::getOffset(int irods_fd, off_t& _offset) {
     }
     AutoLock auto_lock(&file_offset_manager_lock);
 
-	auto iter = offset_map.find(irods_fd);
+    auto iter = offset_map.find(irods_fd);
 
-    // make sure fd is in map	
+    // make sure fd is in map    
     if(iter == offset_map.end()) {
-		return false;
+        return false;
     }
  
     _offset = iter->second.offset;
@@ -2438,20 +2438,20 @@ bool FileOffsetManager::adjustOffset(int irods_fd, off_t delta) {
         return false;
     }
   
-  	AutoLock auto_lock(&file_offset_manager_lock);
+      AutoLock auto_lock(&file_offset_manager_lock);
 
-	auto iter = offset_map.find(irods_fd);
+    auto iter = offset_map.find(irods_fd);
 
-    // make sure fd is in map	
+    // make sure fd is in map    
     if(iter == offset_map.end()) {
-		return false;
+        return false;
     }
 
- 	FdOffsetPair fd_offset_pair;
-	fd_offset_pair.fd = iter->second.fd;
-	fd_offset_pair.offset = iter->second.offset + delta;
+     FdOffsetPair fd_offset_pair;
+    fd_offset_pair.fd = iter->second.fd;
+    fd_offset_pair.offset = iter->second.offset + delta;
 
-	iter->second = fd_offset_pair;
+    iter->second = fd_offset_pair;
     return true;
 }
 
@@ -2462,18 +2462,18 @@ bool FileOffsetManager::setFd(int irods_fd, int fd) {
     }
     AutoLock auto_lock(&file_offset_manager_lock);
 
-	auto iter = offset_map.find(irods_fd);
+    auto iter = offset_map.find(irods_fd);
  
-    // make sure fd is in map	
+    // make sure fd is in map    
     if(iter == offset_map.end()) {
-		return false;
+        return false;
     }
 
-	FdOffsetPair fd_offset_pair;
-	fd_offset_pair.fd = fd;
-	fd_offset_pair.offset = iter->second.offset;
+    FdOffsetPair fd_offset_pair;
+    fd_offset_pair.fd = fd;
+    fd_offset_pair.offset = iter->second.offset;
 
-	iter->second = fd_offset_pair;
+    iter->second = fd_offset_pair;
     return true;
 
 }
@@ -2485,11 +2485,11 @@ bool FileOffsetManager::getFd(int irods_fd, int& fd) {
     }
     AutoLock auto_lock(&file_offset_manager_lock);
 
-	auto iter = offset_map.find(irods_fd);
+    auto iter = offset_map.find(irods_fd);
 
-    // make sure fd is in map	
+    // make sure fd is in map    
     if(iter == offset_map.end()) {
-		return false;
+        return false;
     }
  
     fd = iter->second.fd;
@@ -2544,7 +2544,7 @@ DirectoryListStreamManager::~DirectoryListStreamManager() {
 
 bool DirectoryListStreamManager::key_exists(const std::string& key) {
     AutoLock auto_lock(&directory_stream_manager_lock);
-	return directory_list_map.find( key ) != directory_list_map.end();
+    return directory_list_map.find( key ) != directory_list_map.end();
 }
 
 bool DirectoryListStreamManager::delete_entry(const std::string& key) {
@@ -2552,12 +2552,12 @@ bool DirectoryListStreamManager::delete_entry(const std::string& key) {
     AutoLock auto_lock(&directory_stream_manager_lock);
 
     auto iter = directory_list_map.find(key);
-	if (iter == directory_list_map.end()) {
-		return false;
+    if (iter == directory_list_map.end()) {
+        return false;
     }
 
-	directory_list_map.erase(iter);
-	return true;
+    directory_list_map.erase(iter);
+    return true;
 }
 
 
@@ -2566,20 +2566,20 @@ bool DirectoryListStreamManager::get_next_entry(const std::string& key, std::str
     AutoLock auto_lock(&directory_stream_manager_lock);
 
     auto iter = directory_list_map.find(key);
-	if (iter == directory_list_map.end()) {
-		return false;
+    if (iter == directory_list_map.end()) {
+        return false;
     }
 
-	DirectoryListStream& dls = iter->second;
-	dls.current_index++;
+    DirectoryListStream& dls = iter->second;
+    dls.current_index++;
 
-	if (dls.current_index >= dls.objects.size()) {
-		return false;
-	}
+    if (dls.current_index >= dls.objects.size()) {
+        return false;
+    }
 
-	next_entry = dls.objects[dls.current_index];
+    next_entry = dls.objects[dls.current_index];
 
-	return true;
+    return true;
 }
 
 void DirectoryListStreamManager::add_entry(const std::string& key, const std::string& object_name) {
@@ -2587,17 +2587,17 @@ void DirectoryListStreamManager::add_entry(const std::string& key, const std::st
     AutoLock auto_lock(&directory_stream_manager_lock);
     auto iter = directory_list_map.find(key);
 
-	if (iter == directory_list_map.end()) {
-		DirectoryListStream dls;
-		dls.current_index = -1;   // always increment when getting next so start with -1
-		dls.objects.push_back(object_name);
-		directory_list_map[key] = dls;
-	} else {
+    if (iter == directory_list_map.end()) {
+        DirectoryListStream dls;
+        dls.current_index = -1;   // always increment when getting next so start with -1
+        dls.objects.push_back(object_name);
+        directory_list_map[key] = dls;
+    } else {
         DirectoryListStream& dls = iter->second;
-		dls.objects.push_back(object_name);
-	}
+        dls.objects.push_back(object_name);
+    }
 }
-	
+    
 /*
 * Local variables:
 * tab-width: 4
