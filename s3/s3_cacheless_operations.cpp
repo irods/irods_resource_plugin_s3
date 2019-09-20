@@ -648,6 +648,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
+
         strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         key = "/" + key;
 
@@ -962,6 +963,7 @@ namespace irods_s3_cacheless {
         if(!ret.ok()) {
             return PASS(ret);
         }
+
         strncpy(::bucket, bucket.c_str(), MAX_NAME_LEN-1);
         from_key = "/" + from_key;
 
