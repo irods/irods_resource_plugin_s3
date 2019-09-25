@@ -44,6 +44,7 @@ def get_build_prerequisites():
 
 def install_build_prerequisites_apt():
     if irods_python_ci_utilities.get_distribution() == 'Ubuntu': # cmake from externals requires newer libstdc++ on ub12
+        irods_python_ci_utilities.subprocess_get_output(['sudo', 'apt-get', 'update'], check_rc=True)
         if irods_python_ci_utilities.get_distribution_version_major() == '12':
             irods_python_ci_utilities.install_os_packages(['python-software-properties'])
             irods_python_ci_utilities.subprocess_get_output(['sudo', 'add-apt-repository', '-y', 'ppa:ubuntu-toolchain-r/test'], check_rc=True)
