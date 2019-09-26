@@ -33,35 +33,35 @@ namespace irods_s3_archive {
     // interface for file registration
     irods::error s3RegisteredPlugin( irods::plugin_context& _ctx) {
 
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
 
     // =-=-=-=-=-=-=-
     // interface for file unregistration
     irods::error s3UnregisteredPlugin( irods::plugin_context& _ctx) {
 
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
 
     // =-=-=-=-=-=-=-
     // interface for file modification
     irods::error s3ModifiedPlugin( irods::plugin_context& _ctx) {
 
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX create
     irods::error s3FileCreatePlugin( irods::plugin_context& _ctx) {
 
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Open
     irods::error s3FileOpenPlugin( irods::plugin_context& _ctx) {
 
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
 
     // =-=-=-=-=-=-=-
@@ -70,8 +70,7 @@ namespace irods_s3_archive {
                                    void*               _buf,
                                    int                 _len ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
-
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
 
     // =-=-=-=-=-=-=-
@@ -79,16 +78,15 @@ namespace irods_s3_archive {
     irods::error s3FileWritePlugin( irods::plugin_context& _ctx,
                                     void*               _buf,
                                     int                 _len ) {
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
 
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Close
     irods::error s3FileClosePlugin(  irods::plugin_context& _ctx ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, __FUNCTION__ );
-
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
 
 
@@ -100,9 +98,7 @@ namespace irods_s3_archive {
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
         if(!ret.ok()) {
-            std::stringstream msg;
-            msg << __FUNCTION__ << " - Invalid parameters or physical path.";
-            return PASSMSG(msg.str(), ret);
+            return PASS(ret);
         }
 
         size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
@@ -129,7 +125,9 @@ namespace irods_s3_archive {
                           irods::RESOURCE_PATH,
                           vault_path);
                 if(!ret.ok()) {
-                    return PASS(ret);
+                    std::stringstream msg;
+                    msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] " << ret.result();
+                    return PASSMSG(msg.str(), ret);
                 }
 
                 if(!determine_unlink_for_repl_policy(
@@ -148,7 +146,7 @@ namespace irods_s3_archive {
 
         std::string bucket;
         std::string key;
-        ret = parseS3Path(file_obj->physical_path(), bucket, key);
+        ret = parseS3Path(file_obj->physical_path(), bucket, key, _ctx.prop_map());
         if(!ret.ok()) {
             return PASS(ret);
         }
@@ -197,7 +195,7 @@ namespace irods_s3_archive {
 
         if(data.status != S3StatusOK) {
             std::stringstream msg;
-            msg << __FUNCTION__;
+            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
             msg << " - Error unlinking the S3 object: \"";
             msg << file_obj->physical_path();
             msg << "\"";
@@ -230,7 +228,7 @@ namespace irods_s3_archive {
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
-        if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
+        if((result = ASSERT_PASS(ret, "[resource_name=%s] Invalid parameters or physical path.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
             // =-=-=-=-=-=-=-
             // get ref to fco
@@ -249,15 +247,15 @@ namespace irods_s3_archive {
                 std::string key_id;
                 std::string access_key;
 
-                ret = parseS3Path(_object->physical_path(), bucket, key);
-                if((result = ASSERT_PASS(ret, "Failed parsing the S3 bucket and key from the physical path: \"%s\".",
+                ret = parseS3Path(_object->physical_path(), bucket, key, _ctx.prop_map());
+                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed parsing the S3 bucket and key from the physical path: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                          _object->physical_path().c_str())).ok()) {
 
                     ret = s3InitPerOperation( _ctx.prop_map() );
-                    if((result = ASSERT_PASS(ret, "Failed to initialize the S3 system.")).ok()) {
+                    if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to initialize the S3 system.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                        if((result = ASSERT_PASS(ret, "Failed to get the S3 credentials properties.")).ok()) {
+                        if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get the S3 credentials properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
                             callback_data_t data;
                             S3BucketContext bucketContext;
@@ -283,7 +281,8 @@ namespace irods_s3_archive {
 
                             if (data.status != S3StatusOK) {
                                 std::stringstream msg;
-                                msg << __FUNCTION__ << " - Error stat'ing the S3 object: \"" << _object->physical_path() << "\"";
+                                msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
+                                msg << " - Error stat'ing the S3 object: \"" << _object->physical_path() << "\"";
                                 if (data.status >= 0) {
                                     msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                                 }
@@ -304,7 +303,10 @@ namespace irods_s3_archive {
             }
         }
         if( !result.ok() ) {
-            irods::log( result );
+            std::stringstream msg;
+            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
+                << result.result();
+            rodsLog(LOG_ERROR, msg.str().c_str());
         }
         return result;
     }
@@ -313,7 +315,7 @@ namespace irods_s3_archive {
     // interface for POSIX Fstat
     irods::error s3FileFstatPlugin(  irods::plugin_context& _ctx,
                                      struct stat*        _statbuf ) {
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileFstatPlugin" );
+        return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
 
     } // s3FileFstatPlugin
 
@@ -323,7 +325,7 @@ namespace irods_s3_archive {
                                      size_t              _offset,
                                      int                 _whence ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileLseekPlugin" );
+        return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
 
     } // wosFileLseekPlugin
 
@@ -331,7 +333,7 @@ namespace irods_s3_archive {
     // interface for POSIX mkdir
     irods::error s3FileMkdirPlugin(  irods::plugin_context& _ctx ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileMkdirPlugin" );
+        return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
 
     } // s3FileMkdirPlugin
 
@@ -339,21 +341,21 @@ namespace irods_s3_archive {
     // interface for POSIX mkdir
     irods::error s3FileRmdirPlugin(  irods::plugin_context& _ctx ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileRmdirPlugin" );
+        return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
     } // s3FileRmdirPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX opendir
     irods::error s3FileOpendirPlugin( irods::plugin_context& _ctx ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileOpendirPlugin" );
+        return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
     } // s3FileOpendirPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX closedir
     irods::error s3FileClosedirPlugin( irods::plugin_context& _ctx) {
 
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileClosedirPlugin" );
+        return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
     } // s3FileClosedirPlugin
 
     // =-=-=-=-=-=-=-
@@ -361,7 +363,7 @@ namespace irods_s3_archive {
     irods::error s3FileReaddirPlugin( irods::plugin_context& _ctx,
                                       struct rodsDirent**     _dirent_ptr ) {
 
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileReaddirPlugin" );
+        return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
     } // s3FileReaddirPlugin
 
     // =-=-=-=-=-=-=-
@@ -378,7 +380,11 @@ namespace irods_s3_archive {
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
         ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
         if(!ret.ok()) {
-            irods::log(PASS(ret));
+
+            std::stringstream msg;
+            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
+                << ret.result();
+            rodsLog(LOG_ERROR, msg.str().c_str());
         }
         boost::to_lower(archive_naming_policy);
 
@@ -391,16 +397,16 @@ namespace irods_s3_archive {
         }
 
         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-        if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
+        if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get S3 credential properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
             // copy the file to the new location
             ret = s3CopyFile(_ctx, object->physical_path(), _new_file_name, key_id, access_key,
                              s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()));
-            if((result = ASSERT_PASS(ret, "Failed to copy file from: \"%s\" to \"%s\".",
+            if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy file from: \"%s\" to \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                      object->physical_path().c_str(), _new_file_name)).ok()) {
                 // delete the old file
                 ret = s3FileUnlinkPlugin(_ctx);
-                result = ASSERT_PASS(ret, "Failed to unlink old S3 file: \"%s\".",
+                result = ASSERT_PASS(ret, "[resource_name=%s] Failed to unlink old S3 file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                      object->physical_path().c_str());
             }
         }
@@ -416,7 +422,7 @@ namespace irods_s3_archive {
     irods::error s3FileTruncatePlugin(
         irods::plugin_context& _ctx )
     {
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileTruncatePlugin" );
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     } // s3FileTruncatePlugin
 
 
@@ -424,14 +430,14 @@ namespace irods_s3_archive {
     irods::error s3FileGetFsFreeSpacePlugin(
         irods::plugin_context& _ctx )
     {
-        return ERROR(SYS_NOT_SUPPORTED, "s3FileGetFsFreeSpacePlugin");
+        return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
 
     } // s3FileGetFsFreeSpacePlugin
 
     irods::error s3FileCopyPlugin( int mode, const char *srcFileName,
                                    const char *destFileName)
     {
-        return ERROR( SYS_NOT_SUPPORTED, "s3FileCopyPlugin" );
+        return ERROR(SYS_NOT_SUPPORTED, __FUNCTION__);
     }
 
 
@@ -448,7 +454,7 @@ namespace irods_s3_archive {
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
-        if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
+        if((result = ASSERT_PASS(ret, "[resource_name=%s] Invalid parameters or physical path.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
             struct stat statbuf;
             std::string key_id;
@@ -457,21 +463,21 @@ namespace irods_s3_archive {
             irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
             ret = s3FileStatPlugin(_ctx, &statbuf);
-            if((result = ASSERT_PASS(ret, "Failed stating the file: \"%s\".",
+            if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed stating the file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                      object->physical_path().c_str())).ok()) {
 
-                if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, S3_FILE_STAT_ERR, "Error stating the file: \"%s\".",
+                if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, S3_FILE_STAT_ERR, "[resource_name=%s] Error stating the file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                           object->physical_path().c_str())).ok()) {
 
                     if((result = ASSERT_ERROR(object->size() <= 0 || object->size() == static_cast<size_t>(statbuf.st_size), SYS_COPY_LEN_ERR,
-                                              "Error for file: \"%s\" inp data size: %ld does not match stat size: %ld.",
+                                              "[resource_name=%s] Error for file: \"%s\" inp data size: %ld does not match stat size: %ld.", get_resource_name(_ctx.prop_map()).c_str(),
                                               object->physical_path().c_str(), object->size(), statbuf.st_size)).ok()) {
 
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                        if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
+                        if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get S3 credential properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
                             ret = s3GetFile( _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
-                            result = ASSERT_PASS(ret, "Failed to copy the S3 object: \"%s\" to the cache: \"%s\".",
+                            result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy the S3 object: \"%s\" to the cache: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                                  object->physical_path().c_str(), _cache_file_name);
                         }
                     }
@@ -493,7 +499,7 @@ namespace irods_s3_archive {
         // =-=-=-=-=-=-=-
         // check incoming parameters
         irods::error ret = s3CheckParams( _ctx );
-        if((result = ASSERT_PASS(ret, "Invalid parameters or physical path.")).ok()) {
+        if((result = ASSERT_PASS(ret, "[resource_name=%s] Invalid parameters or physical path.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
             struct stat statbuf;
             int status;
@@ -503,20 +509,23 @@ namespace irods_s3_archive {
             irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             status = stat(_cache_file_name, &statbuf);
             int err_status = UNIX_FILE_STAT_ERR - errno;
-            if((result = ASSERT_ERROR(status >= 0, err_status, "Failed to stat cache file: \"%s\".",
+            if((result = ASSERT_ERROR(status >= 0, err_status, "[resource_name=%s] Failed to stat cache file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                       _cache_file_name)).ok()) {
 
-                if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, UNIX_FILE_STAT_ERR, "Cache file: \"%s\" is not a file.",
+                if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, UNIX_FILE_STAT_ERR, "[resource_name=%s] Cache file: \"%s\" is not a file.", get_resource_name(_ctx.prop_map()).c_str(),
                                           _cache_file_name)).ok()) {
 
                     ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                    if((result = ASSERT_PASS(ret, "Failed to get S3 credential properties.")).ok()) {
+                    if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get S3 credential properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
                         // retrieve archive naming policy from resource plugin context
                         std::string archive_naming_policy = CONSISTENT_NAMING; // default
                         ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
                         if(!ret.ok()) {
-                            irods::log(ret);
+                            std::stringstream msg;
+                            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
+                                << ret.result();
+                            rodsLog(LOG_ERROR, msg.str().c_str());
                         }
                         boost::to_lower(archive_naming_policy);
 
@@ -542,7 +551,7 @@ namespace irods_s3_archive {
                         }
 
                         ret = s3PutCopyFile(S3_PUTFILE, _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
-                        result = ASSERT_PASS(ret, "Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".",
+                        result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                              _cache_file_name, object->physical_path().c_str());
 
                     }
@@ -550,7 +559,10 @@ namespace irods_s3_archive {
             }
         }
         if( !result.ok() ) {
-            irods::log( result );
+            std::stringstream msg;
+            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
+                << result.result();
+            rodsLog(LOG_ERROR, msg.str().c_str());
         }
         return result;
     } // s3SyncToArchPlugin
@@ -572,12 +584,12 @@ namespace irods_s3_archive {
         // =-=-=-=-=-=-=-
         // check the context validity
         ret = _ctx.valid< irods::file_object >();
-        if((result = ASSERT_PASS(ret, "Invalid resource context.")).ok()) {
+        if((result = ASSERT_PASS(ret, "[resource_name=%s] Invalid resource context.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
             // =-=-=-=-=-=-=-
             // check incoming parameters
             if((result = ASSERT_ERROR(_opr && _curr_host && _out_parser && _out_vote, SYS_INVALID_INPUT_PARAM,
-                                      "One or more NULL pointer arguments.")).ok()) {
+                                      "[resource_name=%s] One or more NULL pointer arguments.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
                 std::string resc_name;
 
@@ -588,7 +600,7 @@ namespace irods_s3_archive {
                 // =-=-=-=-=-=-=-
                 // get the name of this resource
                 ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name );
-                if((result = ASSERT_PASS(ret, "Failed to get resource name property.")).ok() ) {
+                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get resource name property.", get_resource_name(_ctx.prop_map()).c_str())).ok() ) {
 
                     // =-=-=-=-=-=-=-
                     // add ourselves to the hierarchy parser by default
@@ -612,7 +624,7 @@ namespace irods_s3_archive {
                         result = s3RedirectCreate( _ctx.prop_map(), *file_obj, resc_name, (*_curr_host), (*_out_vote)  );
                     }
                     else {
-                        result = ASSERT_ERROR(false, SYS_INVALID_INPUT_PARAM, "Unknown redirect operation: \"%s\".",
+                        result = ASSERT_ERROR(false, SYS_INVALID_INPUT_PARAM, "[resource_name=%s] Unknown redirect operation: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                               _opr->c_str());
                     }
                 }
