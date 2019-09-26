@@ -70,6 +70,8 @@ namespace irods_s3_cacheless {
 
     irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map) {
 
+        static bool already_destroyed = false;
+
         // this is taken from s3fs.cpp - main() with adjustments
         
         irods::error ret = s3Init( _prop_map );
@@ -81,23 +83,32 @@ namespace irods_s3_cacheless {
         std::string key_id, access_key;
         ret = _prop_map.get< std::string >(s3_key_id, key_id);
         if (!ret.ok()) {
-            S3fsCurl::DestroyS3fsCurl();
-            s3fs_destroy_global_ssl();
+            if (!already_destroyed) {
+                already_destroyed = true;
+                S3fsCurl::DestroyS3fsCurl();
+                s3fs_destroy_global_ssl();
+            }
             return ret;
         }
     
         ret = _prop_map.get< std::string >(s3_access_key, access_key);
         if (!ret.ok()) {
-            S3fsCurl::DestroyS3fsCurl();
-            s3fs_destroy_global_ssl();
+            if (!already_destroyed) {
+                already_destroyed = true;
+                S3fsCurl::DestroyS3fsCurl();
+                s3fs_destroy_global_ssl();
+            }
             return ret;
         }
     
         // save keys
         if(!S3fsCurl::SetAccessKey(key_id.c_str(), access_key.c_str())){
-            S3fsCurl::DestroyS3fsCurl();
-            s3fs_destroy_global_ssl();
-            std::string error_str =  "failed to set internal data for access key/secret key.";
+            if (!already_destroyed) {
+                already_destroyed = true;
+                S3fsCurl::DestroyS3fsCurl();
+                s3fs_destroy_global_ssl();
+            }
+
             rodsLog(LOG_ERROR, error_str.c_str());
             return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
@@ -105,9 +116,11 @@ namespace irods_s3_cacheless {
     
         ret = _prop_map.get< std::string >(s3_proto, s3_protocol_str);
         if (!ret.ok()) {
-            S3fsCurl::DestroyS3fsCurl();
-            s3fs_destroy_global_ssl();
-            std::string error_str =  "S3_PROTO is not defined for resource.";
+            if (!already_destroyed) {
+                already_destroyed = true;
+                S3fsCurl::DestroyS3fsCurl();
+                s3fs_destroy_global_ssl();
+            }
             rodsLog(LOG_ERROR, error_str.c_str());
             return ERROR(S3_INIT_ERROR, error_str.c_str());
         }
