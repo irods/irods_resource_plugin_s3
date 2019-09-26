@@ -70,6 +70,8 @@ namespace irods_s3_cacheless {
 
     irods::error set_s3_configuration_from_context(irods::plugin_property_map& _prop_map) {
 
+        static bool already_destroyed = false;
+
         // this is taken from s3fs.cpp - main() with adjustments
         
         irods::error ret = s3Init( _prop_map );

@@ -425,7 +425,7 @@ bool S3fsCurl::DestroyS3fsCurl(void)
   if(!S3fsCurl::DestroyCryptMutex()){
     result = false;
   }
-  if(!sCurlPool->Destroy()){
+  if(sCurlPool && !sCurlPool->Destroy()){
     result = false;
   }
   delete sCurlPool;
