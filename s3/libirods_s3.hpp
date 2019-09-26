@@ -79,6 +79,7 @@ typedef struct callback_data
     s3Stat_t s3Stat;    /* should be a pointer if keyCount > 1 */
 
     S3BucketContext *pCtx; /* To enable more detailed error messages */
+    irods::plugin_property_map *prop_map_ptr;
 } callback_data_t;
 
 typedef struct upload_manager
@@ -117,6 +118,7 @@ typedef struct multirange_data
     S3Status status;
 
     S3BucketContext *pCtx; /* To enable more detailed error messages */
+    irods::plugin_property_map *prop_map_ptr;
 } multirange_data_t;
 
 // Sleep for *at least* the given time, plus some up to 1s additional
@@ -139,7 +141,8 @@ S3Status responsePropertiesCallback(
 irods::error parseS3Path (
     const std::string& _s3ObjName,
     std::string&       _bucket,
-    std::string&       _key); 
+    std::string&       _key,
+    irods::plugin_property_map& _prop_map );
 
 irods::error s3Init ( irods::plugin_property_map& _prop_map ); 
 irods::error s3InitPerOperation ( irods::plugin_property_map& _prop_map ); 
@@ -183,6 +186,8 @@ irods::error s3CheckParams(irods::plugin_context& _ctx );
 void get_modes_from_properties(irods::plugin_property_map& _prop_map, 
         bool& attached_mode, bool& cacheless_mode); 
 
+std::string get_resource_name(irods::plugin_property_map& _prop_map);
+ 
 bool determine_unlink_for_repl_policy(
     rsComm_t*          _comm,
     const std::string& _logical_path,
