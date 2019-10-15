@@ -514,9 +514,6 @@ irods::error readS3AuthInfo (
         return result;
     }
 
-    std::string error_str =  boost::str(boost::format("[resource_name=%s] Unknown error in authorization file.") % resource_name.c_str()); 
-
-    result = ERROR( SYS_CONFIG_FILE_ERR, error_str.c_str());
     return result;
 }
 
