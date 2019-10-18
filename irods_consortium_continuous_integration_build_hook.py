@@ -21,7 +21,7 @@ def get_build_prerequisites_all():
             'irods-externals-cppzmq4.2.3-0',
             'irods-externals-json3.1.2-0',
             'irods-externals-libarchive3.3.2-1',
-            'irods-externals-libs3a30e55e8-0',
+            'irods-externals-libs3a30e55e8-1',
             'irods-externals-zeromq4-14.1.6-0']
 
 def get_build_prerequisites_apt():
