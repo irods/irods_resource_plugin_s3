@@ -377,7 +377,10 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # add client irodsEnv settings
         clientEnvFile = self.admin.local_session_dir + "/irods_environment.json"
         with lib.file_backed_up(clientEnvFile):
-            env = {'irods_client_server_policy': 'CS_NEG_REQUIRE'}
+            env = {
+                'irods_client_server_policy': 'CS_NEG_REQUIRE',
+                'irods_ssl_verify_server': 'none',
+            }
             lib.update_json_file_from_dict(clientEnvFile, env)
 
             # server reboot with new server side environment variables
