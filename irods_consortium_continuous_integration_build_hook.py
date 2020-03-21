@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import glob
 import multiprocessing
 import optparse
 import os
@@ -9,57 +10,52 @@ import tempfile
 import irods_python_ci_utilities
 
 
-def install_cmake_and_add_to_front_of_path():
-    irods_python_ci_utilities.install_os_packages(['irods-externals-cmake3.5.2-0'])
-    os.environ['PATH'] = '/opt/irods-externals/cmake3.5.2-0/bin' + os.pathsep + os.environ['PATH']
+def add_cmake_to_front_of_path():
+    cmake_path = '/opt/irods-externals/cmake3.11.4-0/bin'
+    os.environ['PATH'] = os.pathsep.join([cmake_path, os.environ['PATH']])
 
-def get_build_prerequisites_all():
-    return ['irods-externals-clang3.8-0',
-            'irods-externals-cppzmq4.1-0',
-            'irods-externals-libarchive3.1.2-0',
-            'irods-externals-avro1.7.7-0',
-            'irods-externals-clang-runtime3.8-0',
-            'irods-externals-boost1.60.0-0',
-            'irods-externals-jansson2.7-0',
-            'irods-externals-zeromq4-14.1.3-0',
-            'irods-externals-libs3a30e55e8-0']
+def install_building_dependencies(externals_directory):
+    externals_list = ['irods-externals-cmake3.11.4-0',
+                      'irods-externals-avro1.9.0-0',
+                      'irods-externals-boost1.67.0-0',
+                      'irods-externals-clang-runtime6.0-0',
+                      'irods-externals-clang6.0-0',
+                      'irods-externals-cppzmq4.2.3-0',
+                      'irods-externals-json3.7.3-0',
+                      'irods-externals-libarchive3.3.2-1',
+                      'irods-externals-libs3a30e55e8-1',
+                      'irods-externals-zeromq4-14.1.6-0']
+    if externals_directory == 'None' or externals_directory is None:
+        irods_python_ci_utilities.install_irods_core_dev_repository()
+        irods_python_ci_utilities.install_os_packages(externals_list)
+    else:
+        package_suffix = irods_python_ci_utilities.get_package_suffix()
+        os_specific_directory = irods_python_ci_utilities.append_os_specific_directory(externals_directory)
+        externals = []
+        for irods_externals in externals_list:
+            externals.append(glob.glob(os.path.join(os_specific_directory, irods_externals + '*.{0}'.format(package_suffix)))[0])
+        irods_python_ci_utilities.install_os_packages_from_files(externals)
+    add_cmake_to_front_of_path()
+    install_os_specific_dependencies()
 
-def get_build_prerequisites_apt():
-    return ['make', 'libssl-dev', 'libxml2-dev', 'libcurl4-gnutls-dev', 'gcc'] + get_build_prerequisites_all()
-
-def get_build_prerequisites_yum():
-    return ['openssl-devel', 'libxml2-devel', 'curl-devel'] + get_build_prerequisites_all()
-
-def get_build_prerequisites():
-    dispatch_map = {
-        'Ubuntu': get_build_prerequisites_apt,
-        'Centos': get_build_prerequisites_yum,
-        'Centos linux': get_build_prerequisites_yum,
-        'Opensuse ':  get_build_prerequisites_yum,
-    }
-    try:
-        return dispatch_map[irods_python_ci_utilities.get_distribution()]()
-    except KeyError:
-        irods_python_ci_utilities.raise_not_implemented_for_distribution()
-
-def install_build_prerequisites_apt():
+def install_os_specific_dependencies_apt():
     if irods_python_ci_utilities.get_distribution() == 'Ubuntu': # cmake from externals requires newer libstdc++ on ub12
         irods_python_ci_utilities.subprocess_get_output(['sudo', 'apt-get', 'update'], check_rc=True)
         if irods_python_ci_utilities.get_distribution_version_major() == '12':
             irods_python_ci_utilities.install_os_packages(['python-software-properties'])
             irods_python_ci_utilities.subprocess_get_output(['sudo', 'add-apt-repository', '-y', 'ppa:ubuntu-toolchain-r/test'], check_rc=True)
             irods_python_ci_utilities.install_os_packages(['libstdc++6'])
-    irods_python_ci_utilities.install_os_packages(get_build_prerequisites())
+    irods_python_ci_utilities.install_os_packages(['make', 'libssl-dev', 'libxml2-dev', 'libcurl4-gnutls-dev', 'gcc'])
 
-def install_build_prerequisites_yum():
-    irods_python_ci_utilities.install_os_packages(get_build_prerequisites())
+def install_os_specific_dependencies_yum():
+    irods_python_ci_utilities.install_os_packages(['openssl-devel', 'libxml2-devel', 'curl-devel'])
 
-def install_build_prerequisites():
+def install_os_specific_dependencies():
     dispatch_map = {
-        'Ubuntu': install_build_prerequisites_apt,
-        'Centos': install_build_prerequisites_yum,
-        'Centos linux': install_build_prerequisites_yum,
-        'Opensuse ':  install_build_prerequisites_yum,
+        'Ubuntu': install_os_specific_dependencies_apt,
+        'Centos': install_os_specific_dependencies_yum,
+        'Centos linux': install_os_specific_dependencies_yum,
+        'Opensuse ':  install_os_specific_dependencies_yum,
     }
     try:
         return dispatch_map[irods_python_ci_utilities.get_distribution()]()
@@ -81,10 +77,8 @@ def copy_output_packages(build_directory, output_root_directory):
         irods_python_ci_utilities.append_os_specific_directory(output_root_directory),
         lambda s:s.endswith(irods_python_ci_utilities.get_package_suffix()))
 
-def main(output_root_directory, irods_packages_root_directory):
-    irods_python_ci_utilities.install_irods_core_dev_repository()
-    install_cmake_and_add_to_front_of_path()
-    install_build_prerequisites()
+def main(output_root_directory, irods_packages_root_directory, externals_directory):
+    install_building_dependencies(externals_directory)
     if irods_packages_root_directory:
         install_irods_dev_and_runtime_packages(irods_packages_root_directory)
     build_directory = tempfile.mkdtemp(prefix='irods_s3_plugin_build_directory')
@@ -97,6 +91,7 @@ if __name__ == '__main__':
     parser = optparse.OptionParser()
     parser.add_option('--output_root_directory')
     parser.add_option('--irods_packages_root_directory')
+    parser.add_option('--externals_packages_directory')
     options, _ = parser.parse_args()
 
-    main(options.output_root_directory, options.irods_packages_root_directory)
+    main(options.output_root_directory, options.irods_packages_root_directory, options.externals_packages_directory)
