@@ -84,6 +84,55 @@ struct CRYPTO_dynlock_value
 
 static pthread_mutex_t* s3fs_crypt_mutex = NULL;
 
+static void s3fs_crypt_mutex_lock(int mode, int pos, const char* file, int line)
+{
+  if(s3fs_crypt_mutex){
+    if(mode & CRYPTO_LOCK){
+      pthread_mutex_lock(&s3fs_crypt_mutex[pos]);
+    }else{
+      pthread_mutex_unlock(&s3fs_crypt_mutex[pos]);
+    }
+  }
+}
+
+static unsigned long s3fs_crypt_get_threadid(void)
+{
+  // For FreeBSD etc, some system's pthread_t is structure pointer.
+  // Then we use cast like C style(not C++) instead of ifdef.
+  return (unsigned long)(pthread_self());
+}
+
+static struct CRYPTO_dynlock_value* s3fs_dyn_crypt_mutex(const char* file, int line)
+{
+  struct CRYPTO_dynlock_value* dyndata;
+
+  if(NULL == (dyndata = static_cast<struct CRYPTO_dynlock_value*>(malloc(sizeof(struct CRYPTO_dynlock_value))))){
+    S3FS_PRN_CRIT("Could not allocate memory for CRYPTO_dynlock_value");
+    return NULL;
+  }
+  pthread_mutex_init(&(dyndata->dyn_mutex), NULL);
+  return dyndata;
+}
+
+static void s3fs_dyn_crypt_mutex_lock(int mode, struct CRYPTO_dynlock_value* dyndata, const char* file, int line)
+{
+  if(dyndata){
+    if(mode & CRYPTO_LOCK){
+      pthread_mutex_lock(&(dyndata->dyn_mutex));
+    }else{
+      pthread_mutex_unlock(&(dyndata->dyn_mutex));
+    }
+  }
+}
+
+static void s3fs_destroy_dyn_crypt_mutex(struct CRYPTO_dynlock_value* dyndata, const char* file, int line)
+{
+  if(dyndata){
+    pthread_mutex_destroy(&(dyndata->dyn_mutex));
+    free(dyndata);
+  }
+}
+
 bool s3fs_init_crypt_mutex(void)
 {
   if(s3fs_crypt_mutex){
