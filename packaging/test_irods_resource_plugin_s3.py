@@ -1,5 +1,6 @@
 try:
    from minio import Minio
+   from minio.error import ResponseError
 except ImportError:
    print('This test requires minio: perhaps try pip install minio')
    exit()
@@ -91,7 +92,11 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # delete s3 bucket
         s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
-        s3_client.remove_objects(self.s3bucketname, objects)
+        try:
+            for del_err in s3_client.remove_objects(self.s3bucketname, [object.object_name for object in objects]):
+                print("Deletion Error: {}".format(del_err))
+        except ResponseError as err:
+            print(err)
         s3_client.remove_bucket(self.s3bucketname)
 
         # tear down resources
