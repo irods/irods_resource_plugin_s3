@@ -68,7 +68,7 @@ namespace irods_s3_archive {
     // interface for POSIX Read
     irods::error s3FileReadPlugin( irods::plugin_context& _ctx,
                                    void*               _buf,
-                                   int                 _len ) {
+                                   const int           _len ) {
 
         return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
@@ -76,8 +76,8 @@ namespace irods_s3_archive {
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
     irods::error s3FileWritePlugin( irods::plugin_context& _ctx,
-                                    void*               _buf,
-                                    int                 _len ) {
+                                    const void*            _buf,
+                                    const int              _len ) {
 
         return ERROR(SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__));
     }
@@ -322,8 +322,8 @@ namespace irods_s3_archive {
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
     irods::error s3FileLseekPlugin(  irods::plugin_context& _ctx,
-                                     size_t              _offset,
-                                     int                 _whence ) {
+                                     const size_t           _offset,
+                                     const int              _whence ) {
 
         return ERROR( SYS_NOT_SUPPORTED, boost::str(boost::format("[resource_name=%s] %s") % get_resource_name(_ctx.prop_map()) % __FUNCTION__) );
 

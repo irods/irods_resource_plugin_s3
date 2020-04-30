@@ -2362,14 +2362,14 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
             std::function<irods::error(irods::plugin_context&)>(
                 irods_s3_cacheless::s3FileOpenPlugin ) );
 
-        resc->add_operation<void*,int>(
+        resc->add_operation<void*,const int>(
             irods::RESOURCE_OP_READ,
-            std::function<irods::error(irods::plugin_context&,void*,int)>(
+            std::function<irods::error(irods::plugin_context&,void*,const int)>(
                 irods_s3_cacheless::s3FileReadPlugin ) );
 
-        resc->add_operation<void*,int>(
+        resc->add_operation<const void*,const int>(
             irods::RESOURCE_OP_WRITE,
-            std::function<irods::error(irods::plugin_context&,void*,int)>(
+            std::function<irods::error(irods::plugin_context&,const void*,const int)>(
                 irods_s3_cacheless::s3FileWritePlugin ) );
 
         resc->add_operation(
@@ -2412,9 +2412,9 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
             std::function<irods::error(irods::plugin_context&)>(
                 irods_s3_cacheless::s3FileGetFsFreeSpacePlugin ) );
 
-        resc->add_operation<long long, int>(
+        resc->add_operation<const long long, const int>(
             irods::RESOURCE_OP_LSEEK,
-            std::function<irods::error(irods::plugin_context&, long long, int)>(
+            std::function<irods::error(irods::plugin_context&, const long long, const int)>(
                 irods_s3_cacheless::s3FileLseekPlugin ) );
 
         resc->add_operation(
@@ -2480,14 +2480,14 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
             std::function<irods::error(irods::plugin_context&)>(
                 irods_s3_archive::s3FileOpenPlugin ) );
 
-        resc->add_operation<void*,int>(
+        resc->add_operation<void*,const int>(
             irods::RESOURCE_OP_READ,
-            std::function<irods::error(irods::plugin_context&,void*,int)>(
+            std::function<irods::error(irods::plugin_context&,void*,const int)>(
                 irods_s3_archive::s3FileReadPlugin ) );
 
-        resc->add_operation<void*,int>(
+        resc->add_operation<const void*,const int>(
             irods::RESOURCE_OP_WRITE,
-            std::function<irods::error(irods::plugin_context&,void*,int)>(
+            std::function<irods::error(irods::plugin_context&,const void*,const int)>(
                 irods_s3_archive::s3FileWritePlugin ) );
 
         resc->add_operation(
@@ -2530,9 +2530,9 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
             std::function<irods::error(irods::plugin_context&)>(
                 irods_s3_archive::s3FileGetFsFreeSpacePlugin ) );
 
-        resc->add_operation<long long, int>(
+        resc->add_operation<const long long, const int>(
             irods::RESOURCE_OP_LSEEK,
-            std::function<irods::error(irods::plugin_context&, long long, int)>(
+            std::function<irods::error(irods::plugin_context&, const long long, const int)>(
                 irods_s3_archive::s3FileLseekPlugin ) );
 
         resc->add_operation(
