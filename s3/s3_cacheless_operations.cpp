@@ -379,7 +379,7 @@ namespace irods_s3_cacheless {
     // interface for POSIX Read
     irods::error s3FileReadPlugin( irods::plugin_context& _ctx,
                                    void*               _buf,
-                                   int                 _len ) {
+                                   const int           _len ) {
 
 
         // =-=-=-=-=-=-=-
@@ -509,8 +509,8 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
     irods::error s3FileWritePlugin( irods::plugin_context& _ctx,
-                                    void*               _buf,
-                                    int                 _len ) {
+                                    const void*            _buf,
+                                    const int              _len ) {
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
@@ -737,8 +737,8 @@ namespace irods_s3_cacheless {
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
     irods::error s3FileLseekPlugin(  irods::plugin_context& _ctx,
-                                     long long            _offset,
-                                     int                 _whence ) {
+                                     const long long        _offset,
+                                     const int              _whence ) {
 
 
         // =-=-=-=-=-=-=-
