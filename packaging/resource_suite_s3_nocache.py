@@ -33,10 +33,28 @@ from ..controller import IrodsController
 from . import session
 
 
-class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+
+    def __init__(self, *args, **kwargs):
+        """Set up the cacheless test."""
+        # if self.proto is defined use it else default to HTTPS
+        try:
+            self.proto = self.proto
+        except AttributeError:
+            self.proto = 'HTTPS'
+
+        # if self.archive_naming_policy is defined use it
+        # else default to 'consistent'
+        try:
+            self.archive_naming_policy = self.archive_naming_policy
+        except AttributeError:
+            self.archive_naming_policy = 'consistent'
+
+        super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
 
     def setUp(self):
-        super(ResourceBase, self).setUp()
+
+        super(Test_S3_NoCache_Base, self).setUp()
         self.admin = self.admin_sessions[0]
         self.user0 = self.user_sessions[0]
         self.user1 = self.user_sessions[1]
@@ -51,7 +69,11 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.read_aws_keys()
 
         # set up s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
+
 
         distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
@@ -64,7 +86,22 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.anotherresc = "AnotherResc"
         self.anothervault = "/tmp/" + self.anotherresc
 
-        self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3EnableMPU, self.s3signature_version)
+        self.s3_context = 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+        self.s3_context += ';S3_AUTH_FILE=' + self.keypairfile
+        self.s3_context += ';S3_REGIONNAME=' + self.s3region
+        self.s3_context += ';S3_RETRY_COUNT=2'
+        self.s3_context += ';S3_WAIT_TIME_SEC=3'
+        self.s3_context += ';S3_PROTO=' + self.proto
+        self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        self.s3_context += ';HOST_MODE=cacheless_attached'
+        self.s3_context += ';S3_ENABLE_MD5=1'
+        self.s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
+
+        try:
+            self.s3_context += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
+        except AttributeError:
+            pass
+        self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
@@ -91,7 +128,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.admin.run_icommand(['irm', self.testfile, '../public/' + self.testfile])
         self.admin.run_icommand('irm -rf ../../bundle')
 
-        super(ResourceBase, self).tearDown()
+        super(Test_S3_NoCache_Base, self).tearDown()
         with session.make_session_for_existing_admin() as admin_session:
             admin_session.run_icommand('irmtrash -M')
             admin_session.run_icommand(['iadmin', 'rmresc', self.testresc])
@@ -101,7 +138,10 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             print("run_resource_teardown - END")
 
         # delete s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
 
         try:
@@ -117,6 +157,13 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         with open(self.keypairfile) as f:
             self.aws_access_key_id = f.readline().rstrip()
             self.aws_secret_access_key = f.readline().rstrip()
+
+    # read the endpoint address from the file endpointfile
+    @classmethod
+    def read_endpoint(cls, endpointfile):
+        # read endpoint file
+        with open(endpointfile) as f:
+            return f.readline().rstrip()
 
     def set_up_aws_config_dir(self):
         # read access keys from keypair file
@@ -142,9 +189,6 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             cred_file.write('[default]\n')
             cred_file.write('aws_access_key_id = ' + aws_access_key_id + '\n')
             cred_file.write('aws_secret_access_key = ' + aws_secret_access_key + '\n')
-
-class ResourceSuite_S3_NoCache(ResourceBase):
-
 
     ###################
     # iget
@@ -180,6 +224,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # assertions
         self.admin.assert_icommand_fail("iget -z")  # run iget with bad option
 
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
     def test_iget_with_stale_replica(self):  # formerly known as 'dirty'
         # local setup
         filename = "original.txt"
@@ -318,7 +363,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         lib.touch("file.txt")
         for i in range(0, 100):
             self.user0.assert_icommand("iput file.txt " + str(i) + ".txt", "EMPTY")
-        self.admin.assert_icommand("iphymv -r -M -R " + self.testresc + " " + self.admin.session_collection)  # creates replica
+        self.admin.assert_icommand("iphymv -r -M -n0 -R " + self.testresc + " " + self.admin.session_collection)  # creates replica
 
     ###################
     # iput
@@ -772,7 +817,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -U " + filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', '-R', 'fourthresc', filename])                # update last replica
 
         # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -783,7 +828,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         # should have a clean copy
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 3 ", " & " + filename])
 
-        self.admin.assert_icommand("irepl -aU " + filename)                                # update all replicas
+        self.admin.assert_icommand("irepl -a " + filename)                                # update all replicas
 
         # should have a clean copy
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", " & " + filename])
@@ -1086,6 +1131,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
         if os.path.exists(filepath):
            os.unlink(filepath)
 
+    @unittest.skip("skipping because this isn't really an s3 test and server changed")
     def test_itrim_returns_on_negative_status__ticket_3531(self):
         # local setup
         filename = "filetotesterror.txt"
@@ -1121,8 +1167,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
             os.unlink(filepath)
 
 
-# specific test cases unique to cacheless S3
-class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
+    # tests add for cacheless S3
 
     def test_iput_large_file_over_smaller(self):
 
@@ -1205,7 +1250,7 @@ class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
                 os.unlink(filename_get)
 
 
-
+    @unittest.skip("simultaneous opens are no longer allowed")
     def test_simultaneous_open_writes(self):
 
         rule_file_path = 'test_simultaneous_open_writes.r'
@@ -1268,7 +1313,7 @@ OUTPUT ruleExecOut
             if os.path.exists(rule_file_path):
                 os.unlink(rule_file_path)
 
-
+    @unittest.skipIf(True, "skip until issue 5018 fixed")
     def test_read_write_zero_length_file_issue_1890(self):
 
         rule_file_path = 'test_issue_1890.r'
@@ -1391,7 +1436,7 @@ OUTPUT ruleExecOut
 
         rule_str_read = '''
 test_small_read {{
-            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_WRONLY", *fd1)
+            msiDataObjOpen("objPath={target_obj}++++rescName=demoResc++++openFlags=O_RDONLY", *fd1)
             msiDataObjLseek(*fd1, 1024000, "SEEK_SET", *status)
             msiDataObjRead(*fd1, 6, *buf)
             msiDataObjClose(*fd1, *status)
@@ -1443,7 +1488,7 @@ OUTPUT ruleExecOut
             if os.path.exists(read_rule_file_path):
                 os.unlink(read_rule_file_path)
 
-
+    @unittest.skipIf(True, "TODO")
     def test_detached_mode(self):
 
         # in non-topology HOSTNAME_3 is just local host so it really doesn't test detached mode
@@ -1455,7 +1500,19 @@ OUTPUT ruleExecOut
         resource_host = "irods.org"
 
         # change demoResc to use detached mode
-        s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3EnableMPU, self.s3signature_version)
+
+        s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=%s;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.proto, self.s3EnableMPU)
+        s3_context_detached = 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+        s3_context_detached += ';S3_AUTH_FILE=' + self.keypairfile
+        s3_context_detached += ';S3_REGIONNAME=' + self.s3region
+        s3_context_detached += ';S3_RETRY_COUNT=2'
+        s3_context_detached += ';S3_WAIT_TIME_SEC=3'
+        s3_context_detached += ';S3_PROTO=' + self.proto
+        s3_context_detached += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        s3_context_detached += ';HOST_MODE=cacheless_detached'
+        s3_context_detached += ';S3_ENABLE_MD5=1'
+        s3_context_detached += ';S3_ENABLE_MPU=' + self.s3EnableMPU
+
 
         self.admin.assert_icommand("iadmin modresc demoResc context %s" % s3_context_detached , 'EMPTY')
         self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
@@ -1517,7 +1574,10 @@ OUTPUT ruleExecOut
     def recursive_register_from_s3_bucket(self):
 
         # create some files on s3
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
         file_contents = b'random test data'
         f = io.BytesIO(file_contents)
         size = len(file_contents)
@@ -1543,3 +1603,174 @@ OUTPUT ruleExecOut
         self.admin.assert_icommand("ireg -C /%s/basedir %s/basedir" % (self.s3bucketname, self.admin.session_collection))
         file_count = self.admin.run_icommand('''iquest "%s" "SELECT count(DATA_ID) where COLL_NAME like '%/basedir%'"''')[0]
         self.assertEquals(file_count, u'9\n')
+
+    def test_copy_file_greater_than_chunk_size(self):
+
+        try:
+
+            file1 = "f1"
+            file2 = "f2"
+            lib.make_file(file1, 128*1024*1024, 'arbitrary')
+            self.user0.assert_icommand("iput {file1}".format(**locals()))  # iput
+            self.user0.assert_icommand("imv {file1} {file2}".format(**locals()))  # imv
+
+        finally:
+
+            self.user0.assert_icommand("irm -f {file2}".format(**locals()))  # imv
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+
+    def test_put_get_small_file_in_repl_node(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            # create two s3 resources in repl node
+            self.admin.assert_icommand("iadmin mkresc s3repl replication".format(**locals()), 'STDOUT_SINGLELINE', "replication")
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/tmp/%s/s3resc2 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc s3resc3 s3 %s:/%s/tmp/%s/s3resc3 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc3", 'EMPTY')
+
+            # create and put file
+            file1 = "f1"
+            lib.make_file(file1, 1024, 'arbitrary')
+            file2 = "f1.get"
+            self.user0.assert_icommand("iput -R s3repl {file1}".format(**locals()))  # iput
+
+            # get file from first repl
+            self.user0.assert_icommand("iget -n 0 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n 1 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n 2 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc3", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3repl", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc3", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+
+    def test_put_get_large_file_in_repl_node(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            # create two s3 resources in repl node
+            self.admin.assert_icommand("iadmin mkresc s3repl replication".format(**locals()), 'STDOUT_SINGLELINE', "replication")
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/tmp/%s/s3resc2 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc s3resc3 s3 %s:/%s/tmp/%s/s3resc3 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc3", 'EMPTY')
+
+            # create and put file
+            file1 = "f1"
+            file2 = "f1.get"
+            lib.make_file(file1, 120*1024*1024)
+            self.user0.assert_icommand("iput -R s3repl {file1}".format(**locals()))  # iput
+
+            # get file from first repl
+            self.user0.assert_icommand("iget -n 0 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n 1 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n 2 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc s3repl s3resc3", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3repl", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc3", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+
+    def test_put_get_file_between_parallel_buff_size_and_max_size_single_buffer(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            # create two s3 resources in repl node
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            # create and put file
+            file1 = "f1"
+            file2 = "f1.get"
+            lib.make_file(file1, 5*1024*1024)
+            self.user0.assert_icommand("iput -R s3resc1 {file1}".format(**locals()))  # iput
+
+            # get file from first repl
+            self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)

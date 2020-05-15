@@ -37,7 +37,6 @@ class Test_Compound_With_S3_GCS_Resource(resource_suite.ResourceSuite, ChunkyDev
         self.s3stsdate=''
         self.s3region='us-east1-a'
         self.s3endPoint='https://storage.googleapis.com'
-        self.s3signature_version=4
         self.s3sse = 0 # server side encryption
 
         # skip ssl tests on ub12
@@ -77,7 +76,6 @@ class Test_Compound_With_S3_GCS_Resource(resource_suite.ResourceSuite, ChunkyDev
         s3params += ';S3_DEFAULT_HOSTNAME=' + 'storage.googleapis.com'
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
         s3params += ';S3_REGIONNAME=' + self.s3region
-        s3params += ';S3_SIGNATURE_VERSION=' + str(self.s3signature_version)
         s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
         try:
             s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
@@ -402,7 +400,6 @@ class Test_Compound_With_S3_GCS_Resource(resource_suite.ResourceSuite, ChunkyDev
 #        self.s3stsdate=''
 #        self.s3region='eu-central-1'
 #        self.s3endPoint='s3.eu-central-1.amazonaws.com'
-#        self.s3signature_version=4
 #        super(Test_Compound_With_S3_GCS_Resource, self).__init__(*args, **kwargs)
 
 class Test_Compound_With_S3_GCS_Resource_STSDate_Header(Test_Compound_With_S3_GCS_Resource):
@@ -412,7 +409,6 @@ class Test_Compound_With_S3_GCS_Resource_STSDate_Header(Test_Compound_With_S3_GC
         self.s3stsdate='date'
         self.s3region='us-east1-a'
         self.s3endPoint='https://storage.googleapis.com'
-        self.s3signature_version=2
         super(Test_Compound_With_S3_GCS_Resource, self).__init__(*args, **kwargs)
 
 class Test_Compound_With_S3_GCS_Resource_STSDate_Header_V4(Test_Compound_With_S3_GCS_Resource):
@@ -422,7 +418,6 @@ class Test_Compound_With_S3_GCS_Resource_STSDate_Header_V4(Test_Compound_With_S3
         self.s3stsdate='date'
         self.s3region='us-east1-a'
         self.s3endPoint='https://storage.googleapis.com'
-        self.s3signature_version=4
         super(Test_Compound_With_S3_GCS_Resource, self).__init__(*args, **kwargs)
 
 class Test_Compound_With_S3_GCS_Resource_V4_SSE(Test_Compound_With_S3_GCS_Resource):
@@ -433,5 +428,4 @@ class Test_Compound_With_S3_GCS_Resource_V4_SSE(Test_Compound_With_S3_GCS_Resour
         self.s3sse=1
         self.s3region='us-east1-a'
         self.s3endPoint='https://storage.googleapis.com'
-        self.s3signature_version=4
         super(Test_Compound_With_S3_GCS_Resource, self).__init__(*args, **kwargs)
