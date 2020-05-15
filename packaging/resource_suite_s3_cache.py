@@ -14,6 +14,9 @@ import re
 import shutil
 import string
 import subprocess
+import urllib3
+
+from resource_suite_s3_nocache import Test_S3_NoCache_Base
 
 import sys
 if sys.version_info >= (2,7):
@@ -27,15 +30,25 @@ from ..configuration import IrodsConfig
 from .resource_suite import ResourceSuite
 from .test_chunkydevtest import ChunkyDevTest
 
-class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.TestCase):
+
+
+class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
     def __init__(self, *args, **kwargs):
-        self.keypairfile='/etc/irods/cloudian_credentials.keypair'
-        self.archive_naming_policy='decoupled'
-        self.s3stsdate=''
-        self.s3region='demoreg1'
-        self.s3endPoint='s3.cloudianhyperstore.com'
-        self.s3sse = 0 # server side encryption
-        super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
+        """Set up the cache test."""
+        # if self.proto is defined use it else default to HTTPS
+        try:
+            self.proto = self.proto
+        except AttributeError:
+            self.proto = 'HTTPS'
+
+        # if self.archive_naming_policy is defined use it
+        # else default to 'consistent'
+        try:
+            self.archive_naming_policy = self.archive_naming_policy
+        except AttributeError:
+            self.archive_naming_policy = 'consistent'
+
+        super(Test_S3_Cache_Base, self).__init__(*args, **kwargs)
 
     def setUp(self):
         # skip ssl tests on ub12
@@ -47,8 +60,31 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         self.read_aws_keys()
 
         # set up s3 bucket
-        #s3 = boto3.resource('s3', region_name=self.s3region)
-        s3_client = Minio('http://' + self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        try:
+            httpClient = urllib3.poolmanager.ProxyManager(
+                os.environ['http_proxy'],
+                timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
+                cert_reqs='CERT_REQUIRED',
+                retries=urllib3.Retry(
+                    total=5,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+        except KeyError:
+            httpClient = None
+
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint,
+                              access_key=self.aws_access_key_id,
+                              secret_key=self.aws_secret_access_key,
+                              http_client=httpClient)
+        else:
+            s3_client = Minio(self.s3endPoint,
+                              access_key=self.aws_access_key_id,
+                              secret_key=self.aws_secret_access_key,
+                              http_client=httpClient,
+                              secure=False)
 
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
         self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
@@ -56,8 +92,9 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         s3_client.make_bucket(self.s3bucketname, location=self.s3region)
 
         # set up resources
+
         hostname = lib.get_hostname()
-        s3params = 'S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=HTTPS;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1'
+        s3params = 'S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
         s3params += ';S3_STSDATE=' + self.s3stsdate
         s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
@@ -79,15 +116,38 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
             admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
             admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
 
-        super(Test_Compound_With_S3_Resource, self).setUp()
+        super(Test_S3_Cache_Base, self).setUp()
 
     def tearDown(self):
-        super(Test_Compound_With_S3_Resource, self).tearDown()
-
-        print(self.bucket)
+        super(Test_S3_Cache_Base, self).tearDown()
 
         # delete s3 bucket
-        s3_client = Minio('http://' + self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        try:
+            httpClient = urllib3.poolmanager.ProxyManager(
+                os.environ['http_proxy'],
+                timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
+                cert_reqs='CERT_REQUIRED',
+                retries=urllib3.Retry(
+                    total=5,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+        except KeyError:
+            httpClient = None
+
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint,
+                              access_key=self.aws_access_key_id,
+                              secret_key=self.aws_secret_access_key,
+                              http_client=httpClient)
+        else:
+            s3_client = Minio(self.s3endPoint,
+                              access_key=self.aws_access_key_id,
+                              secret_key=self.aws_secret_access_key,
+                              http_client=httpClient,
+                              secure=False)
+
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
         try:
             for del_err in s3_client.remove_objects(self.s3bucketname, [object.object_name for object in objects]):
@@ -112,6 +172,13 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         with open(self.keypairfile) as f:
             self.aws_access_key_id = f.readline().rstrip()
             self.aws_secret_access_key = f.readline().rstrip()
+
+    # read the endpoint address from the file endpointfile
+    @staticmethod
+    def read_endpoint(endpointfile):
+        # read endpoint file
+        with open(endpointfile) as f:
+            return f.readline().rstrip()
 
     def test_irm_specific_replica(self):
         self.admin.assert_icommand("ils -L "+self.testfile,'STDOUT_SINGLELINE',self.testfile) # should be listed
@@ -193,11 +260,11 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
         self.admin.assert_icommand("irepl -U "+filename)                                 # update last replica
 
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 "," & "+filename]) # should have a dirty copy
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 "," & "+filename]) # should have a dirty copy
+        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 "," & "+filename]) # should have a clean copy
+        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 "," & "+filename]) # should have a clean copy
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 "," & "+filename])     # should have a clean copy
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 3 "," & "+filename]) # should have a dirty copy
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 4 "," & "+filename])     # should have a clean copy
+        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 4 "," & "+filename])     # should have a dirty copy
 
         self.admin.assert_icommand("irepl -aU "+filename)                                # update all replicas
 
@@ -292,7 +359,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
         # assertions
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
-        self.admin.assert_icommand("iput --purgec "+filename) # put file
+        self.admin.assert_icommand("iput -f --purgec "+filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.') # get file and purge 'cached' replica
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 ",filename]) # should not be listed (trimmed)
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 ",filename]) # should be listed once - replica 1
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should be listed only once
@@ -311,7 +378,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # assertions
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
         self.admin.assert_icommand("iput "+filename) # put file
-        self.admin.assert_icommand("iget -f --purgec "+filename) # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec "+filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.') # get file and purge 'cached' replica
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 ",filename]) # should not be listed (trimmed)
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 ",filename]) # should be listed once
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should not be listed
@@ -330,7 +397,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # assertions
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
         self.admin.assert_icommand("iput "+filename) # put file
-        self.admin.assert_icommand("irepl -R "+self.testresc+" --purgec "+filename) # replicate to test resource
+        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 ",filename]) # should not be listed (trimmed)
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 ",filename]) # should be listed twice - 2 of 3
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should be listed twice - 1 of 3
@@ -375,6 +442,142 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         # verify object path
         self.assertEqual(target_path, physical_path)
 
+        # move the file
+        new_filename = "%s.new" % filename
+        session.assert_icommand("imv %s %s" % (filename, new_filename))
+
+        # get and purge cache replica
+        session.assert_icommand("iget -f --purgec %s" % new_filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.') # get file and purge 'cached' replica
+
+        # get again now that it is not in cache
+        session.assert_icommand("iget -f %s" % new_filename) # get file
+
+        # cleanup
+        session.run_icommand('irm -f ' + new_filename)
+
+    def test_decoupled_naming_policy_issue1855(self):
+        if self.archive_naming_policy != 'decoupled':
+            self.skipTest("Archive naming policy is not set to 'decoupled'")
+
+        # local setup
+        filename = self.testfile
+
+        # run as regular user
+        session = self.user0
+        collection = session.session_collection
+
+        # modify the s3 archive resource so that it only has the bucket name in the context
+        self.admin.assert_icommand('iadmin modresc archiveResc path /%s' % self.s3bucketname, 'STDOUT_SINGLELINE', 'Previous resource path:')
+
+        # iquest to get the object id of the replica on the S3 archive
+        id_query = ( "select DATA_ID where COLL_NAME =" + "'" + collection + "'" +
+                       " and DATA_NAME =" + "'" + filename + "'" +
+                       " and DATA_REPL_NUM ='1'" )
+
+        # iquest to get the pysical path of the replica on the S3 archive
+        path_query = ( "select DATA_PATH where COLL_NAME =" + "'" + collection + "'" +
+                       " and DATA_NAME =" + "'" + filename + "'" +
+                       " and DATA_REPL_NUM ='1'" )
+
+        # assertions
+        session.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
+        session.assert_icommand("iput "+filename) # put file
+
+        # get object id
+        object_id = session.run_icommand('iquest "%s" ' + '"' + id_query + '"')[0].strip()
+
+        # physical path we expect to see: /{bucket_name}/{reversed_id}/{obj_name}
+        target_path = '/' + self.s3bucketname + '/' + object_id[::-1] + '/' + filename
+
+        # get object path
+        physical_path = session.run_icommand('iquest "%s" ' + '"' + path_query + '"')[0].strip()
+
+        # verify object path
+        self.assertEqual(target_path, physical_path)
+
+        # move the file
+        new_filename = "%s.new" % filename
+        session.assert_icommand("imv %s %s" % (filename, new_filename))
+
+        # get and purge cache replica
+        session.assert_icommand("iget -f --purgec %s" % new_filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.') # get file and purge 'cached' replica
+
+        # get again now that it is not in cache
+        session.assert_icommand("iget -f %s" % new_filename) # get file
+
         # cleanup
         session.run_icommand('irm -f ' + filename)
 
+    @unittest.skip("skip until minio added to CI")
+    def test_multiple_s3_endpoints_replication_issue1858(self):
+
+        # local setup
+        filename = self.testfile
+
+        # run as regular user
+        session = self.user0
+        collection = session.session_collection
+
+        # set up resources
+
+        # TODO change these as necessary
+        minio_auth_file = '/var/lib/irods/s3.keypair'
+        minio_bucket_name = 'irods-bucket'
+
+        hostname = lib.get_hostname()
+        s3params_aws = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
+        s3params_aws += ';S3_DEFAULT_HOSTNAME=%s' % self.s3endPoint
+        s3params_aws += ';S3_AUTH_FILE=%s' % self.keypairfile
+        s3params_aws += ';S3_REGIONNAME=%s' % self.s3region
+        s3params_aws += ';ARCHIVE_NAMING_POLICY=%s' % self.archive_naming_policy
+
+        s3params_minio = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
+        s3params_minio += ';S3_DEFAULT_HOSTNAME=%s:9000' % hostname
+        s3params_minio += ';S3_AUTH_FILE=%s' % minio_auth_file
+        s3params_minio += ';S3_REGIONNAME=%s' % self.s3region
+        s3params_minio += ';ARCHIVE_NAMING_POLICY=%s' % self.archive_naming_policy
+
+        try:
+
+            # make resource tree with repl and two compound resources underneath
+            self.admin.assert_icommand('iadmin mkresc s3repl_1858 replication', 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3compound1_1858 compound', 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3compound2_1858 compound', 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3cache1_1858 unixfilesystem %s:/tmp/s3cache1_1858 unixfilesystem' % hostname, 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3archive1_1858 s3 %s:/%s/irods/Vault %s' % (hostname, self.s3bucketname, s3params_aws), 'STDOUT_SINGLELINE', 's3archive1_1858')
+            self.admin.assert_icommand('iadmin mkresc s3cache2_1858 unixfilesystem %s:/tmp/s3cache2_1858 unixfilesystem' % hostname, 'STDOUT_SINGLELINE', 'Creating')
+            self.admin.assert_icommand('iadmin mkresc s3archive2_1858 s3 %s:/%s/irods/s3archive2_1858_vault %s' % (hostname, minio_bucket_name, s3params_minio), 'STDOUT_SINGLELINE', 's3archive2_1858')
+            self.admin.assert_icommand('iadmin addchildtoresc s3repl_1858 s3compound1_1858')
+            self.admin.assert_icommand('iadmin addchildtoresc s3repl_1858 s3compound2_1858')
+            self.admin.assert_icommand('iadmin addchildtoresc s3compound1_1858 s3cache1_1858 cache')
+            self.admin.assert_icommand('iadmin addchildtoresc s3compound1_1858 s3archive1_1858 archive')
+            self.admin.assert_icommand('iadmin addchildtoresc s3compound2_1858 s3cache2_1858 cache')
+            self.admin.assert_icommand('iadmin addchildtoresc s3compound2_1858 s3archive2_1858 archive')
+
+            # put a file to this tree
+            session.assert_icommand('iput -R s3repl_1858 %s' % filename) # put file
+
+            # make sure we have four replicas
+            session.assert_icommand('ils -L %s' % filename, 'STDOUT_MULTILINE', ['s3repl_1858;s3compound1_1858;s3cache1_1858',
+                                                                                 's3repl_1858;s3compound1_1858;s3archive1_1858',
+                                                                                 's3repl_1858;s3compound2_1858;s3cache2_1858',
+                                                                                 's3repl_1858;s3compound2_1858;s3archive2_1858'])
+        finally:
+
+            # remove the file
+            session.assert_icommand('irm -f %s' % filename) # remove file
+
+            # cleanup
+            self.admin.assert_icommand('iadmin rmchildfromresc s3repl_1858 s3compound1_1858')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3repl_1858 s3compound2_1858')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3compound1_1858 s3cache1_1858 cache')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3compound1_1858 s3archive1_1858 archive')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3compound2_1858 s3cache2_1858 cache')
+            self.admin.assert_icommand('iadmin rmchildfromresc s3compound2_1858 s3archive2_1858 archive')
+            self.admin.assert_icommand('iadmin rmresc s3repl_1858')
+            self.admin.assert_icommand('iadmin rmresc s3compound1_1858')
+            self.admin.assert_icommand('iadmin rmresc s3compound2_1858')
+            self.admin.assert_icommand('iadmin rmresc s3cache1_1858')
+            self.admin.assert_icommand('iadmin rmresc s3archive1_1858')
+            self.admin.assert_icommand('iadmin rmresc s3cache2_1858')
+            self.admin.assert_icommand('iadmin rmresc s3archive2_1858')

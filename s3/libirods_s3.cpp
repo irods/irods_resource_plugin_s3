@@ -1,8 +1,7 @@
 // =-=-=-=-=-=-=-
 // local includes
 #include "libirods_s3.hpp"
-#include "s3_archive_operations.hpp"
-#include "s3_cacheless_operations.hpp"
+#include "s3_operations.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -13,6 +12,7 @@
 #include <objInfo.h>
 #include <rsRegReplica.hpp>
 #include <dataObjOpr.hpp>
+#include <irods_stacktrace.hpp>
 
 #ifdef USING_JSON
 #include <json/json.h>
@@ -31,10 +31,6 @@
 #include "irods_virtual_path.hpp"
 #include "irods_resource_backport.hpp"
 #include "irods_query.hpp"
-
-#include "s3fs/s3fs.h"
-#include "s3fs/curl.h"
-#include "s3fs/s3fs_auth.h"
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -114,29 +110,6 @@ static boost::mutex g_hostnameIdxLock;
 
 S3ResponseProperties savedProperties;
 
-// gets the attached_mode and cacheless_mode from the host_mode_str
-// return value of 0 means host_mode_str was valid
-// return value of -1 means defaults were set because host_mode_str was invalid
-int get_booleans_from_host_mode(const std::string& host_mode_str, 
-        bool& attached_mode, bool& cacheless_mode) {
-
-    if ( host_mode_str == "archive_attached" ) {
-        attached_mode = true;
-        cacheless_mode = false;
-    } else if ( host_mode_str == "cacheless_attached" ) {
-        attached_mode = true;
-        cacheless_mode = true;
-    } else if ( host_mode_str == "cacheless_detached" ) {
-        attached_mode = false;
-        cacheless_mode = true;
-    } else {
-        attached_mode = true;
-        cacheless_mode = false;
-        return 1;
-    }
-    return 0;
-}
-
 // gets the resource name from the property map
 std::string get_resource_name(irods::plugin_property_map& _prop_map) {
 
@@ -149,28 +122,42 @@ std::string get_resource_name(irods::plugin_property_map& _prop_map) {
     }
 }
 
-void get_modes_from_properties(irods::plugin_property_map& _prop_map, 
-        bool& attached_mode, bool& cacheless_mode) {
+std::string get_region_name(irods::plugin_property_map& _prop_map) {
 
-    // defaults
-    attached_mode = true;
-    cacheless_mode = false;
+        std::string region_name = "us-east-1";
+        if (!_prop_map.get< std::string >(s3_region_name, region_name ).ok()) {
+            rodsLog( LOG_ERROR, "[resource_name=%s] Failed to retrieve S3 region name from resource plugin properties, using 'us-east-1'", get_resource_name(_prop_map).c_str());
+        }
+        return region_name;
+}
 
-    std::string host_mode_str; 
+std::tuple<bool, bool> get_modes_from_properties(irods::plugin_property_map& _prop_map) {
+
+    // default modes
+    bool cacheless_mode = false;
+    bool attached_mode = true;
+
+    std::string host_mode_str;
+
     irods::error ret = _prop_map.get< std::string >(host_mode, host_mode_str);
+    if (ret.ok()) {
 
-    if( ret.ok() ) { 
-        if ( get_booleans_from_host_mode(host_mode_str, attached_mode, cacheless_mode) < 0 ) {
-            rodsLog(LOG_ERROR, "[resource_name=%s] Invalid HOST_MODE for S3 plugin [%s].  Setting to default - archive_attached.", get_resource_name(_prop_map).c_str(), host_mode_str.c_str());
-            _prop_map.set<std::string>(host_mode, "archive_attached");
+        if ( host_mode_str == "archive_attached" ) {
+            attached_mode = true;
+            cacheless_mode = false;
+        } else if ( host_mode_str == "cacheless_attached" ) {
+            attached_mode = true;
+            cacheless_mode = true;
+        } else if ( host_mode_str == "cacheless_detached" ) {
+            attached_mode = false;
+            cacheless_mode = true;
         }
 
-    } else {
-        // host mode not set, use default
-        _prop_map.set<std::string>(host_mode, "archive_attached");
     }
+
+    return std::make_tuple(cacheless_mode, attached_mode);
 }
- 
+
 
 // Sleep for *at least* the given time, plus some up to 1s additional
 // The random addition ensures that threads don't all cluster up and retry
@@ -198,74 +185,6 @@ static unsigned long long usNow() {
     return us;
 }
 
-// Return a malloc()'d C string containing the ASCII MD5 signature of the file
-// from start through length bytes, using pread to not affect file pointers.
-// The returned string needs to be free()d by the caller
-static char *s3CalcMD5( int fd, off_t start, off_t length, const std::string& resource_name )
-{
-    char *buff; // Temp buff to do MD5 calc on
-    unsigned char md5_bin[MD5_DIGEST_LENGTH];
-    MD5_CTX md5_ctx;
-    long read;
-
-    buff = (char *)malloc( 1024*1024 ); // 1MB chunk reads
-    if ( buff == NULL ) {
-        rodsLog( LOG_ERROR, "[resource_name=%s] Out of memory in S3 MD5 calculation, MD5 checksum will NOT be used for upload.", resource_name.c_str() );
-        return NULL;
-    }
-
-    MD5_Init( &md5_ctx );
-    for ( read=0; (read + 1024*1024) < length; read += 1024*1024 ) {
-        long ret = pread( fd, buff, 1024*1024, start );
-        if ( ret != 1024*1024 ) {
-            rodsLog( LOG_ERROR, "[resource_name=%s] Error during MD5 pread of file, checksum will NOT be used for upload.", resource_name.c_str() );
-            free( buff );
-            return NULL;
-        }
-        MD5_Update( &md5_ctx, buff, 1024*1024 );
-        start += 1024 * 1024;
-    }
-    // Partial read for the last bit
-    long ret = pread( fd, buff, length-read, start );
-    if ( ret != length-read ) {
-        rodsLog( LOG_ERROR, "[resource_name=%s] Error during MD5 pread of file, checksum will NOT be used for upload.", resource_name.c_str() );
-        free( buff );
-        return NULL;
-    }
-    MD5_Update( &md5_ctx, buff, length-read );
-    MD5_Final( md5_bin, &md5_ctx );
-    free( buff );
-
-    // Now we need to do BASE64 encoding of the MD5_BIN
-    BIO *bmem, *b64;
-    BUF_MEM *bptr;
-
-    b64 = BIO_new(BIO_f_base64());
-    bmem = BIO_new(BIO_s_mem());
-    if ( (b64 == NULL) || (bmem == NULL) ) {
-        rodsLog( LOG_ERROR, "[resource_name=%s] Error during Base64 allocation, checksum will NOT be used for upload.", resource_name.c_str() );
-        return NULL;
-    }
-
-    b64 = BIO_push(b64, bmem);
-    BIO_write(b64, md5_bin, MD5_DIGEST_LENGTH);
-    if (BIO_flush(b64) != 1) {
-        rodsLog( LOG_ERROR, "[resource_name=%s] Error during Base64 computation, checksum will NOT be used for upload.", resource_name.c_str() );
-        return NULL;
-    }
-    BIO_get_mem_ptr(b64, &bptr);
-
-    char *md5_b64 = (char*)malloc( bptr->length );
-    if ( md5_b64 == NULL ) {
-        rodsLog( LOG_ERROR, "[resource_name=%s] Error during MD5 allocation, checksum will NOT be used for upload.", resource_name.c_str() );
-        return NULL;
-    }
-    memcpy( md5_b64, bptr->data, bptr->length-1 );
-    md5_b64[bptr->length-1] = 0;  // 0-terminate the string, not done by BIO_*
-    BIO_free_all(b64);
-
-    return md5_b64;
-}
 // Increment through all specified hostnames in the list, locking in the case
 // where we may be multithreaded
 std::string s3GetHostname(irods::plugin_property_map& _prop_map)
@@ -288,16 +207,22 @@ std::string s3GetHostname(irods::plugin_property_map& _prop_map)
 
 
 // Callbacks for S3
-static void StoreAndLogStatus (
+void StoreAndLogStatus (
     S3Status status,
     const S3ErrorDetails *error,
     const char *function,
     const S3BucketContext *pCtx,
-    S3Status *pStatus )
+    S3Status *pStatus,
+    bool ignore_not_found_error )
 {
     int i;
 
     *pStatus = status;
+
+    if (status == S3StatusHttpErrorNotFound && ignore_not_found_error) {
+        return;
+    }
+
     if( status != S3StatusOK ) {
         rodsLog( LOG_ERROR, "  S3Status: [%s] - %d\n", S3_get_status_name( status ), (int) status );
         rodsLog( LOG_ERROR, "    S3Host: %s", pCtx->hostName );
@@ -326,6 +251,15 @@ void responseCompleteCallback(
 {
     callback_data_t *data = (callback_data_t*)callbackData;
     StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status) );
+}
+
+void responseCompleteCallbackIgnoreLoggingNotFound(
+    S3Status status,
+    const S3ErrorDetails *error,
+    void *callbackData)
+{
+    callback_data_t *data = (callback_data_t*)callbackData;
+    StoreAndLogStatus( status, error, __FUNCTION__, data->pCtx, &(data->status), true );
 }
 
 S3Status responsePropertiesCallback(
@@ -456,25 +390,10 @@ irods::error parseS3Path (
     return result;
 }
 
-// Get S3 Signature version from plugin property map
-S3SignatureVersion s3GetSignatureVersion (irods::plugin_property_map& _prop_map)
-{
-    std::string version_str;
-
-    irods::error ret = _prop_map.get< std::string >(s3_signature_version, version_str);
-    if (ret.ok()) {
-        if (version_str == "4" || boost::iequals(version_str, "V4")) {
-            return S3SignatureV4;
-        }
-    }
-
-    return S3SignatureV2; // default
-}
-
 irods::error readS3AuthInfo (
     const std::string& _filename,
     std::string& _rtn_key_id,
-    std::string& _rtn_access_key, 
+    std::string& _rtn_access_key,
     irods::plugin_property_map& _prop_map )
 {
     irods::error result = SUCCESS();
@@ -513,6 +432,8 @@ irods::error readS3AuthInfo (
         }
         return result;
     }
+
+    fclose(fptr);
 
     return result;
 }
@@ -638,25 +559,20 @@ irods::error s3InitPerOperation (
     irods::error result = SUCCESS();
 
     std::string resource_name = get_resource_name(_prop_map);
-    
+
     size_t retry_count = 10;
     std::string retry_count_str;
     result = _prop_map.get< size_t >(
         s3_retry_count,
         retry_count );
-    
+
     size_t wait_time = S3_DEFAULT_RETRY_WAIT_SEC;
     _prop_map.get<size_t>(s3_wait_time_sec_size_t, wait_time);
 
     size_t ctr = 0;
     while( ctr < retry_count ) {
-        int status = 0;
+        S3Status status;
         int flags = S3_INIT_ALL;
-        S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
-
-        if (signature_version == S3SignatureV4) {
-            flags |= S3_INIT_SIGNATURE_V4;
-        }
 
         std::string&& hostname = s3GetHostname(_prop_map);
         const char* host_name = hostname.c_str(); // Iterate through on each try
@@ -674,21 +590,18 @@ irods::error s3InitPerOperation (
         if( result.ok() ) {
 
             // If using V4 we also need to set the S3 region name
-            if (signature_version == S3SignatureV4) {
-                std::string region_name = "us-east-1";
+            std::string region_name = "us-east-1";
 
-                // Get S3 region name from plugin property map
-                if (!_prop_map.get< std::string >(s3_region_name, region_name ).ok()) {
-                    rodsLog( LOG_ERROR, "[resource_name=%s] Failed to retrieve S3 region name from resource plugin properties, using 'us-east-1'", resource_name.c_str());
-                }
+            // Get S3 region name from plugin property map
+            if (!_prop_map.get< std::string >(s3_region_name, region_name ).ok()) {
+                rodsLog( LOG_ERROR, "[resource_name=%s] Failed to retrieve S3 region name from resource plugin properties, using 'us-east-1'", resource_name.c_str());
+            }
 
-                S3Status status = S3_set_region_name(region_name.c_str());
-                if (status != S3StatusOK) {
-                    std::string error_str =  boost::str(boost::format("[resource_name=%s] failed to set region name to %s: %s") % resource_name.c_str() % 
-                        region_name.c_str() % S3_get_status_name(status));
-                    rodsLog(LOG_ERROR, error_str.c_str());
-                    return ERROR(S3_INIT_ERROR, error_str.c_str());
-                }
+            if (status != S3StatusOK) {
+                std::string error_str =  boost::str(boost::format("[resource_name=%s] failed to set region name to %s: %s") % resource_name.c_str() %
+                    region_name.c_str() % S3_get_status_name(status));
+                rodsLog(LOG_ERROR, error_str.c_str());
+                return ERROR(S3_INIT_ERROR, error_str.c_str());
             }
 
             break;
@@ -724,6 +637,26 @@ S3Protocol s3GetProto( irods::plugin_property_map& _prop_map)
         return S3ProtocolHTTP;
     }
     return S3ProtocolHTTPS;
+}
+
+S3UriStyle s3_get_uri_request_style( irods::plugin_property_map& _prop_map)
+{
+    irods::error ret;
+    std::string uri_request_style_string;
+    ret = _prop_map.get< std::string >(
+        s3_uri_request_style,
+        uri_request_style_string );
+    if (!ret.ok()) { // Default to original behavior
+        return S3UriStylePath;
+    }
+    if ( boost::iequals(uri_request_style_string.c_str(), "virtual") ||
+            boost::iequals(uri_request_style_string.c_str(), "host") ||
+            boost::iequals(uri_request_style_string.c_str(), "virtualhost") ) {
+
+        return S3UriStyleVirtualHost;
+
+    }
+    return S3UriStylePath;
 }
 
 // returns the upper limit of the MPU chunk size parameter, in megabytes
@@ -779,30 +712,27 @@ ssize_t s3GetMPUThreads (
     return threads;
 }
 
-bool s3GetEnableMD5 (
+uint64_t s3_get_minimum_part_size(
     irods::plugin_property_map& _prop_map )
 {
     irods::error ret;
-    std::string enable_str;
-    bool enable = false;
+    std::string minimum_part_size_str;
+    uint64_t minimum_part_size = S3_DEFAULT_MINIMUM_PART_SIZE;
 
-    // Don't send md5 digest when using signature V4
-    if (s3GetSignatureVersion(_prop_map) == S3SignatureV4) {
-        return false;
-    }
-
-    ret = _prop_map.get< std::string >(
-        s3_enable_md5,
-        enable_str );
+    ret = _prop_map.get< std::string >( s3_minimum_part_size, minimum_part_size_str );
     if (ret.ok()) {
-        // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
-        int parse = atol(enable_str.c_str());
-        if (parse != 0)
-            enable = true;
+        try {
+            minimum_part_size = boost::lexical_cast<uint64_t>( minimum_part_size_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(LOG_ERROR, "[resource_name=%s] failed to cast S3_MINIMUM_PART_SIZE [%s] "
+                    "to a uint64_t.  Using default of 5 MB.",
+                    resource_name.c_str(),
+                    minimum_part_size_str.c_str() );
+        }
     }
-    return enable;
+    return minimum_part_size;
 }
-
 
 bool s3GetEnableMultiPartUpload (
     irods::plugin_property_map& _prop_map )
@@ -823,7 +753,7 @@ bool s3GetEnableMultiPartUpload (
     return enable;
 }
 
-static bool s3GetServerEncrypt (
+bool s3GetServerEncrypt (
     irods::plugin_property_map& _prop_map )
 {
     irods::error ret;
@@ -933,7 +863,7 @@ static void mrdWorkerThread (
             std::string&& hostname = s3GetHostname(_prop_map);
             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset,
-                           rangeData.get_object_data.contentLength, 0, &getObjectHandler, &rangeData );
+                           rangeData.get_object_data.contentLength, 0, 0, &getObjectHandler, &rangeData );
             unsigned long long usEnd = usNow();
             double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
             msg << " -- END -- BW=" << bw << " MB/s";
@@ -942,7 +872,7 @@ static void mrdWorkerThread (
         } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt < retry_count_limit));
         if (rangeData.status != S3StatusOK) {
             msg.str( std::string() ); // Clear
-            msg << "[resource_name=" << resource_name << "] " << __FUNCTION__ 
+            msg << "[resource_name=" << resource_name << "] " << __FUNCTION__
                 << " - Error getting the S3 object: \"" << g_mrdKey << "\" range " << seq;
             if (rangeData.status >= 0) {
                 msg << " - \"" << S3_get_status_name( rangeData.status ) << "\"";
@@ -1017,9 +947,11 @@ irods::error s3GetFile(
                 bucketContext.bucketName = bucket.c_str();
                 bucketContext.protocol = s3GetProto(_prop_map);
                 bucketContext.stsDate = s3GetSTSDate(_prop_map);
-                bucketContext.uriStyle = S3UriStylePath;
+                bucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
+                std::string authRegionStr = get_region_name(_prop_map);
+                bucketContext.authRegion = authRegionStr.c_str();
 
                 long chunksize = s3GetMPUChunksize( _prop_map );
 
@@ -1039,7 +971,7 @@ irods::error s3GetFile(
                         std::string&& hostname = s3GetHostname(_prop_map);
                         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                         data.pCtx = &bucketContext;
-                        S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, &getObjectHandler, &data);
+                        S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, 0, &getObjectHandler, &data);
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "GETBW=%lf", bw);
@@ -1292,7 +1224,7 @@ static void mpuCancel( S3BucketContext *bucketContext, const char *key, const ch
     rodsLog( LOG_ERROR, msg.str().c_str() );
     g_mpuCancelRespCompCB_status = S3StatusOK;
     g_mpuCancelRespCompCB_pCtx = bucketContext;
-    S3_abort_multipart_upload(bucketContext, key, upload_id, &abortHandler);
+    S3_abort_multipart_upload(bucketContext, key, upload_id, 0, &abortHandler);
     status = g_mpuCancelRespCompCB_status;
     if (status != S3StatusOK) {
         msg.str( std::string() ); // Clear
@@ -1360,14 +1292,14 @@ static void mpuWorkerThread (
 
             S3PutProperties *putProps = NULL;
             putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
-            if ( putProps && partData.enable_md5 )
-                putProps->md5 = s3CalcMD5( partData.put_object_data.fd, partData.put_object_data.offset, partData.put_object_data.contentLength, resource_name );
             putProps->expires = -1;
             unsigned long long usStart = usNow();
             std::string&& hostname = s3GetHostname(_prop_map);
             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             if (partData.mode == S3_COPYOBJECT) {
                 unsigned long long startOffset = partData.put_object_data.offset;
+
+                // TODO -1 below to fix a bug in libs3 code
                 unsigned long long count = partData.put_object_data.contentLength;
                 S3ResponseHandler copyResponseHandler = {mpuInitRespPropCB /*Do nothing*/, mpuPartRespCompCB};
                 int64_t lastModified;
@@ -1378,9 +1310,10 @@ static void mpuWorkerThread (
                                      startOffset, count,
                                      putProps,
                                      &lastModified, 512 /*TBD - magic # */, partData.manager->etags[seq-1], 0,
-                                     &copyResponseHandler, &partData);
+                                     0, &copyResponseHandler, &partData);
             } else {
-                S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId, partData.put_object_data.contentLength, 0, &partData);
+                S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId,
+                        partData.put_object_data.contentLength, 0, 0, &partData);
             }
             unsigned long long usEnd = usNow();
             double bw = (g_mpuData[seq-1].put_object_data.contentLength / (1024.0 * 1024.0)) / ( (usEnd - usStart) / 1000000.0 );
@@ -1426,7 +1359,6 @@ irods::error s3PutCopyFile(
     int err_status = 0;
     long chunksize = s3GetMPUChunksize( _prop_map );
     size_t retry_cnt    = 0;
-    bool enable_md5 = s3GetEnableMD5 ( _prop_map );
     bool server_encrypt = s3GetServerEncrypt ( _prop_map );
     std::stringstream msg;
 
@@ -1467,15 +1399,15 @@ irods::error s3PutCopyFile(
                 bucketContext.bucketName = bucket.c_str();
                 bucketContext.protocol = s3GetProto(_prop_map);
                 bucketContext.stsDate = s3GetSTSDate(_prop_map);
-                bucketContext.uriStyle = S3UriStylePath;
+                bucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
+                std::string authRegionStr = get_region_name(_prop_map);
+                bucketContext.authRegion = authRegionStr.c_str();
 
 
                 S3PutProperties *putProps = NULL;
                 putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
-                if ( putProps && enable_md5 )
-                    putProps->md5 = s3CalcMD5( cache_fd, 0, _fileSize, get_resource_name(_prop_map) );
                 if ( putProps && server_encrypt )
                     putProps->useServerSideEncryption = true;
                 putProps->expires = -1;
@@ -1494,11 +1426,11 @@ irods::error s3PutCopyFile(
                         data.fd = cache_fd;
                         data.contentLength = data.originalContentLength = _fileSize;
                         data.pCtx = &bucketContext;
-    
+
                         unsigned long long usStart = usNow();
                         std::string&& hostname = s3GetHostname(_prop_map);
                         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
-                        S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, &putObjectHandler, &data);
+                        S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, 0, &putObjectHandler, &data);
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "BW=%lf", bw);
@@ -1592,7 +1524,7 @@ irods::error s3PutCopyFile(
                         std::string&& hostname = s3GetHostname(_prop_map);
                         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                         manager.pCtx = &bucketContext;
-                        S3_initiate_multipart(&bucketContext, key.c_str(), putProps, &mpuInitialHandler, NULL, &manager);
+                        S3_initiate_multipart(&bucketContext, key.c_str(), putProps, &mpuInitialHandler, NULL, 0, &manager);
                         if (manager.status != S3StatusOK) s3_sleep( retry_wait, 0 );
                     } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < retry_count_limit));
                     if (manager.upload_id == NULL || manager.status != S3StatusOK) {
@@ -1613,6 +1545,7 @@ irods::error s3PutCopyFile(
 
                     // Following used by S3_COPYOBJECT only
                     S3BucketContext srcBucketContext;
+                    std::string authRegionStr = get_region_name(_prop_map);
                     if (_mode == S3_COPYOBJECT) {
                         ret = parseS3Path(_filename, srcBucket, srcKey, _prop_map);
                         if(!(result = ASSERT_PASS(ret, "[resource_name=%s] Failed parsing the S3 bucket and key from the physical path: \"%s\".", resource_name.c_str(),
@@ -1623,9 +1556,10 @@ irods::error s3PutCopyFile(
                         srcBucketContext.bucketName = srcBucket.c_str();
                         srcBucketContext.protocol = s3GetProto(_prop_map);
                         srcBucketContext.stsDate = s3GetSTSDate(_prop_map);
-                        srcBucketContext.uriStyle = S3UriStylePath;
+                        srcBucketContext.uriStyle = s3_get_uri_request_style(_prop_map);
                         srcBucketContext.accessKeyId = _key_id.c_str();
                         srcBucketContext.secretAccessKey = _access_key.c_str();
+                        srcBucketContext.authRegion = authRegionStr.c_str();
                     }
 
                     g_mpuNext = 0;
@@ -1645,7 +1579,6 @@ irods::error s3PutCopyFile(
                         partContentLength = (data.contentLength > chunksize)?chunksize:data.contentLength;
                         partData.put_object_data.contentLength = partContentLength;
                         partData.put_object_data.offset = (seq-1) * chunksize;
-                        partData.enable_md5 = s3GetEnableMD5( _prop_map );
                         partData.server_encrypt = s3GetServerEncrypt( _prop_map );
                         g_mpuData[seq-1] = partData;
                         data.contentLength -= partContentLength;
@@ -1705,7 +1638,7 @@ irods::error s3PutCopyFile(
                             std::string&& hostname = s3GetHostname(_prop_map);
                             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                             manager.pCtx = &bucketContext;
-                            S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, &manager);
+                            S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, 0, &manager);
                             if (manager.status != S3StatusOK) s3_sleep( retry_wait, 0 );
                         } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < retry_count_limit));
                         if (manager.status != S3StatusOK) {
@@ -1756,7 +1689,8 @@ irods::error s3CopyFile(
     const std::string& _key_id,
     const std::string& _access_key,
     const S3Protocol _proto,
-    const S3STSDate _stsDate)
+    const S3STSDate _stsDate,
+    const S3UriStyle _s3_uri_style)
 {
     irods::error result = SUCCESS();
     irods::error ret;
@@ -1774,8 +1708,8 @@ irods::error s3CopyFile(
     std::string resource_name = get_resource_name(_src_ctx.prop_map());
 
     // Check the size, and if too large punt to the multipart copy/put routine
-    struct stat statbuf;
-    ret = irods_s3_archive::s3FileStatPlugin( _src_ctx, &statbuf );
+    struct stat statbuf = {};
+    ret = irods_s3::s3_file_stat_operation( _src_ctx, &statbuf );
     if (( result = ASSERT_PASS(ret, "[resource_name=%s] Unable to get original object size for source file name: \"%s\".", resource_name.c_str(),
                                _src_file.c_str())).ok()) {
         if ( statbuf.st_size > s3GetMPUChunksize(_src_ctx.prop_map()) ) {
@@ -1803,9 +1737,12 @@ irods::error s3CopyFile(
                 bucketContext.bucketName = src_bucket.c_str();
                 bucketContext.protocol = _proto;
                 bucketContext.stsDate = _stsDate;
-                bucketContext.uriStyle = S3UriStylePath;
+                bucketContext.uriStyle = _s3_uri_style;
                 bucketContext.accessKeyId = _key_id.c_str();
                 bucketContext.secretAccessKey = _access_key.c_str();
+
+                std::string authRegionStr = get_region_name(_src_ctx.prop_map());
+                bucketContext.authRegion = authRegionStr.c_str();
 
                 S3ResponseHandler responseHandler = {
                     &responsePropertiesCallback,
@@ -1825,7 +1762,7 @@ irods::error s3CopyFile(
                     bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                     data.pCtx = &bucketContext;
                     S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), &putProps, &lastModified, sizeof(eTag), eTag, 0,
-                                   &responseHandler, &data);
+                                   0, &responseHandler, &data);
                     if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
                 } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit) );
                 if (data.status != S3StatusOK) {
@@ -1906,37 +1843,13 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     }
 
     bool attached_mode = true, cacheless_mode = false;
-    get_modes_from_properties(_prop_map, attached_mode, cacheless_mode); 
+    std::tie(cacheless_mode, attached_mode) = get_modes_from_properties(_prop_map);
 
     if (!attached_mode) {
         char resource_location[MAX_NAME_LEN];
         gethostname(resource_location, MAX_NAME_LEN);
         _prop_map.set<std::string>(irods::RESOURCE_LOCATION, resource_location);
     }
-
-    if (cacheless_mode) {
-
-        xmlInitParser();
-    
-        // Load SSE environment
-        if(!S3fsCurl::LoadEnvSse()) {
-            std::string error_str =  boost::str(boost::format("[resource_name=%s] something wrong about SSE environment.") % resource_name.c_str());
-            rodsLog(LOG_ERROR, error_str.c_str());
-            return ERROR(S3_INIT_ERROR, error_str.c_str());
-        } 
-      
-        // ssl init
-        else if(!s3fs_init_global_ssl()){
-            std::string error_str =  boost::str(boost::format("[resource_name=%s] could not initialize for ssl libraries.") % resource_name.c_str());
-            rodsLog(LOG_ERROR, error_str.c_str());
-            return ERROR(S3_INIT_ERROR, error_str.c_str());
-        }
-    
-    
-        // init curl
-        S3fsCurl::InitS3fsCurl("/etc/mime.types");
-    }
- 
 
     return result;
 }
@@ -2120,7 +2033,7 @@ irods::error register_archive_object(
     if(phy_path.empty()) {
         return ERROR(
                    INVALID_OBJECT_NAME,
-                   boost::str(boost::format("[resource_name=%s] no matching phy path for [%s], [%s], [%s]") % resc_name.c_str() % 
+                   boost::str(boost::format("[resource_name=%s] no matching phy path for [%s], [%s], [%s]") % resc_name.c_str() %
                        _file_obj->logical_path() %
                        vault_path %
                        resc_name));
@@ -2188,8 +2101,8 @@ irods::error register_archive_object(
     strncpy( dst_data_obj.statusString,  obj.status( ).c_str(),    NAME_LEN );
     dst_data_obj.dataId = obj.id();
     dst_data_obj.collId = obj.coll_id();
-    dst_data_obj.dataMapId = 0; 
-    dst_data_obj.flags     = 0; 
+    dst_data_obj.dataMapId = 0;
+    dst_data_obj.flags     = 0;
     strncpy( dst_data_obj.dataComments,  obj.r_comment( ).c_str(), MAX_NAME_LEN );
     strncpy( dst_data_obj.dataMode,      obj.mode( ).c_str(),      SHORT_STR_LEN );
     strncpy( dst_data_obj.dataExpiry,    obj.expiry_ts( ).c_str(), TIME_LEN );
@@ -2212,7 +2125,7 @@ irods::error register_archive_object(
     reg_inp.destDataObjInfo = &dst_data_obj;
     int reg_status = rsRegReplica( _comm, &reg_inp );
     if( reg_status < 0 ) {
-        std::string error_str =  boost::str(boost::format("[resource_name=%s] failed register data object") % resc_name.c_str()); 
+        std::string error_str =  boost::str(boost::format("[resource_name=%s] failed register data object") % resc_name.c_str());
         return ERROR( reg_status, error_str.c_str() );
     }
 
@@ -2267,7 +2180,7 @@ irods::error s3RedirectOpen(
             if( INT_RESC_STATUS_DOWN == resc_status ) {
                 _out_vote = 0.0;
             }
-            else if( _curr_host == host_name) { 
+            else if( _curr_host == host_name) {
                 // =-=-=-=-=-=-=-
                 // vote higher if we are on the same host
                 irods::error get_ret = register_archive_object(
@@ -2336,260 +2249,129 @@ public:
 extern "C"
 irods::resource* plugin_factory( const std::string& _inst_name, const std::string& _context ) {
 
-    
+
     s3_resource* resc = new s3_resource(_inst_name, _context);
 
-    // default modes
-    bool cacheless_mode = false;
+    resc->add_operation(
+        irods::RESOURCE_OP_CREATE,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_create_operation ) );
 
-    std::string host_mode_str;
-    irods::error ret = resc->get_property(host_mode , host_mode_str); 
+    resc->add_operation(
+        irods::RESOURCE_OP_OPEN,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_open_operation ) );
 
-    if (ret.ok()) {
-        bool attached_mode = true;
-        get_booleans_from_host_mode(host_mode_str, attached_mode, cacheless_mode);
-    } 
+    resc->add_operation<void*,int>(
+        irods::RESOURCE_OP_READ,
+        std::function<irods::error(irods::plugin_context&,void*,int)>(
+            irods_s3::s3_file_read_operation ) );
 
-    if (cacheless_mode) {
+    resc->add_operation<void*,int>(
+        irods::RESOURCE_OP_WRITE,
+        std::function<irods::error(irods::plugin_context&,void*,int)>(
+            irods_s3::s3_file_write_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_CREATE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileCreatePlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_CLOSE,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_close_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_OPEN,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileOpenPlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_UNLINK,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_unlink_operation ) );
 
-        resc->add_operation<void*,const int>(
-            irods::RESOURCE_OP_READ,
-            std::function<irods::error(irods::plugin_context&,void*,const int)>(
-                irods_s3_cacheless::s3FileReadPlugin ) );
+    resc->add_operation<struct stat*>(
+        irods::RESOURCE_OP_STAT,
+        std::function<irods::error(irods::plugin_context&, struct stat*)>(
+            irods_s3::s3_file_stat_operation ) );
 
-        resc->add_operation<const void*,const int>(
-            irods::RESOURCE_OP_WRITE,
-            std::function<irods::error(irods::plugin_context&,const void*,const int)>(
-                irods_s3_cacheless::s3FileWritePlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_MKDIR,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_file_mkdir_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_CLOSE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileClosePlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_OPENDIR,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_opendir_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_UNLINK,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileUnlinkPlugin ) );
+    resc->add_operation<struct rodsDirent**>(
+        irods::RESOURCE_OP_READDIR,
+        std::function<irods::error(irods::plugin_context&,struct rodsDirent**)>(
+            irods_s3::s3_readdir_operation ) );
 
-        resc->add_operation<struct stat*>(
-            irods::RESOURCE_OP_STAT,
-            std::function<irods::error(irods::plugin_context&, struct stat*)>(
-                irods_s3_cacheless::s3FileStatPlugin ) );
+    resc->add_operation<const char*>(
+        irods::RESOURCE_OP_RENAME,
+        std::function<irods::error(irods::plugin_context&, const char*)>(
+            irods_s3::s3_file_rename_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_MKDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileMkdirPlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_FREESPACE,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_get_fs_freespace_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_OPENDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileOpendirPlugin ) );
+    resc->add_operation<long long, int>(
+        irods::RESOURCE_OP_LSEEK,
+        std::function<irods::error(irods::plugin_context&, long long, int)>(
+            irods_s3::s3_file_lseek_operation ) );
 
-        resc->add_operation<struct rodsDirent**>(
-            irods::RESOURCE_OP_READDIR,
-            std::function<irods::error(irods::plugin_context&,struct rodsDirent**)>(
-                irods_s3_cacheless::s3FileReaddirPlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_RMDIR,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_rmdir_operation ) );
 
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_RENAME,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_cacheless::s3FileRenamePlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_CLOSEDIR,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_closedir_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_FREESPACE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileGetFsFreeSpacePlugin ) );
+    resc->add_operation<const char*>(
+        irods::RESOURCE_OP_STAGETOCACHE,
+        std::function<irods::error(irods::plugin_context&, const char*)>(
+            irods_s3::s3_stage_to_cache_operation ) );
 
-        resc->add_operation<const long long, const int>(
-            irods::RESOURCE_OP_LSEEK,
-            std::function<irods::error(irods::plugin_context&, const long long, const int)>(
-                irods_s3_cacheless::s3FileLseekPlugin ) );
+    resc->add_operation<const char*>(
+        irods::RESOURCE_OP_SYNCTOARCH,
+        std::function<irods::error(irods::plugin_context&, const char*)>(
+            irods_s3::s3_sync_to_arch_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_RMDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileRmdirPlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_REGISTERED,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_registered_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_CLOSEDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileClosedirPlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_UNREGISTERED,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_unregistered_operation ) );
 
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_STAGETOCACHE,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_cacheless::s3StageToCachePlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_MODIFIED,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_modified_operation ) );
 
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_SYNCTOARCH,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_cacheless::s3SyncToArchPlugin ) );
+    resc->add_operation<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
+        irods::RESOURCE_OP_RESOLVE_RESC_HIER,
+        std::function<irods::error(irods::plugin_context&,const std::string*, const std::string*, irods::hierarchy_parser*, float*)>(
+            irods_s3::s3_resolve_resc_hier_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_REGISTERED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3RegisteredPlugin ) );
+    resc->add_operation(
+        irods::RESOURCE_OP_REBALANCE,
+        std::function<irods::error(irods::plugin_context&)>(
+            irods_s3::s3_rebalance_operation ) );
 
-        resc->add_operation(
-            irods::RESOURCE_OP_UNREGISTERED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3UnregisteredPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_MODIFIED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3ModifiedPlugin ) );
-
-        resc->add_operation<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
-            irods::RESOURCE_OP_RESOLVE_RESC_HIER,
-            std::function<irods::error(irods::plugin_context&,const std::string*, const std::string*, irods::hierarchy_parser*, float*)>(
-                irods_s3_cacheless::s3RedirectPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_REBALANCE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_cacheless::s3FileRebalance ) );
-
-        resc->add_operation<const std::string*>(
-            irods::RESOURCE_OP_NOTIFY,
-            std::function<irods::error(irods::plugin_context&, const std::string*)>(
-                irods_s3_cacheless::s3FileNotifyPlugin ) ); 
-
-
-    } else {
-
-        resc->add_operation(
-            irods::RESOURCE_OP_CREATE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileCreatePlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_OPEN,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileOpenPlugin ) );
-
-        resc->add_operation<void*,const int>(
-            irods::RESOURCE_OP_READ,
-            std::function<irods::error(irods::plugin_context&,void*,const int)>(
-                irods_s3_archive::s3FileReadPlugin ) );
-
-        resc->add_operation<const void*,const int>(
-            irods::RESOURCE_OP_WRITE,
-            std::function<irods::error(irods::plugin_context&,const void*,const int)>(
-                irods_s3_archive::s3FileWritePlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_CLOSE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileClosePlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_UNLINK,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileUnlinkPlugin ) );
-
-        resc->add_operation<struct stat*>(
-            irods::RESOURCE_OP_STAT,
-            std::function<irods::error(irods::plugin_context&, struct stat*)>(
-                irods_s3_archive::s3FileStatPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_MKDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileMkdirPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_OPENDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileOpendirPlugin ) );
-
-        resc->add_operation<struct rodsDirent**>(
-            irods::RESOURCE_OP_READDIR,
-            std::function<irods::error(irods::plugin_context&,struct rodsDirent**)>(
-                irods_s3_archive::s3FileReaddirPlugin ) );
-
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_RENAME,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_archive::s3FileRenamePlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_FREESPACE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileGetFsFreeSpacePlugin ) );
-
-        resc->add_operation<const long long, const int>(
-            irods::RESOURCE_OP_LSEEK,
-            std::function<irods::error(irods::plugin_context&, const long long, const int)>(
-                irods_s3_archive::s3FileLseekPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_RMDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileRmdirPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_CLOSEDIR,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileClosedirPlugin ) );
-
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_STAGETOCACHE,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_archive::s3StageToCachePlugin ) );
-
-        resc->add_operation<const char*>(
-            irods::RESOURCE_OP_SYNCTOARCH,
-            std::function<irods::error(irods::plugin_context&, const char*)>(
-                irods_s3_archive::s3SyncToArchPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_REGISTERED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3RegisteredPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_UNREGISTERED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3UnregisteredPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_MODIFIED,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3ModifiedPlugin ) );
-
-        resc->add_operation<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
-            irods::RESOURCE_OP_RESOLVE_RESC_HIER,
-            std::function<irods::error(irods::plugin_context&,const std::string*, const std::string*, irods::hierarchy_parser*, float*)>(
-                irods_s3_archive::s3RedirectPlugin ) );
-
-        resc->add_operation(
-            irods::RESOURCE_OP_REBALANCE,
-            std::function<irods::error(irods::plugin_context&)>(
-                irods_s3_archive::s3FileRebalance ) );
-
-        resc->add_operation<const std::string*>(
-            irods::RESOURCE_OP_NOTIFY,
-            std::function<irods::error(irods::plugin_context&, const std::string*)>(
-                irods_s3_archive::s3FileNotifyPlugin ) ); 
-    } 
+    resc->add_operation<const std::string*>(
+        irods::RESOURCE_OP_NOTIFY,
+        std::function<irods::error(irods::plugin_context&, const std::string*)>(
+            irods_s3::s3_notify_operation ) );
 
     // set some properties necessary for backporting to iRODS legacy code
     resc->set_property< int >( irods::RESOURCE_CHECK_PATH_PERM, DO_CHK_PATH_PERM );
     resc->set_property< int >( irods::RESOURCE_CREATE_PATH,     CREATE_PATH );
     resc->set_property< int >( "category",        FILE_CAT );
+    resc->set_property< bool >( irods::RESOURCE_SKIP_VAULT_PATH_CHECK_ON_UNLINK, true);
 
     return static_cast<irods::resource*>( resc );
 

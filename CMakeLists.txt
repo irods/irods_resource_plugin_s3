@@ -38,11 +38,14 @@ project(irods_resource_plugin-s3
 include(${IRODS_TARGETS_PATH})
 
 include(GNUInstallDirs)
+message(STATUS "IRODS_EXTERNALS_FULLPATH_S3 is '${IRODS_EXTERNALS_FULLPATH_S3}'")
 
 if (NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build {Debug, Release}." FORCE)
   message(STATUS "Setting unspecified CMAKE_BUILD_TYPE to '${CMAKE_BUILD_TYPE}'")
 endif()
+
+add_definitions(-DIRODS_QUERY_ENABLE_SERVER_SIDE_API)
 
 set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs")
@@ -50,7 +53,8 @@ add_compile_options(-nostdinc++ -Wall -Wextra -Werror)
 add_compile_options(-Wno-unused-function) # due to OPENSSL_NO_DEPRECATED_1_1_0
 add_compile_options(-Wno-unused-parameter) # Until fix of irods_re_plugin.hpp
 add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://github.com/irods/irods/issues/3396
-link_libraries(c++abi curl xml2 crypto pthread)
+add_compile_options(-Wno-unused-function) # Due to openssl_unused_function
+link_libraries(c++abi curl xml2 crypto pthread rt)
 include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1
                     ${IRODS_EXTERNALS_FULLPATH_JSON}/include)
 
@@ -64,25 +68,15 @@ add_library(
   irods_s3_plugin
   MODULE
   ${CMAKE_SOURCE_DIR}/s3/libirods_s3.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3_archive_operations.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3_cacheless_operations.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/curl.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/addhead.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/cache.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/common_auth.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/fdcache.cpp
-  #${CMAKE_SOURCE_DIR}/s3/s3fs/gnutls_auth.cpp
-  #${CMAKE_SOURCE_DIR}/s3/s3fs/nss_auth.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/openssl_auth.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/s3fs_util.cpp
-  ${CMAKE_SOURCE_DIR}/s3/s3fs/string_util.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_operations.cpp
+  ${CMAKE_SOURCE_DIR}/s3/s3_transport/src/s3_transport.cpp
   )
 target_include_directories(
   irods_s3_plugin
   PRIVATE
   ${IRODS_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
   /usr/include/libxml2
@@ -111,8 +105,11 @@ install(
 install(
   FILES
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3.py
+  ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_minio.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_for_gcp.py
+  ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_ceph.py
   ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_nocache.py
+  ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_cache.py
   DESTINATION ${IRODS_HOME_DIRECTORY}/scripts/irods/test
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
   )
