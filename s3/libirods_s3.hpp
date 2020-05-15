@@ -41,7 +41,6 @@ const std::string s3_mpu_chunk{"S3_MPU_CHUNK"};
 const std::string s3_mpu_threads{"S3_MPU_THREADS"};
 const std::string s3_enable_md5{"S3_ENABLE_MD5"};
 const std::string s3_server_encrypt{"S3_SERVER_ENCRYPT"};
-const std::string s3_signature_version{"S3_SIGNATURE_VERSION"};
 const std::string s3_region_name{"S3_REGIONNAME"};
 const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
@@ -51,10 +50,8 @@ const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
 const size_t S3_DEFAULT_RETRY_COUNT = 1;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
-S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
-bool s3GetEnableMD5(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map );
 
 typedef struct S3Auth {
@@ -187,6 +184,7 @@ void get_modes_from_properties(irods::plugin_property_map& _prop_map,
         bool& attached_mode, bool& cacheless_mode); 
 
 std::string get_resource_name(irods::plugin_property_map& _prop_map);
+std::string get_region_name(irods::plugin_property_map& _prop_map);
  
 bool determine_unlink_for_repl_policy(
     rsComm_t*          _comm,

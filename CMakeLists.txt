@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5.0 FATAL_ERROR) #CPACK_DEBIAN_<COMPONENT>_PACKAGE_NAME
 
 find_package(IRODS 4.2.8 EXACT REQUIRED)
-set(IRODS_PLUGIN_REVISION "0")
+set(IRODS_PLUGIN_REVISION "1")
 
 if (NOT IRODS_EXTERNALS_PACKAGE_ROOT)
   set(IRODS_EXTERNALS_PACKAGE_ROOT "/opt/irods-externals" CACHE STRING "Choose the location of iRODS external packages." FORCE)
@@ -23,7 +23,7 @@ macro(IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIE
   IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH(${DEPENDENCY_NAME} ${DEPENDENCY_SUBDIRECTORY})
   list(APPEND IRODS_PACKAGE_DEPENDENCIES_LIST irods-externals-${DEPENDENCY_SUBDIRECTORY})
 endmacro()
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(S3 libs3a30e55e8-1)
+IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(S3 libs34e684077-0)
 string(REPLACE ";" ", " IRODS_PACKAGE_DEPENDENCIES_STRING "${IRODS_PACKAGE_DEPENDENCIES_LIST}")
 
 set(CMAKE_C_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/clang)
@@ -52,6 +52,7 @@ add_compile_options(-nostdinc++ -Wall -Wextra -Werror)
 add_compile_options(-Wno-unused-function) # due to OPENSSL_NO_DEPRECATED_1_1_0
 add_compile_options(-Wno-unused-parameter) # Until fix of irods_re_plugin.hpp
 add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://github.com/irods/irods/issues/3396
+add_compile_options(-Wno-unused-function) # Due to openssl_unused_function
 link_libraries(c++abi curl xml2 crypto pthread)
 include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1
                     ${IRODS_EXTERNALS_FULLPATH_JSON}/include)
@@ -114,7 +115,10 @@ install(
   FILES
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_for_gcp.py
+  ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_ceph.py
+  ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_minio.py
   ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_nocache.py
+  ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_cache.py
   DESTINATION ${IRODS_HOME_DIRECTORY}/scripts/irods/test
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
   )

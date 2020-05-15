@@ -156,14 +156,6 @@ namespace irods_s3_cacheless {
             s3_protocol_str = "";
         }
     
-        S3SignatureVersion signature_version = s3GetSignatureVersion(_prop_map);
-    
-        if (signature_version == S3SignatureV4) {
-            S3fsCurl::SetSignatureV4(true);
-        } else {
-            S3fsCurl::SetSignatureV4(false);
-        }
-    
         nomultipart = !s3GetEnableMultiPartUpload(_prop_map);
 
         // set multipart size
@@ -173,9 +165,6 @@ namespace irods_s3_cacheless {
         // set number of simultaneous threads
         S3fsCurl::SetMaxParallelCount(s3GetMPUThreads(_prop_map));
 
-        // set the MD5 flag
-        S3fsCurl::SetContentMd5(s3GetEnableMD5(_prop_map));
-    
         //service_path = "";
         strncpy(host, s3GetHostname(_prop_map).c_str(), MAX_NAME_LEN-1);
 
