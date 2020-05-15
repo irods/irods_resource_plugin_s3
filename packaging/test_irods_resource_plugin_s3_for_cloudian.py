@@ -34,7 +34,6 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         self.s3stsdate=''
         self.s3region='demoreg1'
         self.s3endPoint='s3.cloudianhyperstore.com'
-        self.s3signature_version=2
         self.s3sse = 0 # server side encryption
         super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
 
@@ -63,7 +62,6 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
         s3params += ';S3_REGIONNAME=' + self.s3region
-        s3params += ';S3_SIGNATURE_VERSION=' + str(self.s3signature_version)
         s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
         try:
             s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)

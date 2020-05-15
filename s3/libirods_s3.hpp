@@ -41,21 +41,34 @@ const std::string s3_mpu_chunk{"S3_MPU_CHUNK"};
 const std::string s3_mpu_threads{"S3_MPU_THREADS"};
 const std::string s3_enable_md5{"S3_ENABLE_MD5"};
 const std::string s3_server_encrypt{"S3_SERVER_ENCRYPT"};
-const std::string s3_signature_version{"S3_SIGNATURE_VERSION"};
 const std::string s3_region_name{"S3_REGIONNAME"};
 const std::string REPL_POLICY_KEY{"repl_policy"};
 const std::string REPL_POLICY_VAL{"reg_repl"};
 const std::string s3_cache_dir{"S3_CACHE_DIR"};
+const std::string s3_circular_buffer_size{"S3_CIRCULAR_BUFFER_SIZE"};
+const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
+const std::string s3_minimum_part_size{"S3_MINIMUM_PART_SIZE"};        //  the minimum part size for s3 multipart parts.  Default
+                                                                       //  is AWS value of 5MB
 
-const size_t S3_DEFAULT_RETRY_WAIT_SEC = 1;
-const size_t S3_DEFAULT_RETRY_COUNT = 1;
+const std::string s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
+const size_t S3_DEFAULT_RETRY_WAIT_SEC = 2;
+const size_t S3_DEFAULT_RETRY_COUNT = 3;
+const int    S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
+const size_t S3_DEFAULT_MINIMUM_PART_SIZE = 5*1024*1024;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
-S3SignatureVersion s3GetSignatureVersion(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
-bool s3GetEnableMD5(irods::plugin_property_map& _prop_map);
-bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map );
+uint64_t s3_get_minimum_part_size(irods::plugin_property_map& _prop_map);
+bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map);
+S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
+std::string get_region_name(irods::plugin_property_map& _prop_map);
+bool s3GetServerEncrypt (irods::plugin_property_map& _prop_map);
+
+void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
+        const char *function, const S3BucketContext *pCtx, S3Status *pStatus,
+        bool ignore_not_found_error = false);
+
 
 typedef struct S3Auth {
     char accessKeyId[MAX_NAME_LEN];
@@ -107,7 +120,6 @@ typedef struct multipart_data
     upload_manager_t *manager;     /* To update w/the MD5 returned */
 
     S3Status status;
-    bool enable_md5;
     bool server_encrypt;
 } multipart_data_t;
 
@@ -126,9 +138,14 @@ typedef struct multirange_data
 // at the same time (dogpile effect)
 void s3_sleep(
     int _s,
-    int _ms ); 
+    int _ms );
 
 void responseCompleteCallback(
+    S3Status status,
+    const S3ErrorDetails *error,
+    void *callbackData);
+
+void responseCompleteCallbackIgnoreLoggingNotFound(
     S3Status status,
     const S3ErrorDetails *error,
     void *callbackData);
@@ -144,8 +161,8 @@ irods::error parseS3Path (
     std::string&       _key,
     irods::plugin_property_map& _prop_map );
 
-irods::error s3Init ( irods::plugin_property_map& _prop_map ); 
-irods::error s3InitPerOperation ( irods::plugin_property_map& _prop_map ); 
+irods::error s3Init ( irods::plugin_property_map& _prop_map );
+irods::error s3InitPerOperation ( irods::plugin_property_map& _prop_map );
 
 S3Protocol s3GetProto( irods::plugin_property_map& _prop_map);
 
@@ -166,7 +183,7 @@ irods::error s3PutCopyFile(
     rodsLong_t _fileSize,
     const std::string& _key_id,
     const std::string& _access_key,
-    irods::plugin_property_map& _prop_map );
+    irods::plugin_property_map& _prop_map);
 
 /// @brief Function to copy the specified src file to the specified dest file
 irods::error s3CopyFile(
@@ -176,22 +193,22 @@ irods::error s3CopyFile(
     const std::string& _key_id,
     const std::string& _access_key,
     const S3Protocol _proto,
-    const S3STSDate _stsDate);
+    const S3STSDate _stsDate,
+    const S3UriStyle _s3_uri_style);
 
 // =-=-=-=-=-=-=-
 /// @brief Checks the basic operation parameters and updates the physical path in the file object
-irods::error s3CheckParams(irods::plugin_context& _ctx ); 
+irods::error s3CheckParams(irods::plugin_context& _ctx );
 
 
-void get_modes_from_properties(irods::plugin_property_map& _prop_map, 
-        bool& attached_mode, bool& cacheless_mode); 
+std::tuple<bool, bool> get_modes_from_properties(irods::plugin_property_map& _prop_map_);
 
 std::string get_resource_name(irods::plugin_property_map& _prop_map);
- 
+
 bool determine_unlink_for_repl_policy(
     rsComm_t*          _comm,
     const std::string& _logical_path,
-    const std::string& _vault_path); 
+    const std::string& _vault_path);
 
 // =-=-=-=-=-=-=-
 // redirect_get - code to determine redirection for get operation
@@ -200,7 +217,7 @@ irods::error s3RedirectCreate(
     irods::file_object&         _file_obj,
     const std::string&          _resc_name,
     const std::string&          _curr_host,
-    float&                      _out_vote ); 
+    float&                      _out_vote );
 
 // =-=-=-=-=-=-=-
 // redirect_get - code to determine redirection for get operation
@@ -210,7 +227,7 @@ irods::error s3RedirectOpen(
     irods::file_object_ptr      _file_obj,
     const std::string&          _resc_name,
     const std::string&          _curr_host,
-    float&                      _out_vote ); 
+    float&                      _out_vote );
 
 irods::error s3GetAuthCredentials(
     irods::plugin_property_map& _prop_map,
