@@ -156,6 +156,8 @@ namespace irods_s3_archive {
             return PASS(ret);
         }
 
+        std::string region_name = get_region_name(_ctx.prop_map());
+
         std::string key_id;
         std::string access_key;
         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
@@ -171,6 +173,7 @@ namespace irods_s3_archive {
         bucketContext.uriStyle = S3UriStylePath;
         bucketContext.accessKeyId = key_id.c_str();
         bucketContext.secretAccessKey = access_key.c_str();
+        bucketContext.authRegion = region_name.c_str();
 
         callback_data_t data;
         S3ResponseHandler responseHandler = { 0, &responseCompleteCallback };
@@ -183,6 +186,7 @@ namespace irods_s3_archive {
             S3_delete_object(
                 &bucketContext,
                 key.c_str(), 0,
+                0,               // timeout
                 &responseHandler,
                 &data);
             if(data.status != S3StatusOK) {
@@ -206,9 +210,9 @@ namespace irods_s3_archive {
             }
             return ERROR(S3_FILE_UNLINK_ERR, msg.str());
         }
-        
+
         return SUCCESS();
-    } // s3FileUnlinkPlugin 
+    } // s3FileUnlinkPlugin
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Stat
@@ -257,6 +261,8 @@ namespace irods_s3_archive {
                         ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
                         if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get the S3 credentials properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
+                            std::string region_name = get_region_name(_ctx.prop_map());
+
                             callback_data_t data;
                             S3BucketContext bucketContext;
 
@@ -267,6 +273,7 @@ namespace irods_s3_archive {
                             bucketContext.uriStyle = S3UriStylePath;
                             bucketContext.accessKeyId = key_id.c_str();
                             bucketContext.secretAccessKey = access_key.c_str();
+                            bucketContext.authRegion = region_name.c_str();
 
                             S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallback };
                             size_t retry_cnt = 0;
@@ -275,7 +282,7 @@ namespace irods_s3_archive {
                                 std::string&& hostname = s3GetHostname(_ctx.prop_map());
                                 bucketContext.hostName = hostname.c_str();
                                 data.pCtx = &bucketContext;
-                                S3_head_object(&bucketContext, key.c_str(), 0, &headObjectHandler, &data);
+                                S3_head_object(&bucketContext, key.c_str(), 0, 0, &headObjectHandler, &data);
                                 if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
                             } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
 
@@ -642,7 +649,7 @@ namespace irods_s3_archive {
 
     } // s3FileRebalance
 
-    irods::error s3FileNotifyPlugin( irods::plugin_context& _ctx, 
+    irods::error s3FileNotifyPlugin( irods::plugin_context& _ctx,
         const std::string* str ) {
         return SUCCESS();
     } // s3FileNotifyPlugin

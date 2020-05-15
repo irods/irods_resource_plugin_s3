@@ -33,10 +33,28 @@ from ..controller import IrodsController
 from . import session
 
 
-class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+
+    def __init__(self, *args, **kwargs):
+
+        # if self.proto is defined use it else default to HTTPS
+        try:
+            self.proto = self.proto
+        except AttributeError:
+            self.proto = 'HTTPS'
+
+        # if self.archive_naming_policy is defined use it
+        # else default to 'consistent'
+        try:
+            self.archive_naming_policy = self.archive_naming_policy
+        except AttributeError:
+            self.archive_naming_policy = 'consistent'
+
+        super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
 
     def setUp(self):
-        super(ResourceBase, self).setUp()
+
+        super(Test_S3_NoCache_Base, self).setUp()
         self.admin = self.admin_sessions[0]
         self.user0 = self.user_sessions[0]
         self.user1 = self.user_sessions[1]
@@ -51,7 +69,11 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.read_aws_keys()
 
         # set up s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
+
 
         distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
@@ -64,7 +86,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.anotherresc = "AnotherResc"
         self.anothervault = "/tmp/" + self.anotherresc
 
-        self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3EnableMPU, self.s3signature_version)
+        self.s3_context = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=%s;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.proto, self.s3EnableMPU)
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
@@ -91,7 +113,7 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         self.admin.run_icommand(['irm', self.testfile, '../public/' + self.testfile])
         self.admin.run_icommand('irm -rf ../../bundle')
 
-        super(ResourceBase, self).tearDown()
+        super(Test_S3_NoCache_Base, self).tearDown()
         with session.make_session_for_existing_admin() as admin_session:
             admin_session.run_icommand('irmtrash -M')
             admin_session.run_icommand(['iadmin', 'rmresc', self.testresc])
@@ -101,7 +123,10 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             print("run_resource_teardown - END")
 
         # delete s3 bucket
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
 
         try:
@@ -117,6 +142,12 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
         with open(self.keypairfile) as f:
             self.aws_access_key_id = f.readline().rstrip()
             self.aws_secret_access_key = f.readline().rstrip()
+
+    # read the endpoint address from the file endpointfile
+    def read_endpoint(self, endpointfile):
+        # read endpoint file
+        with open(endpointfile) as f:
+            return f.readline().rstrip()
 
     def set_up_aws_config_dir(self):
         # read access keys from keypair file
@@ -142,9 +173,6 @@ class ResourceBase(session.make_sessions_mixin([('otherrods', 'rods')], [('alice
             cred_file.write('[default]\n')
             cred_file.write('aws_access_key_id = ' + aws_access_key_id + '\n')
             cred_file.write('aws_secret_access_key = ' + aws_secret_access_key + '\n')
-
-class ResourceSuite_S3_NoCache(ResourceBase):
-
 
     ###################
     # iget
@@ -1121,8 +1149,7 @@ class ResourceSuite_S3_NoCache(ResourceBase):
             os.unlink(filepath)
 
 
-# specific test cases unique to cacheless S3
-class Test_S3_NoCache_Base(ResourceSuite_S3_NoCache):
+    # tests add for cacheless S3
 
     def test_iput_large_file_over_smaller(self):
 
@@ -1455,7 +1482,8 @@ OUTPUT ruleExecOut
         resource_host = "irods.org"
 
         # change demoResc to use detached mode
-        s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTPS;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d;S3_SIGNATURE_VERSION=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.s3EnableMPU, self.s3signature_version)
+
+        s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=%s;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.proto, self.s3EnableMPU)
 
         self.admin.assert_icommand("iadmin modresc demoResc context %s" % s3_context_detached , 'EMPTY')
         self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
@@ -1517,7 +1545,10 @@ OUTPUT ruleExecOut
     def recursive_register_from_s3_bucket(self):
 
         # create some files on s3
-        s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, secure=False)
         file_contents = b'random test data'
         f = io.BytesIO(file_contents)
         size = len(file_contents)
