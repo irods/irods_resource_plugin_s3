@@ -2184,7 +2184,7 @@ irods::error register_archive_object(
     strncpy( dst_data_obj.dataOwnerName, obj.owner_name( ).c_str(),NAME_LEN );
     strncpy( dst_data_obj.dataOwnerZone, obj.owner_zone( ).c_str(),NAME_LEN );
     dst_data_obj.replNum    = max_repl_num+1;
-    dst_data_obj.replStatus = obj.is_dirty( );
+    dst_data_obj.replStatus = obj.replica_status( );
     strncpy( dst_data_obj.statusString,  obj.status( ).c_str(),    NAME_LEN );
     dst_data_obj.dataId = obj.id();
     dst_data_obj.collId = obj.coll_id();

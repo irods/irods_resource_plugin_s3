@@ -100,7 +100,7 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
   ${OPENSSL_CRYPTO_LIBRARY}
   )
-target_compile_definitions(irods_s3_plugin PRIVATE RODS_SERVER ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED)
+target_compile_definitions(irods_s3_plugin PRIVATE IRODS_QUERY_ENABLE_SERVER_SIDE_API ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED)
 set_property(TARGET irods_s3_plugin PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
 set_property(TARGET irods_s3_plugin PROPERTY OUTPUT_NAME s3)
 install(
