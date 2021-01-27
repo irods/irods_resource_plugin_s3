@@ -879,6 +879,8 @@ namespace irods::experimental::io::s3_transport
             }
 
             // remove cache file
+            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] removing cache file %s\n",
+                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), cache_file_path_.c_str());
             std::remove(cache_file_path_.c_str());
 
             // set cache file download flag to NOT_STARTED
@@ -1086,6 +1088,8 @@ namespace irods::experimental::io::s3_transport
                         bf::path parent_path = cache_file.parent_path();
 
                         try {
+                            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] Creating parent_path  %s\n",
+                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), parent_path.string().c_str());
                             boost::filesystem::create_directories(parent_path);
                         } catch (boost::filesystem::filesystem_error& e) {
                             rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] Could not create parent directories for cache file.  %s\n",
@@ -1109,18 +1113,18 @@ namespace irods::experimental::io::s3_transport
                         // try opening for read and write, if it fails create then open for read/write
                         cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::in | std::ios_base::out);
                         if (!cache_fstream_.is_open()) {
-                            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] opened cache file with create [trunc_flag=%d]\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), trunc_flag);
+                            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] opened cache file %s with create [trunc_flag=%d]\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), cache_file_path_.c_str(), trunc_flag);
                             // file may not exist, open with std::ios_base::out to create then with in/out
-                            cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::out);
+                            cache_fstream_.open(cache_file_path_.c_str(), std::ios_base::out);
                             cache_fstream_.close();
                             cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::in | std::ios_base::out);
                         } else {
-                            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] opened cache file [trunc_flag=%d]\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), trunc_flag);
+                            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] opened cache file %s [trunc_flag=%d]\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), cache_file_path_.c_str(), trunc_flag);
                         }
 
                         if (!cache_fstream_ || !cache_fstream_.is_open()) {
-                            rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] Failed to open cache file %s\n",
-                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), cache_file_path_.c_str());
+                            rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] Failed to open cache file %s, error=%s\n",
+                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), cache_file_path_.c_str(), strerror(errno));
                             this->critical_error_encountered_ = true;
                             return_value = false;
                         }

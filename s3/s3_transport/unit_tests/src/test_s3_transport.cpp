@@ -410,6 +410,7 @@ void read_write_on_file(const char *hostname,
     s3_config.put_repl_flag = false;
     s3_config.debug_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
+    s3_config.cache_directory = ".";
 
     s3_transport tp1{s3_config};
     dstream ds1{tp1, std::string(object_prefix)+filename, open_modes};
