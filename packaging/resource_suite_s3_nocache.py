@@ -82,9 +82,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         s3_client.make_bucket(self.s3bucketname, location=self.s3region)
 
         self.testresc = "TestResc"
-        self.testvault = "/tmp/" + self.testresc
+        self.testvault = "/" + self.testresc
         self.anotherresc = "AnotherResc"
-        self.anothervault = "/tmp/" + self.anotherresc
+        self.anothervault = "/" + self.anotherresc
 
         self.s3_context = 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint
         self.s3_context += ';S3_AUTH_FILE=' + self.keypairfile
@@ -96,6 +96,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.s3_context += ';HOST_MODE=cacheless_attached'
         self.s3_context += ';S3_ENABLE_MD5=1'
         self.s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
+        self.s3_context += ';S3_CACHE_DIR=/var/lib/irods'
 
         try:
             self.s3_context += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
@@ -105,7 +106,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
-        self.admin.assert_icommand("iadmin mkresc demoResc s3 " + hostname + ":/" + self.s3bucketname + "/tmp/demoResc " + self.s3_context, 'STDOUT_SINGLELINE', 's3')
+        self.admin.assert_icommand("iadmin mkresc demoResc s3 " + hostname + ":/" + self.s3bucketname + "/demoResc " + self.s3_context, 'STDOUT_SINGLELINE', 's3')
 
         self.admin.assert_icommand(
             ['iadmin', "mkresc", self.testresc, 's3', hostname + ":/" + self.s3bucketname + self.testvault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
@@ -790,10 +791,10 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         lib.execute_command("cat %s %s > %s" % (filename, filename, doublefile), use_unsafe_shell=True)
 
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
+        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/%s/thirdrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")   # create third resource
 
-        self.admin.assert_icommand("iadmin mkresc fourthresc s3 %s:/%s/tmp/%s/fourthrescVault %s" %
+        self.admin.assert_icommand("iadmin mkresc fourthresc s3 %s:/%s/%s/fourthrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create fourth resource
 
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")              # should not be listed
@@ -873,7 +874,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         hostname = lib.get_hostname()
         hostuser = getpass.getuser()
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/tmp/%s/thirdrescVault %s" %
+        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/%s/thirdrescVault %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create third resource
 
 
@@ -1630,11 +1631,11 @@ OUTPUT ruleExecOut
 
             # create two s3 resources in repl node
             self.admin.assert_icommand("iadmin mkresc s3repl replication".format(**locals()), 'STDOUT_SINGLELINE', "replication")
-            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
-            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/tmp/%s/s3resc2 %s" %
+            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/%s/s3resc2 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
-            self.admin.assert_icommand("iadmin mkresc s3resc3 s3 %s:/%s/tmp/%s/s3resc3 %s" %
+            self.admin.assert_icommand("iadmin mkresc s3resc3 s3 %s:/%s/%s/s3resc3 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
             self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc1", 'EMPTY')
             self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc2", 'EMPTY')
@@ -1690,11 +1691,11 @@ OUTPUT ruleExecOut
 
             # create two s3 resources in repl node
             self.admin.assert_icommand("iadmin mkresc s3repl replication".format(**locals()), 'STDOUT_SINGLELINE', "replication")
-            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
-            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/tmp/%s/s3resc2 %s" %
+            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/%s/s3resc2 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
-            self.admin.assert_icommand("iadmin mkresc s3resc3 s3 %s:/%s/tmp/%s/s3resc3 %s" %
+            self.admin.assert_icommand("iadmin mkresc s3resc3 s3 %s:/%s/%s/s3resc3 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
             self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc1", 'EMPTY')
             self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc2", 'EMPTY')
@@ -1749,7 +1750,7 @@ OUTPUT ruleExecOut
             hostuser = getpass.getuser()
 
             # create two s3 resources in repl node
-            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/tmp/%s/s3resc1 %s" %
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
 
             # create and put file
