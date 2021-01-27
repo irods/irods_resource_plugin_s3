@@ -401,6 +401,19 @@ namespace irods_s3 {
             } catch (boost::bad_lexical_cast &) {}
         }
 
+        // if cachedir is defined, use that else use /tmp/<resc_name>
+        std::string s3_cache_dir_str;
+        ret = _ctx.prop_map().get< std::string >(s3_cache_dir, s3_cache_dir_str);
+        if (!ret.ok()) {
+            s3_cache_dir_str = "/tmp";
+        }
+
+        const auto& shared_memory_name_salt = irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
+        std::string resc_name  = "";
+        ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name);
+        s3_cache_dir_str += "/" + resc_name + shared_memory_name_salt;
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] s3_cache_dir_str=%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, s3_cache_dir_str.c_str());
+
         std::string&& hostname = s3GetHostname(_ctx.prop_map());
         s3_transport_config s3_config;
         s3_config.hostname = hostname;
@@ -420,6 +433,7 @@ namespace irods_s3 {
         s3_config.region_name = get_region_name(_ctx.prop_map());
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
         s3_config.server_encrypt_flag = s3GetServerEncrypt(_ctx.prop_map());
+        s3_config.cache_directory = s3_cache_dir_str;
 
         // get open mode
         std::ios_base::openmode open_mode = data.open_mode;
