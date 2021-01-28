@@ -3,7 +3,7 @@ project(unit_tests LANGUAGES C CXX)
 
 find_package(IRODS 4.2.8 EXACT REQUIRED)
 
-set(IRODS_EXTERNALS_FULLPATH_S3 "/opt/irods-externals/libs3a30e55e8-1/")
+set(IRODS_EXTERNALS_FULLPATH_S3 "/opt/irods-externals/libs34e684077-0/")
 
 message(STATUS "CMAKE_BINARY_DIR=${CMAKE_BINARY_DIR}")
 message(STATUS "IRODS_EXTERNALS_FULLPATH_S3=${IRODS_EXTERNALS_FULLPATH_S3}")
