@@ -45,6 +45,7 @@
 #include <list>
 #include <map>
 #include <assert.h>
+#include <boost/interprocess/sync/named_semaphore.hpp>
 
 #include <curl/curl.h>
 
@@ -499,7 +500,14 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            try {
+                boost::interprocess::named_semaphore semaphore(boost::interprocess::open_or_create_t(), "s3_open_throttle_semaphore", 10);
+                semaphore.wait();
+            } catch (boost::interprocess::interprocess_exception e) {
+                return ERROR(SYS_INTERNAL_ERR, e.what());
+            }
+
+            rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -535,6 +543,7 @@ namespace irods_s3 {
     // =-=-=-=-=-=-=-
     // interface for POSIX Open
     irods::error s3_file_open_operation( irods::plugin_context& _ctx) {
+
 
         if (is_cacheless_mode(_ctx.prop_map())) {
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__,
@@ -708,11 +717,12 @@ namespace irods_s3 {
     // interface for POSIX Close
     irods::error s3_file_close_operation( irods::plugin_context& _ctx ) {
 
+
         if (is_cacheless_mode(_ctx.prop_map())) {
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
@@ -757,6 +767,14 @@ namespace irods_s3 {
             //  because s3 might not provide immediate consistency for subsequent stats,
             //  do a stat with a retry if not found
             if (s3_transport_ptr->is_last_file_to_close()) {
+
+                try {
+                     boost::interprocess::named_semaphore semaphore(boost::interprocess::open_only_t(), "s3_open_throttle_semaphore");
+                     semaphore.post();
+                } catch (boost::interprocess::interprocess_exception e) {
+                    return ERROR(SYS_INTERNAL_ERR, e.what());
+                }
+
                 struct stat statbuf;
 
                 // do not return an error here as this is meant only as a delay until the stat is available
