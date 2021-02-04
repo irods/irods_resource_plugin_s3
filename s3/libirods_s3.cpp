@@ -661,7 +661,8 @@ S3UriStyle s3_get_uri_request_style( irods::plugin_property_map& _prop_map)
 
 // returns the upper limit of the MPU chunk size parameter, in megabytes
 // used for validating the value of S3_MPU_CHUNK
-static long s3GetMaxUploadSize (irods::plugin_property_map& _prop_map)
+// also used for determining the maximum size for CopyObject
+static long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string max_size_str;   // max size from context string, in MB
@@ -689,7 +690,7 @@ long s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
         // AWS S3 allows chunk sizes from 5MB to 5GB.
         // Other S3 appliances may have a different upper limit.
         long megs = atol(chunk_str.c_str());
-        if ( megs >= 5 && megs <= s3GetMaxUploadSize(_prop_map) )
+        if ( megs >= 5 && megs <= s3GetMaxUploadSizeMB(_prop_map) )
             bytes = megs * 1024 * 1024;
     }
     return bytes;
@@ -712,28 +713,6 @@ ssize_t s3GetMPUThreads (
     return threads;
 }
 
-uint64_t s3_get_minimum_part_size(
-    irods::plugin_property_map& _prop_map )
-{
-    irods::error ret;
-    std::string minimum_part_size_str;
-    uint64_t minimum_part_size = S3_DEFAULT_MINIMUM_PART_SIZE;
-
-    ret = _prop_map.get< std::string >( s3_minimum_part_size, minimum_part_size_str );
-    if (ret.ok()) {
-        try {
-            minimum_part_size = boost::lexical_cast<uint64_t>( minimum_part_size_str );
-        } catch ( const boost::bad_lexical_cast& ) {
-            std::string resource_name = get_resource_name(_prop_map);
-            rodsLog(LOG_ERROR, "[resource_name=%s] failed to cast S3_MINIMUM_PART_SIZE [%s] "
-                    "to a uint64_t.  Using default of 5 MB.",
-                    resource_name.c_str(),
-                    minimum_part_size_str.c_str() );
-        }
-    }
-    return minimum_part_size;
-}
-
 bool s3GetEnableMultiPartUpload (
     irods::plugin_property_map& _prop_map )
 {
@@ -746,9 +725,15 @@ bool s3GetEnableMultiPartUpload (
         enable_str );
     if (ret.ok()) {
         // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
-        int parse = atol(enable_str.c_str());
-        if (parse != 0)
-            enable = true;
+        try {
+            int parse = boost::lexical_cast<int>(enable_str.c_str());
+            if (parse == 0) {
+                enable = false;
+            }
+        } catch(const boost::bad_lexical_cast &) {
+            // keep enable true
+        }
+
     }
     return enable;
 }
@@ -1707,15 +1692,23 @@ irods::error s3CopyFile(
 
     std::string resource_name = get_resource_name(_src_ctx.prop_map());
 
+    bool mpu_enabled = s3GetEnableMultiPartUpload(_src_ctx.prop_map());
+
     // Check the size, and if too large punt to the multipart copy/put routine
     struct stat statbuf = {};
     ret = irods_s3::s3_file_stat_operation( _src_ctx, &statbuf );
     if (( result = ASSERT_PASS(ret, "[resource_name=%s] Unable to get original object size for source file name: \"%s\".", resource_name.c_str(),
                                _src_file.c_str())).ok()) {
-        if ( statbuf.st_size > s3GetMPUChunksize(_src_ctx.prop_map()) ) {
+
+        // if we are too big for a copy then we must upload
+        // however, only do this is mpu is disabled
+        if ( mpu_enabled && statbuf.st_size > s3GetMaxUploadSizeMB(_src_ctx.prop_map()) * 1024 * 1024 ) {   // amazon allows copies up to 5 GB
             // Early return for cleaner code...
             return s3PutCopyFile( S3_COPYOBJECT, _src_file, _dest_file, statbuf.st_size, _key_id, _access_key, _src_ctx.prop_map() );
         }
+
+        // Note:  If file size > s3GetMaxUploadSizeMB() but multipart is disabled, it is not clear how to proceed.
+        // Go ahead and try a copy.
 
         // Parse the src file
         ret = parseS3Path(_src_file, src_bucket, src_key, _src_ctx.prop_map());

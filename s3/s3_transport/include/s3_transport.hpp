@@ -73,6 +73,7 @@ namespace irods::experimental::io::s3_transport
             , circular_buffer_size{10}
             , s3_uri_request_style{""}
             , minimum_part_size{DEFAULT_MINIMUM_PART_SIZE}
+            , multipart_enabled{true}
             , put_repl_flag{false}
 
         {}
@@ -98,6 +99,7 @@ namespace irods::experimental::io::s3_transport
         unsigned int circular_buffer_size;
         std::string  s3_uri_request_style;
         int64_t      minimum_part_size;
+        bool         multipart_enabled;
         static const int64_t UNKNOWN_OBJECT_SIZE = -1;
         static const int64_t DEFAULT_MINIMUM_PART_SIZE = 5*1024*1024;
         int          debug_log_level = LOG_NOTICE;
@@ -855,7 +857,7 @@ namespace irods::experimental::io::s3_transport
 
             int64_t part_size = cache_file_size / config_.number_of_cache_transfer_threads;
 
-            if (config_.number_of_cache_transfer_threads > 1) {
+            if (config_.multipart_enabled && config_.number_of_cache_transfer_threads > 1) {
 
                 initiate_multipart_upload();
 
@@ -874,7 +876,6 @@ namespace irods::experimental::io::s3_transport
                 return_value = complete_multipart_upload();
 
             } else {
-
                 return_value = s3_upload_file(true);
             }
 
@@ -904,7 +905,10 @@ namespace irods::experimental::io::s3_transport
         }
 
         // This populates the following flags based on the open mode (mode_).
-        //   - use_cache_         - Set to false unless one of the following is true:
+        //   - use_cache_         - Always set to false in the following circumstances:
+        //                          * the number of transfer threads > 1 and MPU is disabled
+        //                          * the part sizes would be less than the minimum number allowed
+        //                        - Set to false unless one of the following is true:
         //                          * the object was opened in read only mode
         //                          * the put_repl_flag is true indicating a predictable full file write
         //   - download_to_cache_ - Set to true unless one of the following is true:
@@ -934,11 +938,13 @@ namespace irods::experimental::io::s3_transport
 
                 // override for cases where we must use cache
                 //   1. If we don't know the file size.
-                //   2. If doing multiplart upload file size < #threads * minimum part size
+                //   2. If we have > 1 thread and multipart is disabled
+                //   3. If doing multiplart upload file size < #threads * minimum part size
                 if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
-                            ( config_.number_of_client_transfer_threads > 1 &&
-                              config_.object_size < static_cast<int64_t>(config_.number_of_client_transfer_threads) *
-                              static_cast<int64_t>(config_.minimum_part_size))) {
+                        ( config_.number_of_client_transfer_threads > 1 && !config_.multipart_enabled ) ||
+                        ( config_.number_of_client_transfer_threads > 1 &&
+                          config_.object_size < static_cast<int64_t>(config_.number_of_client_transfer_threads) *
+                          static_cast<int64_t>(config_.minimum_part_size))) {
                     use_cache_ = true;
                 }
             }

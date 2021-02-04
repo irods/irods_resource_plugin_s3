@@ -65,20 +65,14 @@ If the `S3_DEFAULT_HOSTNAME` points to an AWS host, [best practice](https://docs
 S3_DEFAULT_HOSTNAME=s3.<bucket-region>.amazonaws.com
 ```
 
-To control multipart uploads:
--   `S3_MPU_CHUNK` is the size of each part to be uploaded in parallel (in MB, default is 5MB).  Objects smaller than this will be uploaded with standard PUTs.
--   `S3_MPU_THREADS` is the number of parts to upload in parallel (only under Linux, default is 10).  On non-Linux OSes, this parameter is ignored and multipart uploads are performed sequentially.
-*The above settings do not apply to multipart uploads in streaming mode.  In this case the behavior is determined by the parallel transfer configuration in iRODS.*
+To define S3 provider constraints and control multipart behavior:
+-    `S3_MPU_CHUNK` - This defines the minimum part size allowed (in MB).  The default is 5MB which is the minimum part size defined in AWS.
+-    `S3_ENABLE_MPU=0` disables multipart uploads.
+-    `S3_MAX_UPLOAD_SIZE` - This defines the maximum upload size for non-multipart uploads (in MB), maximum part size, as well as the maximum size when using the CopyObject API.  The default is 5120MB (5GB).  This setting is ignored if MPU uploads are disable.
+-    `S3_MPU_THREADS` is the number of parts to upload in parallel.
 
 Use the `ARCHIVE_NAMING_POLICY` parameter to control whether the names of the files within the object storage service (S3, or similar) are kept in sync with the logical names in the iRODS Catalog.
 The default value of `consistent` will keep the names consistent.  Setting `ARCHIVE_NAMING_POLICY=decoupled` will not keep the names of the objects in sync.
-
-To ensure end-to-end data integrity, MD5 checksums can be calculated and used for S3 uploads.  Note that this requires 2x the disk IO (because the file must first be read to calculate the MD5 before
-the S3 upload can start) and a corresponding increase in CPU usage.
-```
-S3_ENABLE_MD5=[0|1]  (default is 0, off)
-```
-*MD5 checksums are not used in streaming mode.  The S3_ENABLE_MD5 parameter has no effect in this mode.*
 
 S3 server-side encryption can be enabled using the parameter `S3_SERVER_ENCRYPT=[0|1]` (default=0=off).  This is not the same as HTTPS, and implies that the data will be stored on disk encrypted.
 To encrypt during the network transport to S3, use `S3_PROTO=HTTPS` (the default)
@@ -98,7 +92,6 @@ Confirm `S3_REGIONNAME` matches the region for your bucket and is in the form `u
 The S3 plugin may be used in cacheless mode.  In this case the resource can be standalone and does not require an associated cache and compound resource.  This is still being actively developed and not all features that exist for cache mode have been implemented at this time.  The following have not been implemented or have not been tested at this time.
 
 * Multiple hosts in a comma-separated list in `S3_DEFAULT_HOSTNAME`.
-* `ARCHIVE_NAMING_POLICY` flag
 
 An additional flag called `HOST_MODE` is used to enable cacheless mode.  The default value for this is `archive_attached` which provides the legacy functionality.  The valid settings are as follows:
 
@@ -112,27 +105,30 @@ The following is an example of how to configure a `cacheless_attached` S3 resour
 iadmin mkresc s3resc s3 $(hostname):/s3-irods-bucket-name/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
 ```
 
+Some configuration settings have special meaning when the resource is in cacheless mode.
+-   When S3_ENABLE_MPU = 0, a cache file will be used when the S3 plugin receives parallel uploads from iRODS.
+-   When iRODS is using parallel transfer but each transfer part is less than S3_MPU_CHUNK, a cache file will be used 
+-   The S3_MPU_THREADS setting is only used when flushing a cache file to S3.  In streaming mode iRODS controls the number of transfer threads that are used.
+
+
 ### Cache Rules When Using Cacheless Mode
 
-Care was taken to limit the use of a cache file when cacheless mode is enabled.  However, there are scenarios where a cache file is required.  The following explains the decision making in the s3_transport to determine if a cache file is required.
+Care was taken to limit the use of a cache file when cacheless mode is enabled.  However, there are scenarios where a cache file is required.  The following explains when a cache file is required or when cacheless streaming is performed.
 
-1.  All objects opened in read-only mode be will cacheless as S3 allows random access reads on S3 objects.
-2.  If the write mode is enabled, the following all needs to be true for cacheless streaming:
--   The s3_transport client must set the put_repl_flag to true.  See below for expectations of the client when this in enabled.
--   The number_of_client_transfer_threads must be set to the number of threads used by the client.
--   The object_size must be set by the client.
-
-Note that when using iput or iget the operations will always be cacheless.  At the current time irepl to an S3 resource will use a cache file as the object size and number of client transfer threads are not currently available to the S3 plugin.
+1.  All objects opened in read-only mode (including `iget`) will be cacheless as S3 allows random access reads on S3 objects.
+2.  All `iput` and `irepl` will stream without a cache except in the following two cases:
+-   iRODS is performing a parallel transfer but multipart uploads is disabled.
+-   iRODS is performing a parallel transfer but each part size < S3_MPU_CHUNK size.
 
 In the cases where a cache file must be used, the base directory for the cache files can be set using the `S3_CACHE_DIR` parameter in the context string.  If it is not set, a directory under `/tmp` will be created and used.  The cache files are transient and are removed once the data object is closed.
 
 #### Expectations on clients using the s3_transport/dstream directly when the put_repl_flag is set to true
 
-When the put_repl_flag is true, the s3_transport has some expectations on the behavior of the client.  If these are not followed the results are undefined and the transfers will likely fail.
+Clients using s3_transport/dstream must set the put_repl_flag to true to use cacheless streaming.  In this case, the s3_transport has some expectations on the behavior of the client.  If these are not followed the results are undefined and the transfers will likely fail.
 
 1.  If the number_of_client_transfer_threads is set to 1, a single thread will send all of the bytes starting from the first byte to the last byte in sequential order.
 2.  If the number_of_client_transfer_threads is greater than 1:
--   Each thread will perform a lseek() and start writing at the offset of thread_number * (object_size / number_of_client_transfer_threads).
+-   Each thread must stream the bytes from the source at the offset of thread_number * (object_size / number_of_client_transfer_threads).
 -   The last thread will send the extra bytes.
 -   Each thread will call s3_transport_ptr->set_part_size(n) where n is the size of its part.
 -   The bytes for each thread will be sent sequentially and all bytes will be sent.
@@ -163,8 +159,8 @@ parent context:
 
 ## Using this plugin with Google Cloud Storage (GCS)
 
-This plugin has been manually tested to work with google cloud storage. This works because Google has implemented the s3 protocol.  There are several differences:
+This plugin has been manually tested to work with Google Cloud Storage. This works because Google has implemented the s3 protocol.  There are several differences:
 
--   Set `S3_ENABLE_MPU=0` in the context string. Google does not seem to support multipart uploads.  Note:  The MPU disable flag has no effect in streaming mode as iRODS threads correspond directly with MPU parts.
+-   Set `S3_ENABLE_MPU=0` in the context string. Google does not seem to support multipart uploads.
 -   Set `S3_DEFAULT_HOSTNAME=storage.googleapis.com` in the context string.
 -   The values in the `S3_AUTH_FILE` have to be generated according to the instructions: https://cloud.google.com/storage/docs/migrating#keys
