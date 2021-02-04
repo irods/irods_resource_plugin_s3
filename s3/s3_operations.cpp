@@ -419,7 +419,7 @@ namespace irods_s3 {
         s3_transport_config s3_config;
         s3_config.hostname = hostname;
         s3_config.object_size = data_size;
-        s3_config.number_of_cache_transfer_threads = 20;    // number of threads created by s3_transport when writing/reading to/from cache
+        s3_config.number_of_cache_transfer_threads = s3GetMPUThreads(_ctx.prop_map());    // number of threads created by s3_transport when writing/reading to/from cache
         s3_config.number_of_client_transfer_threads = number_of_threads;    // number of threads created by s3_transport when writing/reading to/from cache
         s3_config.part_size = data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE ? 0 : data_size / number_of_threads;
         s3_config.bucket_name = bucket_name;
@@ -429,12 +429,13 @@ namespace irods_s3 {
         s3_config.circular_buffer_size = circular_buffer_size;
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
-        s3_config.minimum_part_size = s3_get_minimum_part_size(_ctx.prop_map());
+        s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
         s3_config.debug_log_level = debug_log_level;
         s3_config.region_name = get_region_name(_ctx.prop_map());
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
         s3_config.server_encrypt_flag = s3GetServerEncrypt(_ctx.prop_map());
         s3_config.cache_directory = s3_cache_dir_str;
+        s3_config.multipart_enabled = s3GetEnableMultiPartUpload (_ctx.prop_map());
 
         // get open mode
         std::ios_base::openmode open_mode = data.open_mode;
