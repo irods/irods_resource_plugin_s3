@@ -22,36 +22,37 @@
 // For s3PutCopyFile to identify the real source type
 typedef enum { S3_PUTFILE, S3_COPYOBJECT } s3_putcopy;
 
-const std::string s3_default_hostname{"S3_DEFAULT_HOSTNAME"};
-const std::string s3_default_hostname_vector{"S3_DEFAULT_HOSTNAME_VECTOR"};
-const std::string s3_hostname_index{"S3_HOSTNAME_INDEX"};
-const std::string host_mode{"HOST_MODE"};
-const std::string s3_auth_file{"S3_AUTH_FILE"};
-const std::string s3_key_id{"S3_ACCESS_KEY_ID"};
-const std::string s3_access_key{"S3_SECRET_ACCESS_KEY"};
-const std::string s3_retry_count{"S3_RETRY_COUNT"};
-const std::string s3_retry_count_size_t{"S3_RETRY_COUNT_SIZE_T"};     // so we only parse str to size_t once
-const std::string s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
-const std::string s3_wait_time_sec_size_t{"S3_WAIT_TIME_SEC_SIZE_T"}; // so we only parse str to size_t once
-const std::string s3_proto{"S3_PROTO"};
-const std::string s3_stsdate{"S3_STSDATE"};
-const std::string s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
-const std::string s3_enable_mpu{"S3_ENABLE_MPU"};
-const std::string s3_mpu_chunk{"S3_MPU_CHUNK"};
-const std::string s3_mpu_threads{"S3_MPU_THREADS"};
-const std::string s3_enable_md5{"S3_ENABLE_MD5"};
-const std::string s3_server_encrypt{"S3_SERVER_ENCRYPT"};
-const std::string s3_region_name{"S3_REGIONNAME"};
-const std::string REPL_POLICY_KEY{"repl_policy"};
-const std::string REPL_POLICY_VAL{"reg_repl"};
-const std::string s3_cache_dir{"S3_CACHE_DIR"};
-const std::string s3_circular_buffer_size{"S3_CIRCULAR_BUFFER_SIZE"};
-const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
-
-const std::string s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
-const size_t S3_DEFAULT_RETRY_WAIT_SEC = 2;
-const size_t S3_DEFAULT_RETRY_COUNT = 3;
-const int    S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
+extern const std::string s3_default_hostname;
+extern const std::string s3_default_hostname_vector;
+extern const std::string s3_hostname_index;
+extern const std::string host_mode;
+extern const std::string s3_auth_file;
+extern const std::string s3_key_id;
+extern const std::string s3_access_key;
+extern const std::string s3_retry_count;
+extern const std::string s3_retry_count_size_t;     // so we only parse str to size_t once
+extern const std::string s3_wait_time_sec;
+extern const std::string s3_wait_time_sec_size_t; // so we only parse str to size_t once
+extern const std::string s3_proto;
+extern const std::string s3_stsdate;
+extern const std::string s3_max_upload_size;
+extern const std::string s3_enable_mpu;
+extern const std::string s3_mpu_chunk;
+extern const std::string s3_mpu_threads;
+extern const std::string s3_enable_md5;
+extern const std::string s3_server_encrypt;
+extern const std::string s3_region_name;
+extern const std::string REPL_POLICY_KEY;
+extern const std::string REPL_POLICY_VAL;
+extern const std::string s3_cache_dir;
+extern const std::string s3_circular_buffer_size;
+extern const std::string s3_uri_request_style;        //  either "path" or "virtual_hosted" - default "path"
+extern const std::string throttle_thread_count;
+extern const std::string s3_number_of_threads;        //  to save number of threads
+extern const size_t S3_DEFAULT_RETRY_WAIT_SEC;
+extern const size_t S3_DEFAULT_RETRY_COUNT;
+extern const int    S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
+extern const int    DEFAULT_THROTTLE_TIMEOUT_MINUTES;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
@@ -59,7 +60,11 @@ ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map);
 S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
 std::string get_region_name(irods::plugin_property_map& _prop_map);
+int get_throttle_thread_count(irods::plugin_property_map& _prop_map);
+int get_throttle_timeout_minutes( irods::plugin_property_map& _prop_map );
+std::string get_throttle_semaphore_name(irods::plugin_property_map& _prop_map);
 bool s3GetServerEncrypt (irods::plugin_property_map& _prop_map);
+std::string get_cache_directory(irods::plugin_property_map& _prop_map);
 
 void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
         const char *function, const S3BucketContext *pCtx, S3Status *pStatus,
