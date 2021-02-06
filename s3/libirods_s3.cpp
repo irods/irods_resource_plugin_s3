@@ -48,6 +48,8 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/format.hpp>
+#include <boost/interprocess/sync/named_semaphore.hpp>
+#include <boost/filesystem/path.hpp>
 
 // =-=-=-=-=-=-=-
 // system includes
@@ -107,6 +109,41 @@ static const long g_merr_idx{4}; // Which part of Multipart Finish XML to fail
 // s3 specific functionality
 static bool S3Initialized = false; // so we only initialize the s3 library once
 static boost::mutex g_hostnameIdxLock;
+
+const std::string s3_default_hostname{"S3_DEFAULT_HOSTNAME"};
+const std::string s3_default_hostname_vector{"S3_DEFAULT_HOSTNAME_VECTOR"};
+const std::string s3_hostname_index{"S3_HOSTNAME_INDEX"};
+const std::string host_mode{"HOST_MODE"};
+const std::string s3_auth_file{"S3_AUTH_FILE"};
+const std::string s3_key_id{"S3_ACCESS_KEY_ID"};
+const std::string s3_access_key{"S3_SECRET_ACCESS_KEY"};
+const std::string s3_retry_count{"S3_RETRY_COUNT"};
+const std::string s3_retry_count_size_t{"S3_RETRY_COUNT_SIZE_T"};     // so we only parse str to size_t once
+const std::string s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
+const std::string s3_wait_time_sec_size_t{"S3_WAIT_TIME_SEC_SIZE_T"}; // so we only parse str to size_t once
+const std::string s3_proto{"S3_PROTO"};
+const std::string s3_stsdate{"S3_STSDATE"};
+const std::string s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
+const std::string s3_enable_mpu{"S3_ENABLE_MPU"};
+const std::string s3_mpu_chunk{"S3_MPU_CHUNK"};
+const std::string s3_mpu_threads{"S3_MPU_THREADS"};
+const std::string s3_enable_md5{"S3_ENABLE_MD5"};
+const std::string s3_server_encrypt{"S3_SERVER_ENCRYPT"};
+const std::string s3_region_name{"S3_REGIONNAME"};
+const std::string REPL_POLICY_KEY{"repl_policy"};
+const std::string REPL_POLICY_VAL{"reg_repl"};
+const std::string s3_cache_dir{"S3_CACHE_DIR"};
+const std::string s3_circular_buffer_size{"S3_CIRCULAR_BUFFER_SIZE"};
+const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
+const std::string throttle_thread_count{"THROTTLE_THREAD_COUNT"};
+const std::string throttle_timeout_minutes{"THROTTLE_TIMEOUT_MINUTES"};
+
+const std::string s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
+const size_t      S3_DEFAULT_RETRY_WAIT_SEC = 2;
+const size_t      S3_DEFAULT_RETRY_COUNT = 3;
+const int         S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
+const int         DEFAULT_THROTTLE_TIMEOUT_MINUTES = 30;
+const int         MIN_THROTTLE_THREAD_COUNT = 32;
 
 S3ResponseProperties savedProperties;
 
@@ -738,6 +775,67 @@ bool s3GetEnableMultiPartUpload (
     return enable;
 }
 
+// defines the number of threads that can be active at a time
+int get_throttle_thread_count( irods::plugin_property_map& _prop_map )
+{
+    irods::error ret;
+    std::string count_str;
+
+    int throttle_thread_count_int;
+
+    ret = _prop_map.get< std::string >(
+        throttle_thread_count,
+        count_str );
+    if (ret.ok()) {
+        try {
+            throttle_thread_count_int = boost::lexical_cast<unsigned int>(count_str.c_str());
+            if (throttle_thread_count_int < MIN_THROTTLE_THREAD_COUNT) {
+                throttle_thread_count_int = MIN_THROTTLE_THREAD_COUNT;
+            }
+        } catch(const boost::bad_lexical_cast &) {
+            // keep default
+        }
+    } else {
+        // zero means we do not throttle which is the case is this isn't defined
+        throttle_thread_count_int = 0;
+    }
+    return throttle_thread_count_int;
+}
+
+// defines the of minutes a thread will wait for the semaphore before
+// giving up and returning an error
+int get_throttle_timeout_minutes( irods::plugin_property_map& _prop_map )
+{
+    irods::error ret;
+    std::string throttle_timeout_str;
+
+    int throttle_timeout_int = DEFAULT_THROTTLE_TIMEOUT_MINUTES;
+
+    ret = _prop_map.get< std::string >(
+        throttle_timeout_minutes,
+        throttle_timeout_str );
+    if (ret.ok()) {
+        try {
+            throttle_timeout_int = boost::lexical_cast<int>(throttle_timeout_str.c_str());
+            if (throttle_timeout_int < 0) {
+                throttle_timeout_int = DEFAULT_THROTTLE_TIMEOUT_MINUTES;
+            }
+        } catch(const boost::bad_lexical_cast &) {
+            // keep default
+        }
+
+    }
+    return throttle_timeout_int;
+}
+
+
+std::string get_throttle_semaphore_name(irods::plugin_property_map& _prop_map) {
+
+        const auto& shared_memory_name_salt = irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
+        return "s3_open_throttle_semaphore_" + get_resource_name(_prop_map)
+            + "_" + shared_memory_name_salt;
+}
+
 bool s3GetServerEncrypt (
     irods::plugin_property_map& _prop_map )
 {
@@ -872,7 +970,7 @@ static void mrdWorkerThread (
 }
 
 
-S3STSDate s3GetSTSDate( irods::plugin_property_map& _prop_map)
+S3STSDate s3GetSTSDate(irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string stsdate_str;
@@ -889,6 +987,23 @@ S3STSDate s3GetSTSDate( irods::plugin_property_map& _prop_map)
         return S3STSAmzAndDate;
     }
     return S3STSAmzOnly;
+}
+
+std::string get_cache_directory(irods::plugin_property_map& _prop_map) {
+
+        // if cachedir is defined, use that else use /tmp/<resc_name>
+        std::string s3_cache_dir_str;
+        irods::error ret = _prop_map.get< std::string >(s3_cache_dir, s3_cache_dir_str);
+        if (!ret.ok()) {
+            s3_cache_dir_str = boost::filesystem::temp_directory_path().string();
+        }
+
+        const auto& shared_memory_name_salt =
+            irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
+
+        s3_cache_dir_str += "/" + get_resource_name(_prop_map) + "_" + shared_memory_name_salt;
+
+        return s3_cache_dir_str;
 }
 
 
@@ -1847,7 +1962,8 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     return result;
 }
 
-/// @brief stop operation. All this does is deinitialize the s3 library
+/// @brief stop operation. Deinitialize the s3 library
+/// and remove system resources
 irods::error s3StopOperation(irods::plugin_property_map& _prop_map)
 {
     irods::error result = SUCCESS();
@@ -1856,7 +1972,27 @@ irods::error s3StopOperation(irods::plugin_property_map& _prop_map)
 
         S3_deinitialize();
     }
+
+    // remove cache directory
+    std::string s3_cache_dir_str = get_cache_directory(_prop_map);
+    boost::filesystem::path cache_path(s3_cache_dir_str);
+    try {
+        boost::filesystem::remove_all(cache_path);
+    } catch (const boost::filesystem::filesystem_error& e) {
+        rodsLog( LOG_ERROR, "[resource_name=%s] Could not remove cache directory %s due to %s",
+                get_resource_name(_prop_map).c_str(), s3_cache_dir_str.c_str(), e.what());
+    }
+
+
+    // remove throttling semaphore
+    std::string semaphore_name = get_throttle_semaphore_name(_prop_map);
+    bool ret = boost::interprocess::named_semaphore::remove(semaphore_name.c_str());
+    if (!ret) {
+       rodsLog( LOG_ERROR, "[resource_name=%s] Failed to remove semaphore %s on shutdown", get_resource_name(_prop_map).c_str());
+    }
+
     return result;
+
 }
 
 bool determine_unlink_for_repl_policy(
