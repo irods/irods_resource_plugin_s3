@@ -32,6 +32,9 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/filesystem/path.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/interprocess/exceptions.hpp>
+#include <boost/interprocess/sync/named_semaphore.hpp>
 
 // =-=-=-=-=-=-=-
 // other includes
@@ -45,7 +48,6 @@
 #include <list>
 #include <map>
 #include <assert.h>
-#include <boost/interprocess/sync/named_semaphore.hpp>
 
 #include <curl/curl.h>
 
@@ -126,6 +128,91 @@ namespace irods_s3 {
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
             struct stat* _statbuf, bool retry_on_not_found );
+
+    // determines the data size and number of threads, stores them, and returns them
+    void get_number_of_threads_and_data_size(irods::plugin_context& _ctx, int& number_of_threads, int64_t& data_size) {
+
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+        int oprType = -1;
+        int requested_number_of_threads;
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+        // get data size stored earlier in s3_resolve_resc_hier_operation
+        // brackets reduce scope of lock_guard
+        {
+            std::lock_guard<std::mutex> lock(global_mutex);
+            data_size = irods_s3::data_size;
+        }
+
+        // first get requested number of threads and data size if necessary
+        bool found = false;
+        for (int i = 0; i < NUM_L1_DESC; ++i) {
+            if (L1desc[i].inuseFlag) {
+                if (L1desc[i].dataObjInp && L1desc[i].dataObjInfo &&
+                        L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+                        && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
+
+                    found = true;
+                    requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
+                    oprType = L1desc[i].dataObjInp->oprType;
+
+                    // if data_size is zero or UNKNOWN, try to get it from L1desc
+                    if (data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE) {
+                        data_size = L1desc[i].dataSize;
+                    }
+                }
+           } else if (found) {
+               break;
+           }
+        }
+
+        // if this is a replication and we're the destination, get the data size from the source dataObjInfo
+        if (oprType == REPLICATE_DEST) {
+
+            for (int i = 0; i < NUM_L1_DESC; ++i) {
+
+               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo
+                       && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+                       && L1desc[i].dataObjInp->oprType == REPLICATE_SRC ) {
+
+                   data_size = L1desc[i].dataObjInfo->dataSize;
+                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
+                           __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+                   break;
+               }
+            }
+        }
+
+        // get the number of threads
+        const int single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
+        number_of_threads = requested_number_of_threads;
+
+        if (data_size > single_buff_sz && oprType != REPLICATE_DEST && oprType != COPY_DEST) {
+
+            number_of_threads = getNumThreads( _ctx.comm(),
+                    data_size,
+                    requested_number_of_threads,
+                    const_cast<KeyValPair*>(&file_obj->cond_input()),
+                    nullptr,                     // destination resc hier
+                    nullptr,                     // source resc hier
+                    0 );                         // opr type - not used
+        }
+
+        if (number_of_threads < 1) {
+            number_of_threads = 1;
+        }
+
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
+
+        // save the number of threads and data_size
+        {
+            std::lock_guard<std::mutex> lock(global_mutex);
+            irods_s3::number_of_threads = number_of_threads;
+            irods_s3::data_size = data_size;
+        }
+
+    }
 
     // update and return the physical path in case of decoupled naming
     // returns true if path updated, else false
@@ -257,7 +344,6 @@ namespace irods_s3 {
 
         irods::error ret;
         int64_t data_size;
-        int requested_number_of_threads = 0;
         int oprType = -1;
         int number_of_threads;
         std::string bucket_name;
@@ -292,18 +378,12 @@ namespace irods_s3 {
             return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
         }
 
-        // get the file size
-        {
-            std::lock_guard<std::mutex> lock(global_mutex);
-            data_size = irods_s3::data_size;
-        }
-
         // ********* DEBUG - print L1desc for all
         if (debug_log_level == LOG_DEBUG) {
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
             for (int i = 0; i < NUM_L1_DESC; ++i) {
                 if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {// && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
-                   int thread_count = L1desc[i].dataObjInp->numThreads;
+                           int thread_count = L1desc[i].dataObjInp->numThreads;
                    int oprType = L1desc[i].dataObjInp->oprType;
                    int64_t data_size = L1desc[i].dataSize;
                    rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d][requested_number_of_threads=%d]"
@@ -316,7 +396,7 @@ namespace irods_s3 {
         }
         // ********* END DEBUG - print L1desc for all
 
-        // get number of threads and oprType
+        // get oprType
         // Note: On a replication from an s3 src within a replication node, there are two entries for the
         //   replica - one for PUT and one for REPL_DEST.  During the initial PUT there is only one
         //   entry.  To see of we are doing the PUT or REPL, look for the last entry on the list.
@@ -329,69 +409,19 @@ namespace irods_s3 {
                         && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
 
                     found = true;
-                    requested_number_of_threads = L1desc[i].dataObjInp->numThreads;
                     oprType = L1desc[i].dataObjInp->oprType;
 
-                    // if data_size is zero or UNKNOWN, try to get it from L1desc
-                    if (data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE) {
-                        data_size = L1desc[i].dataSize;
-                    }
                 }
            } else if (found) {
                break;
            }
         }
+
+        get_number_of_threads_and_data_size(_ctx, number_of_threads, data_size);
+
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
-
-        // if this is a replication and we're the destination, get the data size from the source dataObjInfo
-        if (oprType == REPLICATE_DEST) {
-
-            for (int i = 0; i < NUM_L1_DESC; ++i) {
-
-               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo
-                       && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
-                       && L1desc[i].dataObjInp->oprType == REPLICATE_SRC ) {
-
-                   data_size = L1desc[i].dataObjInfo->dataSize;
-                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
-                           __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
-                   break;
-               }
-            }
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(global_mutex);
-            irods_s3::data_size = data_size;
-        }
-
-        // get the number of threads
-        const int single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
-        number_of_threads = requested_number_of_threads;
-
-        if (data_size > single_buff_sz && oprType != REPLICATE_DEST && oprType != COPY_DEST) {
-
-            number_of_threads = getNumThreads( _ctx.comm(),
-                    data_size,
-                    requested_number_of_threads,
-                    const_cast<KeyValPair*>(&file_obj->cond_input()),
-                    nullptr,                     // destination resc hier
-                    nullptr,                     // source resc hier
-                    0 );                         // opr type - not used
-        }
-
-        if (number_of_threads < 1) {
-            number_of_threads = 1;
-        }
-
-        //_ctx.prop_map().set<int>(s3_number_of_threads, number_of_threads);
-        {
-            std::lock_guard<std::mutex> lock(global_mutex);
-            irods_s3::number_of_threads = number_of_threads;
-        }
-
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
         // read the size of the circular buffer from configuration
         std::string circular_buffer_size_str;
@@ -399,21 +429,10 @@ namespace irods_s3 {
         if (ret.ok()) {
             try {
                 circular_buffer_size = boost::lexical_cast<unsigned int>(circular_buffer_size_str);
-            } catch (boost::bad_lexical_cast &) {}
+            } catch (const boost::bad_lexical_cast &) {}
         }
 
-        // if cachedir is defined, use that else use /tmp/<resc_name>
-        std::string s3_cache_dir_str;
-        ret = _ctx.prop_map().get< std::string >(s3_cache_dir, s3_cache_dir_str);
-        if (!ret.ok()) {
-            s3_cache_dir_str = boost::filesystem::temp_directory_path().string();
-        }
-
-        const auto& shared_memory_name_salt = irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
-        std::string resc_name  = "";
-        ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name);
-        s3_cache_dir_str += "/" + resc_name + "_" + shared_memory_name_salt;
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] s3_cache_dir_str=%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, s3_cache_dir_str.c_str());
+        std::string s3_cache_dir_str = get_cache_directory(_ctx.prop_map());
 
         std::string&& hostname = s3GetHostname(_ctx.prop_map());
         s3_transport_config s3_config;
@@ -500,15 +519,45 @@ namespace irods_s3 {
     irods::error s3_file_create_operation( irods::plugin_context& _ctx) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-            try {
-                boost::interprocess::named_semaphore semaphore(boost::interprocess::open_or_create_t(), "s3_open_throttle_semaphore", 10);
-                semaphore.wait();
-            } catch (boost::interprocess::interprocess_exception e) {
-                return ERROR(SYS_INTERNAL_ERR, e.what());
-            }
 
-            rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+            using namespace boost::posix_time;
+            using namespace boost::interprocess;
+
+            // handle throttling
+            int throttle_thread_count = get_throttle_thread_count(_ctx.prop_map());
+
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: throttle_thread_count=%d\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), throttle_thread_count);
+            // if the THROTTLE_THREAD_COUNT is not defined, do not throttle
+            if (throttle_thread_count != 0) {
+
+                int throttle_timeout_minutes = get_throttle_timeout_minutes(_ctx.prop_map());
+                try {
+
+                    // wait in case too many accesses are occurring
+                    std::string semaphore_name = get_throttle_semaphore_name(_ctx.prop_map());
+                    named_semaphore semaphore(open_or_create_t(), semaphore_name.c_str(), throttle_thread_count);
+
+                    // time out after 30 minutes so we don't have too many waiting
+                    ptime wait_time(second_clock::local_time());
+                    wait_time += time_duration(0, throttle_timeout_minutes, 0);
+
+                    // Do a timed wait.  If it times out return an error so as not
+                    // to have too many uploads waiting
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: timed_wait\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+                    bool success = semaphore.timed_wait(wait_time);
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+                    if (!success) {
+                        return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Time out waiting for S3 open throttle") %
+                                    get_resource_name(_ctx.prop_map()) % __FUNCTION__));
+                    }
+
+                } catch (const interprocess_exception& ie) {
+                    return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Error waiting for S3 open throttle %s") %
+                                get_resource_name(_ctx.prop_map()) % __FUNCTION__ % ie.what()));
+                }
+            }
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -551,6 +600,42 @@ namespace irods_s3 {
                     std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+            using namespace boost::interprocess;
+            using namespace boost::posix_time;
+
+            // handle throttling
+            int throttle_thread_count = get_throttle_thread_count(_ctx.prop_map());
+
+            // if the THROTTLE_THREAD_COUNT is not defined, do not throttle
+            if (throttle_thread_count != 0) {
+
+                int throttle_timeout_minutes = get_throttle_timeout_minutes(_ctx.prop_map());
+                try {
+
+                    // wait in case too many accesses are occurring
+                    std::string semaphore_name = get_throttle_semaphore_name(_ctx.prop_map());
+                    named_semaphore semaphore(open_or_create_t(), semaphore_name.c_str(), throttle_thread_count);
+
+                    // time out after 30 minutes so we don't have too many waiting
+                    ptime wait_time(second_clock::local_time());
+                    wait_time += time_duration(0, throttle_timeout_minutes, 0);
+
+                    // Do a timed wait.  If it times out return an error so as not
+                    // to have too many uploads waiting
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: timed_wait\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+                    bool success = semaphore.timed_wait(wait_time);
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+                    if (!success) {
+                        return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Time out waiting for S3 open throttle") %
+                                    get_resource_name(_ctx.prop_map()) % __FUNCTION__));
+                    }
+
+                } catch (const interprocess_exception& ie) {
+                    return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Error waiting for S3 open throttle %s") %
+                                get_resource_name(_ctx.prop_map()) % __FUNCTION__ % ie.what()));
+                }
+            }
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -723,7 +808,24 @@ namespace irods_s3 {
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-            rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            using namespace boost::interprocess;
+
+            // handle throttling
+            int throttle_thread_count = get_throttle_thread_count(_ctx.prop_map());
+
+            // if the THROTTLE_THREAD_COUNT is not defined, do not throttle
+            if (throttle_thread_count != 0) {
+
+                // post the open/close semaphore for throttling
+                try {
+                     std::string semaphore_name = get_throttle_semaphore_name(_ctx.prop_map());
+                     named_semaphore semaphore(open_only_t(), semaphore_name.c_str());
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: post\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+                     semaphore.post();
+                } catch (const interprocess_exception& e) {
+                    return ERROR(SYS_INTERNAL_ERR, e.what());
+                }
+            }
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
@@ -768,13 +870,6 @@ namespace irods_s3 {
             //  because s3 might not provide immediate consistency for subsequent stats,
             //  do a stat with a retry if not found
             if (s3_transport_ptr->is_last_file_to_close()) {
-
-                try {
-                     boost::interprocess::named_semaphore semaphore(boost::interprocess::open_only_t(), "s3_open_throttle_semaphore");
-                     semaphore.post();
-                } catch (boost::interprocess::interprocess_exception e) {
-                    return ERROR(SYS_INTERNAL_ERR, e.what());
-                }
 
                 struct stat statbuf;
 
