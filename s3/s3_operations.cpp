@@ -405,13 +405,13 @@ namespace irods_s3 {
         std::string s3_cache_dir_str;
         ret = _ctx.prop_map().get< std::string >(s3_cache_dir, s3_cache_dir_str);
         if (!ret.ok()) {
-            s3_cache_dir_str = "/tmp";
+            s3_cache_dir_str = boost::filesystem::temp_directory_path().string();
         }
 
         const auto& shared_memory_name_salt = irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
         std::string resc_name  = "";
         ret = _ctx.prop_map().get< std::string >( irods::RESOURCE_NAME, resc_name);
-        s3_cache_dir_str += "/" + resc_name + shared_memory_name_salt;
+        s3_cache_dir_str += "/" + resc_name + "_" + shared_memory_name_salt;
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] s3_cache_dir_str=%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, s3_cache_dir_str.c_str());
 
         std::string&& hostname = s3GetHostname(_ctx.prop_map());
