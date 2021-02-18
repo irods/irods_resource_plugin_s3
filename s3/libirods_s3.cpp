@@ -789,7 +789,7 @@ int get_throttle_thread_count( irods::plugin_property_map& _prop_map )
     if (ret.ok()) {
         try {
             throttle_thread_count_int = boost::lexical_cast<unsigned int>(count_str.c_str());
-            if (throttle_thread_count_int < MIN_THROTTLE_THREAD_COUNT) {
+            if (throttle_thread_count_int != 0 && throttle_thread_count_int < MIN_THROTTLE_THREAD_COUNT) {
                 throttle_thread_count_int = MIN_THROTTLE_THREAD_COUNT;
             }
         } catch(const boost::bad_lexical_cast &) {
@@ -998,10 +998,11 @@ std::string get_cache_directory(irods::plugin_property_map& _prop_map) {
             s3_cache_dir_str = boost::filesystem::temp_directory_path().string();
         }
 
-        const auto& shared_memory_name_salt =
-            irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
-
-        s3_cache_dir_str += "/" + get_resource_name(_prop_map) + "_" + shared_memory_name_salt;
+        // No longer using shared_memory_name_salt because it uses irods main server process PID and a hash
+        // which changes every time the server is restarted.  While that is preferrable in case something goes
+        // terribly wrong, it introduces cleanup issues.  Instead simply use the resource name which
+        // can be persistent.
+        s3_cache_dir_str += "/" + get_resource_name(_prop_map);
 
         return s3_cache_dir_str;
 }
@@ -1971,24 +1972,6 @@ irods::error s3StopOperation(irods::plugin_property_map& _prop_map)
         S3Initialized = false;
 
         S3_deinitialize();
-    }
-
-    // remove cache directory
-    std::string s3_cache_dir_str = get_cache_directory(_prop_map);
-    boost::filesystem::path cache_path(s3_cache_dir_str);
-    try {
-        boost::filesystem::remove_all(cache_path);
-    } catch (const boost::filesystem::filesystem_error& e) {
-        rodsLog( LOG_ERROR, "[resource_name=%s] Could not remove cache directory %s due to %s",
-                get_resource_name(_prop_map).c_str(), s3_cache_dir_str.c_str(), e.what());
-    }
-
-
-    // remove throttling semaphore
-    std::string semaphore_name = get_throttle_semaphore_name(_prop_map);
-    bool ret = boost::interprocess::named_semaphore::remove(semaphore_name.c_str());
-    if (!ret) {
-       rodsLog( LOG_ERROR, "[resource_name=%s] Failed to remove semaphore %s on shutdown", get_resource_name(_prop_map).c_str());
     }
 
     return result;
