@@ -470,8 +470,9 @@ namespace irods_s3 {
         data.s3_transport_ptr = std::make_shared<s3_transport>(s3_config);
         data.dstream_ptr = std::make_shared<dstream>(*data.s3_transport_ptr, object_key, open_mode);
         fd_data.set(fd, data);
+        irods::error irods_error_from_transport = data.s3_transport_ptr->get_error();
 
-        return std::make_tuple(SUCCESS(), data.dstream_ptr, data.s3_transport_ptr);
+        return std::make_tuple(irods_error_from_transport, data.dstream_ptr, data.s3_transport_ptr);
     }
 
     // =-=-=-=-=-=-=-
@@ -528,7 +529,6 @@ namespace irods_s3 {
             // handle throttling
             int throttle_thread_count = get_throttle_thread_count(_ctx.prop_map());
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: throttle_thread_count=%d\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), throttle_thread_count);
             // if the THROTTLE_THREAD_COUNT is not defined, do not throttle
             if (throttle_thread_count != 0) {
 
@@ -714,9 +714,14 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__,
             off_t offset = s3_transport_ptr->get_offset();
 
             dstream_ptr->read(static_cast<char*>(_buf), _len);
+
+            result = s3_transport_ptr->get_error();
             off_t offset2 = s3_transport_ptr->get_offset();
             off_t diff = offset2 - offset;
-            result.code(diff);
+            if (result.ok()) {
+                result.code(diff);
+            }
+
             return result;
         } else {
             return ERROR(SYS_NOT_SUPPORTED,
@@ -788,7 +793,11 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__,
 
             dstream_ptr->write(static_cast<char*>(_buf), _len);
 
-            result.code(_len);
+            // note that the upload is occurring in the background so an error will likely not have occurred yet
+            result = s3_transport_ptr->get_error();
+            if (result.ok()) {
+                result.code(_len);
+            }
             return result;
 
         } else {
@@ -864,12 +873,16 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: post\n", __FILE__, __LINE__, 
             s3_transport_ptr = data.s3_transport_ptr;
 
             if (dstream_ptr && dstream_ptr->is_open()) {
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] closing dstream\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                 dstream_ptr->close();
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] dstream closed\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
             }
+
+            irods::error result = s3_transport_ptr->get_error();
 
             //  because s3 might not provide immediate consistency for subsequent stats,
             //  do a stat with a retry if not found
-            if (s3_transport_ptr->is_last_file_to_close()) {
+            if (s3_transport_ptr->is_last_file_to_close() && result.ok()) {
 
                 struct stat statbuf;
 
@@ -880,7 +893,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: post\n", __FILE__, __LINE__, 
 
             dstream_ptr.reset();  // make sure dstream is destructed first
 
-            return SUCCESS();
+            return result;
 
         } else {
             return ERROR(SYS_NOT_SUPPORTED,
@@ -1087,11 +1100,13 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: post\n", __FILE__, __LINE__, 
                             std::string&& hostname = s3GetHostname(_ctx.prop_map());
                             bucketContext.hostName = hostname.c_str();
                             data.pCtx = &bucketContext;
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] S3_head_object\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                             S3_head_object(&bucketContext, key.c_str(), 0, 0, &headObjectHandler, &data);
 
                             if ((retry_on_not_found && data.status != S3StatusOK) ||
                                 (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
 
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] sleep for %d seconds\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), retry_wait);
                                 s3_sleep( retry_wait, 0 );
                             }
                         } while ( data.status != S3StatusOK &&
@@ -1224,7 +1239,11 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: post\n", __FILE__, __LINE__, 
             dstream_ptr->seekg(_offset, seek_directive);
 
             off_t pos = s3_transport_ptr->get_offset();
-            result.code(pos);
+
+            result = s3_transport_ptr->get_error();
+            if (result.ok()) {
+                result.code(pos);
+            }
 
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu] tellg=%lu\n", __FILE__, __LINE__, __FUNCTION__, thread_id, pos);
 
