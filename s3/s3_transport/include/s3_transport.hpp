@@ -1083,10 +1083,17 @@ namespace irods::experimental::io::s3_transport
 
                 if (object_must_exist_ || download_to_cache_) {
 
-                    object_exists = object_exists_in_s3(s3_object_size);
+                    // do a head to get the object size, if a previous thread has already done one then
+                    // just read the object size from shmem
+                    if (data.cache_file_download_progress == cache_file_download_status::SUCCESS) {
+                        object_exists = true;
+                    } else {
+                        object_exists = object_exists_in_s3(s3_object_size);
+                        data.existing_object_size = s3_object_size;
+                    }
 
                     // save the size of the existing object as we may need it later
-                    existing_object_size_ = s3_object_size;
+                    existing_object_size_ = data.existing_object_size;
 
                 }
 
@@ -1743,7 +1750,8 @@ namespace irods::experimental::io::s3_transport
                         msg.str().c_str() );
 
                 if (write_callback->status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
-            } while ((write_callback->status != libs3_types::status_ok) && S3_status_is_retryable(write_callback->status) &&
+            // note can't retry this because data is lost - therefore for now this is set to false
+            } while ((write_callback->status != libs3_types::status_ok) && false && S3_status_is_retryable(write_callback->status) &&
                     (++retry_cnt < config_.retry_count_limit));
 
             if (write_callback->status != libs3_types::status_ok) {
@@ -1854,7 +1862,9 @@ namespace irods::experimental::io::s3_transport
                         S3_get_status_name(write_callback->status));
 
                 if (write_callback->status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
-            } while ((write_callback->status != libs3_types::status_ok) && S3_status_is_retryable(write_callback->status) &&
+
+            // note can't retry this because data is lost - therefore for now this is set to false
+            } while ((write_callback->status != libs3_types::status_ok) && false && S3_status_is_retryable(write_callback->status) &&
                     (++retry_cnt < config_.retry_count_limit));
 
             if (write_callback->status != libs3_types::status_ok) {
