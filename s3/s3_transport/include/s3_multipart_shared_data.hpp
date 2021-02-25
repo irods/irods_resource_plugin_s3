@@ -48,6 +48,7 @@ namespace irods::experimental::io::s3_transport::shared_data
             , last_error_code{error_codes::SUCCESS}
             , cache_file_download_progress{cache_file_download_status::NOT_STARTED}
             , ref_count{0}
+            , existing_object_size{-1}
         {}
 
         void reset_fields()
@@ -73,6 +74,7 @@ namespace irods::experimental::io::s3_transport::shared_data
         error_codes                           last_error_code;
         cache_file_download_status            cache_file_download_progress;
         int                                   ref_count;
+        int64_t                               existing_object_size;
     };
 
 }
