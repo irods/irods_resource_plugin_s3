@@ -115,11 +115,8 @@ namespace irods::experimental::interprocess
             template <typename Function>
             auto atomic_exec(Function _func) const
             {
-rodsLog(LOG_NOTICE, "%s:%d (%s) WAIT for access mutex", __FILE__, __LINE__, __FUNCTION__);
                 bi::scoped_lock lk{object_->access_mutex};
-rodsLog(LOG_NOTICE, "%s:%d (%s) GOT access mutex", __FILE__, __LINE__, __FUNCTION__);
                 object_->last_access_time_in_seconds = time(0);
-rodsLog(LOG_NOTICE, "%s:%d (%s) RELEASE access mutex", __FILE__, __LINE__, __FUNCTION__);
                 return _func(object_->thing);
             }
 
