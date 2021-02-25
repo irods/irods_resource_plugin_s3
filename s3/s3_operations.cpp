@@ -123,7 +123,7 @@ namespace irods_s3 {
             int fd_counter;
     };
 
-    int debug_log_level = LOG_DEBUG;
+    int debug_log_level = LOG_NOTICE;
     fd_to_data_map fd_data;
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
@@ -455,6 +455,10 @@ namespace irods_s3 {
         s3_config.server_encrypt_flag = s3GetServerEncrypt(_ctx.prop_map());
         s3_config.cache_directory = s3_cache_dir_str;
         s3_config.multipart_enabled = s3GetEnableMultiPartUpload (_ctx.prop_map());
+
+        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [put_repl_flag=%d][object_size=%ld][multipart_enabled=%d][minimum_part_size=%ld] ",
+                __FILE__, __LINE__, __FUNCTION__, thread_id, s3_config.put_repl_flag, s3_config.object_size,
+                s3_config.multipart_enabled, s3_config.minimum_part_size);
 
         // get open mode
         std::ios_base::openmode open_mode = data.open_mode;
@@ -815,6 +819,8 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__,
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
+try {
+
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             using namespace boost::interprocess;
@@ -894,6 +900,11 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] dstream closed\n", __FILE__, __LINE__, _
             dstream_ptr.reset();  // make sure dstream is destructed first
 
             return result;
+
+} catch (const std::exception& e) {
+rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] DEBUG exception caught.  %s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), e.what());
+return SUCCESS();
+}
 
         } else {
             return ERROR(SYS_NOT_SUPPORTED,
