@@ -75,12 +75,6 @@ namespace irods::experimental::io::s3_transport
     void s3_sleep(int _s,
                   int _ms );
 
-    template <typename buffer_type>
-    struct upload_page
-    {
-       buffer_type        buffer;
-    };
-
     struct upload_manager
     {
         explicit upload_manager(libs3_types::bucket_context& _saved_bucket_context)
@@ -105,11 +99,10 @@ namespace irods::experimental::io::s3_transport
         time_t                   shared_memory_timeout_in_seconds;
     };
 
-    template <typename buffer_type>
     struct data_for_write_callback
     {
         data_for_write_callback(libs3_types::bucket_context& _saved_bucket_context,
-                                irods::experimental::circular_buffer<upload_page<buffer_type>>& _circular_buffer)
+                                irods::experimental::circular_buffer<libs3_types::char_type>& _circular_buffer)
             : offset{0}
             , circular_buffer{_circular_buffer}
             , content_length{0}
@@ -118,19 +111,19 @@ namespace irods::experimental::io::s3_transport
             , thread_identifier{0}
         {}
 
-        buffer_type         buffer;
-        int64_t             offset;
+        libs3_types::char_type *buffer;
+        int64_t                offset;
 
-        irods::experimental::circular_buffer<upload_page<buffer_type>>&
-                            circular_buffer;
+        irods::experimental::circular_buffer<libs3_types::char_type>&
+                               circular_buffer;
 
-        int64_t            content_length;
-        int64_t            bytes_written;
-        libs3_types::status status;
+        int64_t                content_length;
+        int64_t                bytes_written;
+        libs3_types::status    status;
 
         libs3_types::bucket_context&
-                            saved_bucket_context;   // To enable more detailed error messages
-        uint64_t            thread_identifier;
+                               saved_bucket_context;   // To enable more detailed error messages
+        uint64_t               thread_identifier;
     };
 
     struct data_for_head_callback

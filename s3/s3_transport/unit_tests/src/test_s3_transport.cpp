@@ -261,6 +261,7 @@ void upload_part(const char* const hostname,
     s3_config.put_repl_flag = put_repl_flag;
     s3_config.debug_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
+    s3_config.circular_buffer_size = 4 * s3_config.part_size;
 
     s3_transport tp1{s3_config};
     odstream ds1{tp1, std::string(object_prefix)+filename};
@@ -411,6 +412,7 @@ void read_write_on_file(const char *hostname,
     s3_config.debug_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
     s3_config.cache_directory = ".";
+    s3_config.circular_buffer_size = 10*1024*1024;
 
     s3_transport tp1{s3_config};
     dstream ds1{tp1, std::string(object_prefix)+filename, open_modes};
