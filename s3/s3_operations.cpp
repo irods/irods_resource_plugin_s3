@@ -123,7 +123,7 @@ namespace irods_s3 {
             int fd_counter;
     };
 
-    int debug_log_level = LOG_NOTICE;
+    int debug_log_level = LOG_DEBUG;
     fd_to_data_map fd_data;
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
@@ -220,8 +220,6 @@ namespace irods_s3 {
     {
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]%s\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         // retrieve archive naming policy from resource plugin context
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
         irods::error ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
@@ -364,7 +362,6 @@ namespace irods_s3 {
             return make_tuple(SUCCESS(), data.dstream_ptr, data.s3_transport_ptr);
         }
 
-
         ret = parseS3Path(file_obj->physical_path(), bucket_name, object_key, _ctx.prop_map());
         if(!ret.ok()) {
             return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
@@ -432,6 +429,11 @@ namespace irods_s3 {
             } catch (const boost::bad_lexical_cast &) {}
         }
 
+        // minimum circular buffer size is 2 * minimum_part_size
+        if (circular_buffer_size < 2) {
+            circular_buffer_size = 2;
+        }
+
         std::string s3_cache_dir_str = get_cache_directory(_ctx.prop_map());
 
         std::string&& hostname = s3GetHostname(_ctx.prop_map());
@@ -444,17 +446,20 @@ namespace irods_s3 {
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
-        s3_config.shared_memory_timeout_in_seconds = 60;
-        s3_config.circular_buffer_size = circular_buffer_size;
+        s3_config.shared_memory_timeout_in_seconds = 180;
+        s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
+        s3_config.circular_buffer_size = circular_buffer_size * s3_config.minimum_part_size;
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
-        s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
         s3_config.debug_log_level = debug_log_level;
         s3_config.region_name = get_region_name(_ctx.prop_map());
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
         s3_config.server_encrypt_flag = s3GetServerEncrypt(_ctx.prop_map());
         s3_config.cache_directory = s3_cache_dir_str;
         s3_config.multipart_enabled = s3GetEnableMultiPartUpload (_ctx.prop_map());
+
+        s3_config.retry_count_limit = 5;
+        s3_config.retry_wait_seconds = 5;
 
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [put_repl_flag=%d][object_size=%ld][multipart_enabled=%d][minimum_part_size=%ld] ",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, s3_config.put_repl_flag, s3_config.object_size,
@@ -473,10 +478,19 @@ namespace irods_s3 {
 
         data.s3_transport_ptr = std::make_shared<s3_transport>(s3_config);
         data.dstream_ptr = std::make_shared<dstream>(*data.s3_transport_ptr, object_key, open_mode);
-        fd_data.set(fd, data);
-        irods::error irods_error_from_transport = data.s3_transport_ptr->get_error();
 
-        return std::make_tuple(irods_error_from_transport, data.dstream_ptr, data.s3_transport_ptr);
+        irods::error return_error = SUCCESS();
+
+        if (!data.s3_transport_ptr || !data.dstream_ptr || !data.dstream_ptr->is_open()) {
+            return_error  = ERROR(S3_FILE_OPEN_ERR,
+                    boost::str(boost::format("[resource_name=%s] null dstream or s3_transport encountered") %
+                    get_resource_name(_ctx.prop_map())));
+        } else {
+            fd_data.set(fd, data);
+            return_error = data.s3_transport_ptr->get_error();
+        }
+
+        return std::make_tuple(return_error, data.dstream_ptr, data.s3_transport_ptr);
     }
 
     // =-=-=-=-=-=-=-
@@ -549,9 +563,7 @@ namespace irods_s3 {
 
                     // Do a timed wait.  If it times out return an error so as not
                     // to have too many uploads waiting
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: timed_wait\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                     bool success = semaphore.timed_wait(wait_time);
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                     if (!success) {
                         return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Time out waiting for S3 open throttle") %
                                     get_resource_name(_ctx.prop_map()) % __FUNCTION__));
@@ -627,9 +639,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__,
 
                     // Do a timed wait.  If it times out return an error so as not
                     // to have too many uploads waiting
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: timed_wait\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                     bool success = semaphore.timed_wait(wait_time);
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                     if (!success) {
                         return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Time out waiting for S3 open throttle") %
                                     get_resource_name(_ctx.prop_map()) % __FUNCTION__));
@@ -709,10 +719,11 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__,
                 return PASS(result);
             }
 
-            if (!dstream_ptr || !dstream_ptr->is_open()) {
-                std::stringstream message;
-                message << "No valid dstream found.  dstream_ptr=" << static_cast<void*>(dstream_ptr.get());
-                return ERROR(S3_FILE_OPEN_ERR, message.str().c_str());
+            // If an error has occurred somewhere in the transport,
+            // short circuit process and return error.
+            result = s3_transport_ptr->get_error();
+            if (!result.ok()) {
+                PASS(result);;
             }
 
             off_t offset = s3_transport_ptr->get_offset();
@@ -761,8 +772,11 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__,
                 return PASS(result);
             }
 
-            if (!dstream_ptr || !dstream_ptr->is_open()) {
-                return ERROR(S3_FILE_OPEN_ERR, "No valid dstream found.");
+            // If an error has occurred somewhere in the transport,
+            // short circuit process and return error.
+            result = s3_transport_ptr->get_error();
+            if (!result.ok()) {
+                PASS(result);;
             }
 
             std::stringstream msg;
@@ -819,8 +833,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: enter\n", __FILE__, __LINE__,
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-try {
-
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             using namespace boost::interprocess;
@@ -835,7 +847,6 @@ try {
                 try {
                      std::string semaphore_name = get_throttle_semaphore_name(_ctx.prop_map());
                      named_semaphore semaphore(open_only_t(), semaphore_name.c_str());
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: post\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                      semaphore.post();
                 } catch (const interprocess_exception& e) {
                     return ERROR(SYS_INTERNAL_ERR, e.what());
@@ -879,9 +890,7 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] SEMAPHORE: post\n", __FILE__, __LINE__, 
             s3_transport_ptr = data.s3_transport_ptr;
 
             if (dstream_ptr && dstream_ptr->is_open()) {
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] closing dstream\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                 dstream_ptr->close();
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] dstream closed\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
             }
 
             irods::error result = s3_transport_ptr->get_error();
@@ -900,11 +909,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] dstream closed\n", __FILE__, __LINE__, _
             dstream_ptr.reset();  // make sure dstream is destructed first
 
             return result;
-
-} catch (const std::exception& e) {
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] DEBUG exception caught.  %s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), e.what());
-return SUCCESS();
-}
 
         } else {
             return ERROR(SYS_NOT_SUPPORTED,
@@ -1111,13 +1115,11 @@ return SUCCESS();
                             std::string&& hostname = s3GetHostname(_ctx.prop_map());
                             bucketContext.hostName = hostname.c_str();
                             data.pCtx = &bucketContext;
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] S3_head_object\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
                             S3_head_object(&bucketContext, key.c_str(), 0, 0, &headObjectHandler, &data);
 
                             if ((retry_on_not_found && data.status != S3StatusOK) ||
                                 (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
 
-rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] sleep for %d seconds\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), retry_wait);
                                 s3_sleep( retry_wait, 0 );
                             }
                         } while ( data.status != S3StatusOK &&
@@ -1218,9 +1220,6 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] sleep for %d seconds\n", __FILE__, __LIN
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
-            // read fd
-            int fd = file_obj->file_descriptor();
-
             std::shared_ptr<dstream> dstream_ptr;
             std::shared_ptr<s3_transport> s3_transport_ptr;
 
@@ -1230,15 +1229,11 @@ rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] sleep for %d seconds\n", __FILE__, __LIN
                 return PASS(result);
             }
 
-            if (!dstream_ptr || !dstream_ptr->is_open()) {
-                return ERROR(S3_FILE_OPEN_ERR, "No valid dstream found.");
-            }
-
-            std::stringstream msg;
-
-            if (!s3_transport_ptr) {
-                msg << "No valid transport found for fd " << fd;
-                return ERROR(S3_FILE_OPEN_ERR, msg.str());
+            // If an error has occurred somewhere in the transport,
+            // short circuit process and return error.
+            result = s3_transport_ptr->get_error();
+            if (!result.ok()) {
+                PASS(result);;
             }
 
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] offset=%lld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, _offset);
