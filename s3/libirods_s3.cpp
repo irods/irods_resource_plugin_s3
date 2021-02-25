@@ -720,7 +720,7 @@ long s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string chunk_str;
-    long bytes = 64L * 1024 * 1024; // default to safe value
+    long bytes = 5L * 1024 * 1024; // default to amazon value
     ret = _prop_map.get< std::string >(s3_mpu_chunk, chunk_str );
 
     if (ret.ok()) {
