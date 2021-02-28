@@ -137,3 +137,21 @@ class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3EnableMPU=0
         self.archive_naming_policy = 'decoupled'
         super(Test_S3_NoCache_Decoupled, self).__init__(*args, **kwargs)
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_iget_with_stale_replica(self):  # formerly known as 'dirty'
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_irepl_with_purgec(self):
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_put_get_small_file_in_repl_node(self):
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_put_get_large_file_in_repl_node(self):
+        pass
+
+
