@@ -353,22 +353,6 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("irm -rf " + sourcepath)  # cleanup
 
     ###################
-    # iphymv
-    ###################
-
-    def test_iphymv_to_nonexistent_resource(self):
-        self.admin.assert_icommand("ils -L", 'STDOUT_SINGLELINE', self.testfile)  # debug
-        self.admin.assert_icommand("iphymv -R nonexistentresc " + self.testfile,
-                                   'STDERR_SINGLELINE', "SYS_RESC_DOES_NOT_EXIST")  # should fail
-        self.admin.assert_icommand("ils -L", 'STDOUT_SINGLELINE', self.testfile)  # debug
-
-    def test_iphymv_admin_mode(self):
-        lib.touch("file.txt")
-        for i in range(0, 100):
-            self.user0.assert_icommand("iput file.txt " + str(i) + ".txt", "EMPTY")
-        self.admin.assert_icommand("iphymv -r -M -n0 -R " + self.testresc + " " + self.admin.session_collection)  # creates replica
-
-    ###################
     # iput
     ###################
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
