@@ -39,3 +39,31 @@ class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3endPoint = 'localhost:9000'
         self.s3EnableMPU=0
         super(Test_S3_NoCache_MPU_Disabled, self).__init__(*args, **kwargs)
+
+class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        self.keypairfile='/var/lib/irods/minio.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint = 'localhost:9000'
+        self.s3EnableMPU=0
+        self.archive_naming_policy = 'decoupled'
+        super(Test_S3_NoCache_Decoupled, self).__init__(*args, **kwargs)
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_iget_with_stale_replica(self):  # formerly known as 'dirty'
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_irepl_with_purgec(self):
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_put_get_small_file_in_repl_node(self):
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_put_get_large_file_in_repl_node(self):
+        pass
+
+

@@ -227,7 +227,6 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         # assertions
         self.admin.assert_icommand_fail("iget -z")  # run iget with bad option
 
-    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
     def test_iget_with_stale_replica(self):  # formerly known as 'dirty'
         # local setup
         filename = "original.txt"
@@ -860,10 +859,8 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         hostname = lib.get_hostname()
         hostuser = getpass.getuser()
         # assertions
-        self.admin.assert_icommand("iadmin mkresc thirdresc s3 %s:/%s/%s/thirdrescVault %s" %
-                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")  # create third resource
-
-
+        self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/%s/thirdrescVault" %
+                                   (hostname, hostuser), 'STDOUT_SINGLELINE', "Creating")  # create third resource
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', "does not exist")  # should not be listed
         self.admin.assert_icommand("iput " + filename)                            # put file
         self.admin.assert_icommand("irepl -R " + self.testresc + " " + filename)      # replicate to test resource
