@@ -13,6 +13,7 @@ import platform
 import random
 import string
 import io
+import random
 
 try:
    from minio import Minio
@@ -32,6 +33,32 @@ from ..configuration import IrodsConfig
 from ..controller import IrodsController
 from . import session
 
+# Used to make files that are not-zero but have random bytes spread throughout
+def make_arbitrary_file(f_name, f_size, buffer_size=32*1024*1024):
+    # do not care about true randomness
+    random.seed(5)
+    bytes_written = 0
+    buffer = buffer_size * ['x']
+    with open(f_name, "wb") as out:
+
+        while bytes_written < f_size:
+
+            if f_size - bytes_written < buffer_size:
+                to_write = f_size - bytes_written
+                buffer = to_write * ['x']
+            else:
+                to_write = buffer_size
+
+            current_char = chr(random.randrange(256))
+
+            # just write some random byte each 1024 chars
+            for i in range(0, to_write, 1024):
+                buffer[i] = current_char
+                current_char = chr(random.randrange(256))
+
+            out.write(bytearray(buffer))
+
+            bytes_written += to_write
 
 class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
@@ -1725,28 +1752,60 @@ OUTPUT ruleExecOut
             if os.path.exists(file2):
                 os.unlink(file2)
 
-    def test_put_get_file_between_parallel_buff_size_and_max_size_single_buffer(self):
+    def test_put_get_various_file_sizes(self):
 
         try:
 
             hostname = lib.get_hostname()
             hostuser = getpass.getuser()
 
-            # create two s3 resources in repl node
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            # create and put file
+
+            # Using defaults:
+            #   S3_MPU_CHUNK = 5 MB
+            #   CIRCULAR_BUFFER_SIZE = 2 (2 * 5MB = 10MB)
+            #   maximum_size_for_single_buffer_in_megabytes = 32 MB
+
+            file_sizes = [
+                    10 * 1024 * 1024 - 1,  # Single thread, normal put (file size < circular buffer size)
+                    10 * 1024 * 1024,      # Single thread, normal put (file size = circular buffer size)
+                    10 * 1024 * 1024 + 1,  # Single thread, two parts per thread (file size > circular buffer size)
+                    32 * 1024 * 1024 - 1,  # Single thread, multiple (3) parts per thread
+                    32 * 1024 * 1024,      # 16 threads, each same size, force cache due to size per thread < 5 MB
+                    32 * 1024 * 1024 + 1,  # 16 threads, different sizes, force cache due to size per thread < 5 MB
+                    80 * 1024 * 1024 - 1,  # 16 threads, different sizes, force cache due to size per thread < 5 MB
+                    80 * 1024 * 1024,      # 16 threads, each same size, multipart upload, one part per thread
+                    80 * 1024 * 1024 + 1,  # 16 threads, different sizes, multipart upload, one part per thread
+                    160 * 1024 * 1024 - 1, # 16 threads, different sizes, multipart upload, one part per thread
+                    160 * 1024 * 1024,     # 16 threads, each same size, multipart upload, one part per thread
+                    160 * 1024 * 1024 + 1, # 16 threads, different sizes, multipart upload, two parts per thread
+                    240 * 1024 * 1024 - 1, # 16 threads, different sizes, multipart upload, two parts per thread
+                    240 * 1024 * 1024,     # 16 threads, each same size, multipart upload, two parts per thread
+                    240 * 1024 * 1024 + 1, # 16 threads, different sizes, multipart upload, two parts per thread
+                    320 * 1024 * 1024 - 1, # 16 threads, different sizes, multipart upload, two parts per thread
+                    320 * 1024 * 1024,     # 16 threads, each same size, multipart upload, two parts per thread
+                    320 * 1024 * 1024 + 1, # 16 threads, different sizes, multipart upload, three parts per thread
+                    ];
+
             file1 = "f1"
             file2 = "f1.get"
-            lib.make_file(file1, 5*1024*1024)
-            self.user0.assert_icommand("iput -R s3resc1 {file1}".format(**locals()))  # iput
 
-            # get file from first repl
-            self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
+            for file_size in file_sizes:
 
-            # make sure the file that was put and got are the same
-            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+                # create and put file
+                make_arbitrary_file(file1, file_size)
+                self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
+
+                # make sure file is right size
+                self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))  # should be listed
+
+                # get file from first repl
+                self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
+
+                # make sure the file that was put and got are the same
+                self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
 
         finally:
 
