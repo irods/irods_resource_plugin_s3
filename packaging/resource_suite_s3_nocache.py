@@ -55,6 +55,7 @@ def make_arbitrary_file(f_name, f_size, buffer_size=32*1024*1024):
             for i in range(0, to_write, 1024):
                 buffer[i] = current_char
                 current_char = chr(random.randrange(256))
+            buffer[len(buffer)-1] = chr(random.randrange(256))
 
             out.write(bytearray(buffer))
 
@@ -1770,7 +1771,10 @@ OUTPUT ruleExecOut
                     10 * 1024 * 1024 - 1,  # Single thread, normal put (file size < circular buffer size)
                     10 * 1024 * 1024,      # Single thread, normal put (file size = circular buffer size)
                     10 * 1024 * 1024 + 1,  # Single thread, two parts per thread (file size > circular buffer size)
-                    32 * 1024 * 1024 - 1,  # Single thread, multiple (3) parts per thread
+                    20 * 1024 * 1024 - 1,  # Single thread, two parts per thread (file size < 2*circular buffer size)
+                    20 * 1024 * 1024,      # Single thread, three parts per thread (file size = 2*circular buffer size)
+                    20 * 1024 * 1024 + 1,  # Single thread, three parts per thread (file size > 2*circular buffer size)
+                    32 * 1024 * 1024 - 1,  # Single thread, multiple parts per thread
                     32 * 1024 * 1024,      # 16 threads, each same size, force cache due to size per thread < 5 MB
                     32 * 1024 * 1024 + 1,  # 16 threads, different sizes, force cache due to size per thread < 5 MB
                     80 * 1024 * 1024 - 1,  # 16 threads, different sizes, force cache due to size per thread < 5 MB
