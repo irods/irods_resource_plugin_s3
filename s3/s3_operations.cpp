@@ -936,6 +936,7 @@ namespace irods_s3 {
                 &data);
             if(data.status != S3StatusOK) {
                 s3_sleep( retry_wait, 0 );
+                retry_wait *= 2;
             }
 
         } while((data.status != S3StatusOK) &&
@@ -1035,6 +1036,7 @@ namespace irods_s3 {
                                 (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
 
                                 s3_sleep( retry_wait, 0 );
+                                retry_wait *= 2;
                             }
                         } while ( data.status != S3StatusOK &&
                                 ( S3_status_is_retryable(data.status) || ( retry_on_not_found && data.status == S3StatusHttpErrorNotFound ) ) &&
@@ -1385,7 +1387,10 @@ namespace irods_s3 {
                             &cb_data                                                     // void* callback data
                             );
 
-                    if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
+                    if (data.status != S3StatusOK) {
+                        s3_sleep( retry_wait, 0 );
+                        retry_wait *= 2;
+                    }
 
                 } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
 

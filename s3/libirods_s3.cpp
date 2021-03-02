@@ -893,8 +893,11 @@ static void mrdWorkerThread (
             double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
             msg << " -- END -- BW=" << bw << " MB/s";
             rodsLog( LOG_DEBUG, msg.str().c_str() );
-            if (rangeData.status != S3StatusOK) s3_sleep( retry_wait, 0 );
-        } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt < retry_count_limit));
+            if (rangeData.status != S3StatusOK) {
+                s3_sleep( retry_wait, 0 );
+                retry_wait *= 2;
+            }
+        } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt <= retry_count_limit));
         if (rangeData.status != S3StatusOK) {
             msg.str( std::string() ); // Clear
             msg << "[resource_name=" << resource_name << "] " << __FUNCTION__
@@ -1018,8 +1021,11 @@ irods::error s3GetFile(
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "GETBW=%lf", bw);
-                        if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
-                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit) );
+                        if (data.status != S3StatusOK) {
+                            s3_sleep( retry_wait, 0 );
+                            retry_wait *= 2;
+                        }
+                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                     if (data.status != S3StatusOK) {
                         std::stringstream msg;
                         msg << "[resource_name=" << resource_name << "] " << __FUNCTION__ << " - Error fetching the S3 object: \"" << _s3ObjName << "\"";
@@ -1367,8 +1373,11 @@ static void mpuWorkerThread (
             }
             msg << " -- END -- BW=" << bw << " MB/s";
             rodsLog( LOG_DEBUG, msg.str().c_str() );
-            if (partData.status != S3StatusOK) s3_sleep( retry_wait, 0 );
-        } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt < retry_count_limit));
+            if (partData.status != S3StatusOK) {
+                s3_sleep( retry_wait, 0 );
+                retry_wait *= 2;
+            }
+        } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt <= retry_count_limit));
         if (partData.status != S3StatusOK) {
             msg.str( std::string() ); // Clear
             msg << "[resource_name=" << resource_name << "] " << __FUNCTION__ << " - Error putting the S3 object: \"" << g_mpuKey << "\"" << " part " << seq;
@@ -1477,8 +1486,11 @@ irods::error s3PutCopyFile(
                         unsigned long long usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "BW=%lf", bw);
-                        if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
-                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit) );
+                        if (data.status != S3StatusOK) {
+                            s3_sleep( retry_wait, 0 );
+                            retry_wait *= 2;
+                        }
+                    } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                     if (data.status != S3StatusOK) {
                         std::stringstream msg;
                         msg << "[resource_name=" << resource_name << "] " << " - Error putting the S3 object: \"" << _s3ObjName << "\"";
@@ -1568,8 +1580,11 @@ irods::error s3PutCopyFile(
                         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                         manager.pCtx = &bucketContext;
                         S3_initiate_multipart(&bucketContext, key.c_str(), putProps, &mpuInitialHandler, NULL, 0, &manager);
-                        if (manager.status != S3StatusOK) s3_sleep( retry_wait, 0 );
-                    } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < retry_count_limit));
+                        if (manager.status != S3StatusOK) {
+                            s3_sleep( retry_wait, 0 );
+                            retry_wait *= 2;
+                        }
+                    } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt <= retry_count_limit));
                     if (manager.upload_id == NULL || manager.status != S3StatusOK) {
                         // Clear up the S3PutProperties, if it exists
                         if (putProps) {
@@ -1682,8 +1697,11 @@ irods::error s3PutCopyFile(
                             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                             manager.pCtx = &bucketContext;
                             S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, 0, &manager);
-                            if (manager.status != S3StatusOK) s3_sleep( retry_wait, 0 );
-                        } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt < retry_count_limit));
+                            if (manager.status != S3StatusOK) {
+                                s3_sleep( retry_wait, 0 );
+                                retry_wait *= 2;
+                            }
+                        } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt <= retry_count_limit));
                         if (manager.status != S3StatusOK) {
                             msg.str( std::string() ); // Clear
                             msg << "[resource_name=" << resource_name << "] ";
@@ -1814,8 +1832,11 @@ irods::error s3CopyFile(
                     data.pCtx = &bucketContext;
                     S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), &putProps, &lastModified, sizeof(eTag), eTag, 0,
                                    0, &responseHandler, &data);
-                    if (data.status != S3StatusOK) s3_sleep( retry_wait, 0 );
-                } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit) );
+                    if (data.status != S3StatusOK) {
+                        s3_sleep( retry_wait, 0 );
+                        retry_wait *= 2;
+                    }
+                } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                 if (data.status != S3StatusOK) {
                     std::stringstream msg;
                     msg << __FUNCTION__;
