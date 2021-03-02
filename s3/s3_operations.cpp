@@ -442,7 +442,7 @@ namespace irods_s3 {
         s3_config.object_size = data_size;
         s3_config.number_of_cache_transfer_threads = s3GetMPUThreads(_ctx.prop_map());    // number of threads created by s3_transport when writing/reading to/from cache
         s3_config.number_of_client_transfer_threads = number_of_threads;    // number of threads created by s3_transport when writing/reading to/from cache
-        s3_config.part_size = data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE ? 0 : data_size / number_of_threads;
+        s3_config.bytes_this_thread = data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE ? 0 : data_size / number_of_threads;
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
@@ -734,12 +734,12 @@ namespace irods_s3 {
 
             // determine the part size based on the offset
             off_t offset = s3_transport_ptr->get_offset();
-            uint64_t part_size = data_size / number_of_threads;
-            if (static_cast<uint64_t>(offset) >= part_size * (number_of_threads-1)) {
-                part_size += data_size % number_of_threads;
+            int64_t bytes_this_thread = data_size / number_of_threads;
+            if (static_cast<int64_t>(offset) >= bytes_this_thread * (number_of_threads-1)) {
+                bytes_this_thread += data_size % number_of_threads;
             }
 
-            s3_transport_ptr->set_part_size(part_size);
+            s3_transport_ptr->set_bytes_this_thread(bytes_this_thread);
 
             dstream_ptr->write(static_cast<char*>(_buf), _len);
 
