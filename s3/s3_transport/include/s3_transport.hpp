@@ -1241,6 +1241,8 @@ namespace irods::experimental::io::s3_transport
 
             return shm_obj.atomic_exec([this, &put_props, &retry_cnt](auto& data) {
 
+                int retry_wait_seconds = this->config_.retry_wait_seconds;
+
                 retry_cnt = 0;
 
                 // These expect a upload_manager* as cbdata
@@ -1263,12 +1265,13 @@ namespace irods::experimental::io::s3_transport
                             __FUNCTION__, get_thread_identifier(), S3_get_status_name(upload_manager_.status));
 
                     if (upload_manager_.status != libs3_types::status_ok) {
-                        s3_sleep( config_.retry_wait_seconds, 0 );
+                        s3_sleep( retry_wait_seconds, 0 );
+                        retry_wait_seconds *= 2;
                     }
 
                 } while ( (upload_manager_.status != libs3_types::status_ok)
                         && S3_status_is_retryable(upload_manager_.status)
-                        && ( ++retry_cnt < config_.retry_count_limit));
+                        && ( ++retry_cnt <= config_.retry_count_limit));
 
                 if ("" == data.upload_id || upload_manager_.status != libs3_types::status_ok) {
                     return error_codes::INITIATE_MULTIPART_UPLOAD_ERROR;
@@ -1345,6 +1348,8 @@ namespace irods::experimental::io::s3_transport
 
             error_codes result = shm_obj.atomic_exec([this](auto& data) {
 
+                int retry_wait_seconds = this->config_.retry_wait_seconds;
+
                 std::stringstream msg;
 
                 std::stringstream xml("");
@@ -1396,10 +1401,15 @@ namespace irods::experimental::io::s3_transport
                                 upload_manager_.remaining, nullptr, 0, &upload_manager_);
                         rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] [manager.status=%s]\n", __FILE__, __LINE__,
                                 __FUNCTION__, get_thread_identifier(), S3_get_status_name(upload_manager_.status));
-                        if (upload_manager_.status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
+
+                        if (upload_manager_.status != libs3_types::status_ok) {
+                            s3_sleep( retry_wait_seconds, 0 );
+                            retry_wait_seconds *= 2;
+                        }
+
                     } while ((upload_manager_.status != libs3_types::status_ok) &&
                             S3_status_is_retryable(upload_manager_.status) &&
-                            ( ++retry_cnt < config_.retry_count_limit));
+                            ( ++retry_cnt <= config_.retry_count_limit));
 
                     if (upload_manager_.status != libs3_types::status_ok) {
                         msg.str( std::string() ); // Clear
@@ -1504,6 +1514,7 @@ namespace irods::experimental::io::s3_transport
             read_callback->shmem_key = shmem_key_;
             read_callback->shared_memory_timeout_in_seconds = config_.shared_memory_timeout_in_seconds;
 
+            int retry_wait_seconds = config_.retry_wait_seconds;
 
             do {
 
@@ -1535,11 +1546,14 @@ namespace irods::experimental::io::s3_transport
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__,
                         get_thread_identifier(), msg.str().c_str());
 
-                if (read_callback->status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
+                if (read_callback->status != libs3_types::status_ok) {
+                    s3_sleep( retry_wait_seconds, 0 );
+                    retry_wait_seconds *= 2;
+                }
 
             } while ((read_callback->status != libs3_types::status_ok)
                     && S3_status_is_retryable(read_callback->status)
-                    && (++retry_cnt < config_.retry_count_limit));
+                    && (++retry_cnt <= config_.retry_count_limit));
 
             if (read_callback->status != libs3_types::status_ok) {
                 msg.str( std::string() ); // Clear
@@ -1789,9 +1803,8 @@ namespace irods::experimental::io::s3_transport
                         retry_wait_seconds *= 2;
                     }
 
-                // note can't retry this because data is lost - therefore for now this is set to false
                 } while ((write_callback->status != libs3_types::status_ok) && S3_status_is_retryable(write_callback->status) &&
-                        (++retry_cnt < config_.retry_count_limit));
+                        (++retry_cnt <= config_.retry_count_limit));
 
                 if (write_callback->status != libs3_types::status_ok) {
 
@@ -1816,6 +1829,8 @@ namespace irods::experimental::io::s3_transport
             std::shared_ptr<s3_upload::callback_for_write_to_s3_base<CharT>> write_callback;
 
             unsigned int retry_cnt = 0;
+
+            int retry_wait_seconds = config_.retry_wait_seconds;
 
             do {
 
@@ -1871,6 +1886,9 @@ namespace irods::experimental::io::s3_transport
                 put_props.expires = -1;
                 put_props.useServerSideEncryption = config_.server_encrypt_flag;
 
+                // zero out bytes_written in case of failure and re-run
+                write_callback->bytes_written = 0;
+
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] S3_put_object(ctx, %s, "
                        "%lu, put_props, 0, &putObjectHandler, &data)\n",
                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
@@ -1884,11 +1902,13 @@ namespace irods::experimental::io::s3_transport
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                         S3_get_status_name(write_callback->status));
 
-                if (write_callback->status != libs3_types::status_ok) s3_sleep( config_.retry_wait_seconds, 0 );
+                    if (write_callback->status != libs3_types::status_ok) {
+                        s3_sleep( retry_wait_seconds, 0 );
+                        retry_wait_seconds *= 2;
+                    }
 
-            // note can't retry this because data is lost - therefore for now this is set to false
-            } while ((write_callback->status != libs3_types::status_ok) && false && S3_status_is_retryable(write_callback->status) &&
-                    (++retry_cnt < config_.retry_count_limit));
+            } while ((write_callback->status != libs3_types::status_ok) && S3_status_is_retryable(write_callback->status) &&
+                    (++retry_cnt <= config_.retry_count_limit));
 
             if (write_callback->status != libs3_types::status_ok) {
                 this->set_error(ERROR(S3_PUT_ERROR, "failed in S3_put_object"));
