@@ -114,15 +114,6 @@ Some configuration settings have special meaning when the resource is in cachele
 -   When iRODS is using parallel transfer but each transfer part is less than S3_MPU_CHUNK, a cache file will be used 
 -   The S3_MPU_THREADS setting is only used when flushing a cache file to S3.  In streaming mode iRODS controls the number of transfer threads that are used.
 
-### Configure throttling in cacheless mode
-
-There are two cofiguration settings in the resource context that control throttling of requests to S3.  This is to handle cases where the S3 server can't handle a temporarily increased workload either due to timeouts or connection constraints imposed by the S3 provider.
-
-*   `THROTTLE_THREAD_COUNT` - The maximum number of parallel transfer threads that can be writing to or reading from S3 simultaneously.  If this is not set then throttling is disabled and all requests will go to S3.  If this is set, once this is reached threads will wait.  It is suggested that this be at least 120 if parallel transfers are enabled.
-*  `THROTTLE_TIMEOUT_MINUES` - This is the number of minutes threads will wait before giving up and erroring out.
-
-Both of these settings are only available in cacheless mode.
-
 ### Cache Rules When Using Cacheless Mode
 
 Care was taken to limit the use of a cache file when cacheless mode is enabled.  However, there are scenarios where a cache file is required.  The following explains when a cache file is required or when cacheless streaming is performed.
