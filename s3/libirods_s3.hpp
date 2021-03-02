@@ -47,12 +47,10 @@ extern const std::string REPL_POLICY_VAL;
 extern const std::string s3_cache_dir;
 extern const std::string s3_circular_buffer_size;
 extern const std::string s3_uri_request_style;        //  either "path" or "virtual_hosted" - default "path"
-extern const std::string throttle_thread_count;
 extern const std::string s3_number_of_threads;        //  to save number of threads
 extern const size_t S3_DEFAULT_RETRY_WAIT_SEC;
 extern const size_t S3_DEFAULT_RETRY_COUNT;
 extern const int    S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
-extern const int    DEFAULT_THROTTLE_TIMEOUT_MINUTES;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
@@ -60,9 +58,6 @@ ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map);
 S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
 std::string get_region_name(irods::plugin_property_map& _prop_map);
-int get_throttle_thread_count(irods::plugin_property_map& _prop_map);
-int get_throttle_timeout_minutes( irods::plugin_property_map& _prop_map );
-std::string get_throttle_semaphore_name(irods::plugin_property_map& _prop_map);
 bool s3GetServerEncrypt (irods::plugin_property_map& _prop_map);
 std::string get_cache_directory(irods::plugin_property_map& _prop_map);
 

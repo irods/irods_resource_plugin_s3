@@ -541,40 +541,6 @@ namespace irods_s3 {
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-            using namespace boost::posix_time;
-            using namespace boost::interprocess;
-
-            // handle throttling
-            int throttle_thread_count = get_throttle_thread_count(_ctx.prop_map());
-
-            // if the THROTTLE_THREAD_COUNT is not defined, do not throttle
-            if (throttle_thread_count != 0) {
-
-                int throttle_timeout_minutes = get_throttle_timeout_minutes(_ctx.prop_map());
-                try {
-
-                    // wait in case too many accesses are occurring
-                    std::string semaphore_name = get_throttle_semaphore_name(_ctx.prop_map());
-                    named_semaphore semaphore(open_or_create_t(), semaphore_name.c_str(), throttle_thread_count);
-
-                    // time out after 30 minutes so we don't have too many waiting
-                    ptime wait_time(second_clock::local_time());
-                    wait_time += time_duration(0, throttle_timeout_minutes, 0);
-
-                    // Do a timed wait.  If it times out return an error so as not
-                    // to have too many uploads waiting
-                    bool success = semaphore.timed_wait(wait_time);
-                    if (!success) {
-                        return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Time out waiting for S3 open throttle") %
-                                    get_resource_name(_ctx.prop_map()) % __FUNCTION__));
-                    }
-
-                } catch (const interprocess_exception& ie) {
-                    return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Error waiting for S3 open throttle %s") %
-                                get_resource_name(_ctx.prop_map()) % __FUNCTION__ % ie.what()));
-                }
-            }
-
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
             std::ios_base::openmode open_mode;
@@ -616,40 +582,6 @@ namespace irods_s3 {
                     std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-
-            using namespace boost::interprocess;
-            using namespace boost::posix_time;
-
-            // handle throttling
-            int throttle_thread_count = get_throttle_thread_count(_ctx.prop_map());
-
-            // if the THROTTLE_THREAD_COUNT is not defined, do not throttle
-            if (throttle_thread_count != 0) {
-
-                int throttle_timeout_minutes = get_throttle_timeout_minutes(_ctx.prop_map());
-                try {
-
-                    // wait in case too many accesses are occurring
-                    std::string semaphore_name = get_throttle_semaphore_name(_ctx.prop_map());
-                    named_semaphore semaphore(open_or_create_t(), semaphore_name.c_str(), throttle_thread_count);
-
-                    // time out after 30 minutes so we don't have too many waiting
-                    ptime wait_time(second_clock::local_time());
-                    wait_time += time_duration(0, throttle_timeout_minutes, 0);
-
-                    // Do a timed wait.  If it times out return an error so as not
-                    // to have too many uploads waiting
-                    bool success = semaphore.timed_wait(wait_time);
-                    if (!success) {
-                        return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Time out waiting for S3 open throttle") %
-                                    get_resource_name(_ctx.prop_map()) % __FUNCTION__));
-                    }
-
-                } catch (const interprocess_exception& ie) {
-                    return ERROR(SYS_INTERNAL_ERR, boost::str(boost::format("[resource_name=%s] %s: Error waiting for S3 open throttle %s") %
-                                get_resource_name(_ctx.prop_map()) % __FUNCTION__ % ie.what()));
-                }
-            }
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -834,24 +766,6 @@ namespace irods_s3 {
         if (is_cacheless_mode(_ctx.prop_map())) {
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-
-            using namespace boost::interprocess;
-
-            // handle throttling
-            int throttle_thread_count = get_throttle_thread_count(_ctx.prop_map());
-
-            // if the THROTTLE_THREAD_COUNT is not defined, do not throttle
-            if (throttle_thread_count != 0) {
-
-                // post the open/close semaphore for throttling
-                try {
-                     std::string semaphore_name = get_throttle_semaphore_name(_ctx.prop_map());
-                     named_semaphore semaphore(open_only_t(), semaphore_name.c_str());
-                     semaphore.post();
-                } catch (const interprocess_exception& e) {
-                    return ERROR(SYS_INTERNAL_ERR, e.what());
-                }
-            }
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
