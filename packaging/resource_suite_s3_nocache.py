@@ -124,8 +124,6 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.s3_context += ';S3_ENABLE_MD5=1'
         self.s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
         self.s3_context += ';S3_CACHE_DIR=/var/lib/irods'
-        self.s3_context += ';THROTTLE_THREAD_COUNT=120'
-        self.s3_context += ';THROTTLE_TIMEOUT_MINUTES=30'
 
         try:
             self.s3_context += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
