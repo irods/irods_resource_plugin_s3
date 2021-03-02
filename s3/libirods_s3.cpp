@@ -138,15 +138,11 @@ const std::string REPL_POLICY_VAL{"reg_repl"};
 const std::string s3_cache_dir{"S3_CACHE_DIR"};
 const std::string s3_circular_buffer_size{"S3_CIRCULAR_BUFFER_SIZE"};
 const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
-const std::string throttle_thread_count{"THROTTLE_THREAD_COUNT"};
-const std::string throttle_timeout_minutes{"THROTTLE_TIMEOUT_MINUTES"};
 
 const std::string s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const size_t      S3_DEFAULT_RETRY_WAIT_SEC = 2;
 const size_t      S3_DEFAULT_RETRY_COUNT = 3;
 const int         S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 20;
-const int         DEFAULT_THROTTLE_TIMEOUT_MINUTES = 30;
-const int         MIN_THROTTLE_THREAD_COUNT = 32;
 
 S3ResponseProperties savedProperties;
 
@@ -780,67 +776,6 @@ bool s3GetEnableMultiPartUpload (
 
     }
     return enable;
-}
-
-// defines the number of threads that can be active at a time
-int get_throttle_thread_count( irods::plugin_property_map& _prop_map )
-{
-    irods::error ret;
-    std::string count_str;
-
-    int throttle_thread_count_int;
-
-    ret = _prop_map.get< std::string >(
-        throttle_thread_count,
-        count_str );
-    if (ret.ok()) {
-        try {
-            throttle_thread_count_int = boost::lexical_cast<unsigned int>(count_str.c_str());
-            if (throttle_thread_count_int != 0 && throttle_thread_count_int < MIN_THROTTLE_THREAD_COUNT) {
-                throttle_thread_count_int = MIN_THROTTLE_THREAD_COUNT;
-            }
-        } catch(const boost::bad_lexical_cast &) {
-            // keep default
-        }
-    } else {
-        // zero means we do not throttle which is the case is this isn't defined
-        throttle_thread_count_int = 0;
-    }
-    return throttle_thread_count_int;
-}
-
-// defines the of minutes a thread will wait for the semaphore before
-// giving up and returning an error
-int get_throttle_timeout_minutes( irods::plugin_property_map& _prop_map )
-{
-    irods::error ret;
-    std::string throttle_timeout_str;
-
-    int throttle_timeout_int = DEFAULT_THROTTLE_TIMEOUT_MINUTES;
-
-    ret = _prop_map.get< std::string >(
-        throttle_timeout_minutes,
-        throttle_timeout_str );
-    if (ret.ok()) {
-        try {
-            throttle_timeout_int = boost::lexical_cast<int>(throttle_timeout_str.c_str());
-            if (throttle_timeout_int < 0) {
-                throttle_timeout_int = DEFAULT_THROTTLE_TIMEOUT_MINUTES;
-            }
-        } catch(const boost::bad_lexical_cast &) {
-            // keep default
-        }
-
-    }
-    return throttle_timeout_int;
-}
-
-
-std::string get_throttle_semaphore_name(irods::plugin_property_map& _prop_map) {
-
-        const auto& shared_memory_name_salt = irods::get_server_property<const std::string>(irods::CFG_RE_CACHE_SALT_KW);
-        return "s3_open_throttle_semaphore_" + get_resource_name(_prop_map)
-            + "_" + shared_memory_name_salt;
 }
 
 bool s3GetServerEncrypt (
