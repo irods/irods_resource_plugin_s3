@@ -53,6 +53,8 @@ namespace irods::experimental::io::s3_transport
 {
     const int S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
 
+    int S3_status_is_retryable(S3Status status);
+
     struct config
     {
 
@@ -1319,7 +1321,7 @@ namespace irods::experimental::io::s3_transport
                     }
 
                 } while ( (upload_manager_.status != libs3_types::status_ok)
-                        && S3_status_is_retryable(upload_manager_.status)
+                        && irods::experimental::io::s3_transport::S3_status_is_retryable(upload_manager_.status)
                         && ( ++retry_cnt <= config_.retry_count_limit));
 
                 if ("" == data.upload_id || upload_manager_.status != libs3_types::status_ok) {
@@ -1457,7 +1459,7 @@ namespace irods::experimental::io::s3_transport
                         }
 
                     } while ((upload_manager_.status != libs3_types::status_ok) &&
-                            S3_status_is_retryable(upload_manager_.status) &&
+                            irods::experimental::io::s3_transport::S3_status_is_retryable(upload_manager_.status) &&
                             ( ++retry_cnt <= config_.retry_count_limit));
 
                     if (upload_manager_.status != libs3_types::status_ok) {
@@ -1601,7 +1603,7 @@ namespace irods::experimental::io::s3_transport
                 }
 
             } while ((read_callback->status != libs3_types::status_ok)
-                    && S3_status_is_retryable(read_callback->status)
+                    && irods::experimental::io::s3_transport::S3_status_is_retryable(read_callback->status)
                     && (++retry_cnt <= config_.retry_count_limit));
 
             if (read_callback->status != libs3_types::status_ok) {
@@ -1845,8 +1847,9 @@ namespace irods::experimental::io::s3_transport
                         retry_wait_seconds *= 2;
                     }
 
-                } while ((write_callback->status != libs3_types::status_ok) && S3_status_is_retryable(write_callback->status) &&
-                        (++retry_cnt <= config_.retry_count_limit));
+                } while ((write_callback->status != libs3_types::status_ok)
+                        && irods::experimental::io::s3_transport::S3_status_is_retryable(write_callback->status)
+                        && (++retry_cnt <= config_.retry_count_limit));
 
                 if (write_callback->status != libs3_types::status_ok) {
 
@@ -1949,8 +1952,9 @@ namespace irods::experimental::io::s3_transport
                         retry_wait_seconds *= 2;
                     }
 
-            } while ((write_callback->status != libs3_types::status_ok) && S3_status_is_retryable(write_callback->status) &&
-                    (++retry_cnt <= config_.retry_count_limit));
+            } while ((write_callback->status != libs3_types::status_ok)
+                    && irods::experimental::io::s3_transport::S3_status_is_retryable(write_callback->status)
+                    && (++retry_cnt <= config_.retry_count_limit));
 
             if (write_callback->status != libs3_types::status_ok) {
                 this->set_error(ERROR(S3_PUT_ERROR, "failed in S3_put_object"));
