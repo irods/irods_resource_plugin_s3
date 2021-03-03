@@ -39,6 +39,10 @@
 
 namespace irods::experimental::io::s3_transport
 {
+    int S3_status_is_retryable(S3Status status) {
+        return ::S3_status_is_retryable(status) || S3StatusErrorQuotaExceeded == status;
+    }
+
 
     void print_bucket_context(const libs3_types::bucket_context& bucket_context)
     {
