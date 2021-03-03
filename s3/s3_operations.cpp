@@ -940,7 +940,7 @@ namespace irods_s3 {
             }
 
         } while((data.status != S3StatusOK) &&
-                S3_status_is_retryable(data.status) &&
+                irods::experimental::io::s3_transport::S3_status_is_retryable(data.status) &&
                 (++retry_cnt < retry_count_limit));
 
         if(data.status != S3StatusOK) {
@@ -1039,7 +1039,8 @@ namespace irods_s3 {
                                 retry_wait *= 2;
                             }
                         } while ( data.status != S3StatusOK &&
-                                ( S3_status_is_retryable(data.status) || ( retry_on_not_found && data.status == S3StatusHttpErrorNotFound ) ) &&
+                                ( irods::experimental::io::s3_transport::S3_status_is_retryable(data.status) ||
+                                  ( retry_on_not_found && data.status == S3StatusHttpErrorNotFound ) ) &&
                                 ++retry_cnt < retry_count_limit );
 
                         if (data.status == S3StatusOK) {
@@ -1392,7 +1393,9 @@ namespace irods_s3 {
                         retry_wait *= 2;
                     }
 
-                } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt < retry_count_limit ) );
+                } while ( (data.status != S3StatusOK) &&
+                        irods::experimental::io::s3_transport::S3_status_is_retryable(data.status) &&
+                        (++retry_cnt < retry_count_limit ) );
 
                 if (data.status != S3StatusOK) {
                     std::stringstream msg;
