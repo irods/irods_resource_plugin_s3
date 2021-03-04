@@ -764,6 +764,7 @@ namespace irods::experimental::io::s3_transport
                         libs3_buffer_size < this->content_length - this->bytes_written
                         ? libs3_buffer_size
                         : this->content_length - this->bytes_written;
+
                     circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
 
                     this->bytes_written += bytes_to_return;
