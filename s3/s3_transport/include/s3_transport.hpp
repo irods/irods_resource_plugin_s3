@@ -686,7 +686,7 @@ namespace irods::experimental::io::s3_transport
             assert(bytes_this_thread > 0);
 
             // determine thread number, if this is the last thread, the bytes_this_thread
-            // will be larger so the thread number must be adjusted
+            // may be larger so the thread number must be adjusted
             unsigned int thread_number = (file_offset_ / bytes_this_thread) +
                 (file_offset_ % bytes_this_thread == 0 ? 0 : 1);
 
@@ -699,12 +699,9 @@ namespace irods::experimental::io::s3_transport
 
             // Determine number of parts per thread.  Last thread which may have extra bytes will
             // just have the same number of parts with extra bytes tacked on to last part.
-            unsigned int parts_per_thread =
-                bytes_all_threads_except_last * 2 < static_cast<int64_t>(config_.circular_buffer_size)
-                // less than half circular buffer size, doing one part per thread
-                ? 1
-                // have each part 1/2 of circular buffer size with last part getting extra
-                : bytes_all_threads_except_last / ( config_.circular_buffer_size >> 1);
+            // If parts is not divisible by circular buffer size then we need one additional part.
+            unsigned int parts_per_thread = bytes_all_threads_except_last / config_.circular_buffer_size
+                + ( bytes_all_threads_except_last % config_.circular_buffer_size == 0 ? 0 : 1 );
 
             start_part_number = thread_number * parts_per_thread + 1;
             end_part_number = start_part_number + parts_per_thread - 1;
@@ -1798,9 +1795,9 @@ namespace irods::experimental::io::s3_transport
                         write_callback->content_length = (
                                 part_number == end_part_number
                                   // last thread, the part size is the bytes_this_thread minus bytes for previous parts
-                                ? bytes_this_thread - (part_number - start_part_number) * ( config_.circular_buffer_size >> 1 )
-                                  // not last thread, the part size is half the circular buffer size
-                                : config_.circular_buffer_size >> 1 );
+                                ? bytes_this_thread - (part_number - start_part_number) * ( bytes_this_thread / ( end_part_number - start_part_number + 1 ) )
+                                  // not last thread, the part size bytes_this_thread / # parts this thread
+                                : bytes_this_thread / ( end_part_number - start_part_number + 1 ) );
                     }
 
                     write_callback->sequence = part_number;
