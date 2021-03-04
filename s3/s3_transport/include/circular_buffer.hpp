@@ -64,15 +64,22 @@ namespace experimental {
             }
 
             template <typename iter>
-            void push_back(iter begin, iter end)
+            long push_back(iter begin, iter end)
             {
-                auto distance = std::distance(begin, end);
-                (*lws_)([this, distance] { return cb_.size() + distance <= cb_.capacity(); },
-                        [this, begin, end] {
+                // push what you can, return the number pushed
+                long insertion_count = 0;
+                (*lws_)([this] { return cb_.size() < cb_.capacity(); },
+                        [this, begin, end, &insertion_count] {
 
-                           cb_.insert(cb_.end(), begin, end);
+                           auto distance = static_cast<unsigned long>(std::distance(begin, end));
+                           auto empty_space = cb_.capacity() - cb_.size();
+                           insertion_count = ( empty_space < distance ? empty_space : distance );
+                           cb_.insert(cb_.end(), begin, begin + insertion_count );
 
                         } );
+
+                return insertion_count;
+
             }
 
             void push_back(const T& entry)
