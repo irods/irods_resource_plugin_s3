@@ -549,16 +549,15 @@ namespace irods::experimental::io::s3_transport
                 }
             }
 
-            // Push the current buffer onto the circular_buffer.  If _buffer_size > circular_buffer_size
-            // the push must be done in parts so as not to lock of the circular_buffer.
-            uint64_t offset = 0;
-            while (_buffer_size - offset > config_.circular_buffer_size) {
+            // Push the current buffer onto the circular_buffer.  The push may be partial so keep
+            // pushing until all bytes are pushed
+            int64_t offset = 0;
+            while (offset < _buffer_size) {
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] pushing buffer of size %ld on circular_buffer\n",
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.circular_buffer_size);
-                circular_buffer_.push_back(&_buffer[offset], &_buffer[offset + config_.circular_buffer_size]);
+                offset += circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
                 rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] wrote buffer of size %ld on circular_buffer\n",
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.circular_buffer_size);
-                offset += config_.circular_buffer_size;
             }
 
             rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] pushing buffer of size %ld on circular_buffer\n",
@@ -1637,7 +1636,7 @@ namespace irods::experimental::io::s3_transport
 
         void s3_upload_part_worker_routine(bool read_from_cache = false,
                                            unsigned int thread_number = 0,     // zero based part number for cache only
-                                           unsigned int bytes_this_thread = 0, // used for cache only
+                                           unsigned int bytes_this_thread = 0, // set for cache only
                                            off_t file_offset = 0               // only used for streaming
                                            )
         {
