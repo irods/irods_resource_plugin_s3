@@ -250,7 +250,7 @@ void upload_part(const char* const hostname,
     s3_config.object_size = file_size;
     s3_config.number_of_cache_transfer_threads = 5;
     s3_config.number_of_client_transfer_threads = thread_count;
-    s3_config.part_size = current_buffer_size;
+    s3_config.bytes_this_thread = current_buffer_size;
     s3_config.bucket_name = bucket_name;
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;
@@ -261,7 +261,7 @@ void upload_part(const char* const hostname,
     s3_config.put_repl_flag = put_repl_flag;
     s3_config.debug_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
-    s3_config.circular_buffer_size = 4 * s3_config.part_size;
+    s3_config.circular_buffer_size = 4 * s3_config.bytes_this_thread;
 
     s3_transport tp1{s3_config};
     odstream ds1{tp1, std::string(object_prefix)+filename};
@@ -335,7 +335,7 @@ void download_part(const char* const hostname,
     s3_config.object_size = file_size;
     s3_config.number_of_cache_transfer_threads = 5;
     s3_config.number_of_client_transfer_threads = thread_count;
-    s3_config.part_size = 0;
+    s3_config.bytes_this_thread = 0;
     s3_config.bucket_name = bucket_name;
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;
@@ -403,7 +403,7 @@ void read_write_on_file(const char *hostname,
     s3_config.hostname = hostname;
     s3_config.number_of_cache_transfer_threads = 5;
     s3_config.number_of_client_transfer_threads = thread_count;
-    s3_config.part_size = 0;
+    s3_config.bytes_this_thread = 0;
     s3_config.bucket_name = bucket_name;
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;

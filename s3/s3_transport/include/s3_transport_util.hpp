@@ -55,7 +55,7 @@ namespace irods::experimental::io::s3_transport
                                                           UPLOAD_ID_SIZE + 1};
 
         static const int                DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS{900};
-        inline static const std::string SHARED_MEMORY_KEY_PREFIX{"s3-shm-"};
+        inline static const std::string SHARED_MEMORY_KEY_PREFIX{"irods_s3-shm-"};
     };
 
     void print_bucket_context( const libs3_types::bucket_context& bucket_context );
