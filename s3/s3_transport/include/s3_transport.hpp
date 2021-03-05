@@ -672,40 +672,61 @@ namespace irods::experimental::io::s3_transport
         }
 
 
-    private:
-
         // this function uses the starting offset provided to the transport
         // and the number of bytes in this thread to determine the start and end
         // part number for this thread
-        void determine_start_and_end_part_from_offset_and_bytes_this_thread(
+        static void determine_start_and_end_part_from_offset_and_bytes_this_thread(
                 int64_t bytes_this_thread,
+                int64_t file_offset,
+                int64_t circular_buffer_size,
                 unsigned int& start_part_number,
-                unsigned int& end_part_number)  {
+                unsigned int& end_part_number,
+                std::vector<int64_t>& part_sizes)  {
 
             assert(bytes_this_thread > 0);
 
             // determine thread number, if this is the last thread, the bytes_this_thread
             // may be larger so the thread number must be adjusted
-            unsigned int thread_number = (file_offset_ / bytes_this_thread) +
-                (file_offset_ % bytes_this_thread == 0 ? 0 : 1);
+            unsigned int thread_number = (file_offset / bytes_this_thread) +
+                (file_offset % bytes_this_thread == 0 ? 0 : 1);
 
             // Determine the number of bytes for all threads used to determine out start part number.
             // At this point we don't care about the size of the last thread.
             int64_t bytes_all_threads_except_last =
                 thread_number == 0
                 ? bytes_this_thread
-                : file_offset_ / thread_number;
+                : file_offset / thread_number;
 
-            // Determine number of parts per thread.  Last thread which may have extra bytes will
-            // just have the same number of parts with extra bytes tacked on to last part.
-            // If parts is not divisible by circular buffer size then we need one additional part.
-            unsigned int parts_per_thread = bytes_all_threads_except_last / config_.circular_buffer_size
-                + ( bytes_all_threads_except_last % config_.circular_buffer_size == 0 ? 0 : 1 );
+            // Determine number of parts per thread.  If parts is not divisible by circular buffer
+            // size then we need one additional part. The last thread is treated specially because
+            // it may have additional bytes.
+            unsigned int parts_per_thread = bytes_all_threads_except_last / circular_buffer_size
+                + ( bytes_all_threads_except_last % circular_buffer_size == 0 ? 0 : 1 );
 
             start_part_number = thread_number * parts_per_thread + 1;
-            end_part_number = start_part_number + parts_per_thread - 1;
+            if (bytes_this_thread == bytes_all_threads_except_last) {
+                end_part_number = start_part_number + parts_per_thread - 1;
+            } else {
+                unsigned int parts_last_thread = bytes_this_thread / circular_buffer_size
+                    + (bytes_this_thread % circular_buffer_size == 0 ? 0 : 1);
+                end_part_number = start_part_number + parts_last_thread - 1;
+            }
+
+            // put the part sizes on the vector, splitting remaining bytes among first few parts
+            int64_t part_size = bytes_this_thread / ( end_part_number - start_part_number + 1 );
+            int64_t remaining_bytes = bytes_this_thread % ( end_part_number - start_part_number + 1 );
+            int64_t total_bytes = 0;
+            for (unsigned int part_cntr = 0; part_cntr <= end_part_number - start_part_number; ++part_cntr) {
+                int64_t bytes_this_part = part_size +
+                        ( remaining_bytes > part_cntr ? 1 : 0 );
+                total_bytes += bytes_this_part;
+                assert(bytes_this_part <= circular_buffer_size);
+                part_sizes.push_back(bytes_this_part);
+            }
+            assert(total_bytes == bytes_this_thread);
         }
 
+    private:
 
         void set_file_offset(int64_t file_offset) {
             std::lock_guard<std::mutex> lock(file_offset_mutex_);
@@ -1698,6 +1719,7 @@ namespace irods::experimental::io::s3_transport
             unsigned int start_part_number;
             unsigned int end_part_number;
             int64_t content_length;
+            std::vector<int64_t> part_sizes;
 
             if (read_from_cache) {
 
@@ -1742,8 +1764,8 @@ namespace irods::experimental::io::s3_transport
                 // determine the part number from the offset, file size, and buffer size
                 // the last page might be larger so doing a little trick to handle that case (second term)
                 //  Note:  We bailed early if bytes_this_thread == 0
-                determine_start_and_end_part_from_offset_and_bytes_this_thread(bytes_this_thread,
-                        start_part_number, end_part_number);
+                determine_start_and_end_part_from_offset_and_bytes_this_thread(bytes_this_thread, file_offset_,
+                        config_.circular_buffer_size, start_part_number, end_part_number, part_sizes);
 
                 // estimate the size and resize the etags vector
                 unsigned int total_number_of_parts = config_.object_size / bytes_this_thread;
@@ -1790,13 +1812,7 @@ namespace irods::experimental::io::s3_transport
                         write_callback->offset = offset;
                         write_callback->content_length = content_length;
                     } else {
-
-                        write_callback->content_length = (
-                                part_number == end_part_number
-                                  // last thread, the part size is the bytes_this_thread minus bytes for previous parts
-                                ? bytes_this_thread - (part_number - start_part_number) * ( bytes_this_thread / ( end_part_number - start_part_number + 1 ) )
-                                  // not last thread, the part size bytes_this_thread / # parts this thread
-                                : bytes_this_thread / ( end_part_number - start_part_number + 1 ) );
+                        write_callback->content_length = part_sizes[part_number - start_part_number];
                     }
 
                     write_callback->sequence = part_number;
