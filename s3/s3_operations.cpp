@@ -123,7 +123,7 @@ namespace irods_s3 {
             int fd_counter;
     };
 
-    int debug_log_level = LOG_DEBUG;
+    int debug_log_level = LOG_NOTICE;
     fd_to_data_map fd_data;
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
