@@ -1038,7 +1038,38 @@ TEST_CASE("s3_transport_readwrite_thread", "[rw][thread]")
         do_read_write_thread(bucket_name, filename, object_prefix, keyfile, thread_count, open_modes);
 
     }
-
     remove_bucket(bucket_name);
+}
+
+TEST_CASE("test_part_splits", "[part_splits]")
+{
+    rodsLogLevel(log_level);
+
+    SECTION("read write small file")
+    {
+        using s3_transport        = irods::experimental::io::s3_transport::s3_transport<char>;
+
+        int64_t circular_buffer_size = 10*1024*1024;
+
+        for (int64_t bytes_this_thread = 5*1024*1024; bytes_this_thread <= 1024*1024*1024; ++bytes_this_thread) {
+
+            if (bytes_this_thread % (5*1024*1024) == 0) {
+                 rodsLog(LOG_NOTICE, "bytes_this_thread: %ld\n", bytes_this_thread);
+            }
+
+            std::vector<int64_t> part_sizes;
+            int64_t file_offset = 0;
+            unsigned int start_part_number, end_part_number;
+            s3_transport::determine_start_and_end_part_from_offset_and_bytes_this_thread(
+                    bytes_this_thread,
+                    file_offset,
+                    circular_buffer_size,
+                    start_part_number,
+                    end_part_number,
+                    part_sizes);
+
+            assert(part_sizes.size() == end_part_number - start_part_number + 1);
+        }
+    }
 }
 
