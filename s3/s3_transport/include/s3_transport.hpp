@@ -995,7 +995,7 @@ namespace irods::experimental::io::s3_transport
         }
 
         // This populates the following flags based on the open mode (mode_).
-        //   - use_cache_         - Always set to false in the following circumstances:
+        //   - use_cache_         - Always set to true in the following circumstances:
         //                          * the number of transfer threads > 1 and MPU is disabled
         //                          * the part sizes would be less than the minimum number allowed
         //                        - Set to false unless one of the following is true:
@@ -1476,8 +1476,14 @@ namespace irods::experimental::io::s3_transport
                                 __FUNCTION__, get_thread_identifier(), object_key_.c_str(), S3_get_status_name(upload_manager_.status));
 
                         retry_cnt++;
-                        if (upload_manager_.status != libs3_types::status_ok && retry_cnt <= config_.retry_count_limit) {
-                            rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] S3_complete_multipart_upload returned error [status=%s][object_key=%s][attempt=%d][retry_count_limit=%d].  Sleeping for %d seconds\n",
+
+                        // Treating a timeout as a success here and below because under load we sometimes get a timeout
+                        // but the multipart completes later.  A head/stat will detect this later.
+                        if (upload_manager_.status != libs3_types::status_ok &&
+                                upload_manager_.status != libs3_types::status_request_timeout &&
+                                retry_cnt <= config_.retry_count_limit) {
+
+                            rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] S3_complete_multipart_upload returned error [status=%s][object_key=%s][attempt=%d][retry_count_limit=%d].  Sleeping for %d seconds\n",
                                     __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                                     S3_get_status_name(upload_manager_.status), object_key_.c_str(), retry_cnt, config_.retry_count_limit, retry_wait_seconds);
                             s3_sleep( retry_wait_seconds, 0 );
@@ -1487,11 +1493,12 @@ namespace irods::experimental::io::s3_transport
                             }
                         }
 
-                    } while ((upload_manager_.status != libs3_types::status_ok) &&
+                    } while (upload_manager_.status != libs3_types::status_ok &&
+                            upload_manager_.status != libs3_types::status_request_timeout  &&
                             irods::experimental::io::s3_transport::S3_status_is_retryable(upload_manager_.status) &&
                             ( retry_cnt <= config_.retry_count_limit ));
 
-                    if (upload_manager_.status != libs3_types::status_ok) {
+                    if (upload_manager_.status != libs3_types::status_ok && upload_manager_.status != libs3_types::status_request_timeout) {
                         msg.str( std::string() ); // Clear
                         msg << __FUNCTION__ << " - Error putting the S3 object: \""
                             << object_key_ << "\"";
