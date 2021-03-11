@@ -124,6 +124,8 @@ const std::string s3_retry_count{"S3_RETRY_COUNT"};
 const std::string s3_retry_count_size_t{"S3_RETRY_COUNT_SIZE_T"};     // so we only parse str to size_t once
 const std::string s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
 const std::string s3_wait_time_sec_size_t{"S3_WAIT_TIME_SEC_SIZE_T"}; // so we only parse str to size_t once
+const std::string s3_max_wait_time_sec{"S3_MAX_WAIT_TIME_SEC"};
+const std::string s3_max_wait_time_sec_size_t{"S3_MAX_WAIT_TIME_SEC_SIZE_T"}; // so we only parse str to size_t once
 const std::string s3_proto{"S3_PROTO"};
 const std::string s3_stsdate{"S3_STSDATE"};
 const std::string s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
@@ -141,6 +143,7 @@ const std::string s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  eithe
 
 const std::string s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const size_t      S3_DEFAULT_RETRY_WAIT_SEC = 2;
+const size_t      S3_DEFAULT_MAX_RETRY_WAIT_SEC = 30;
 const size_t      S3_DEFAULT_RETRY_COUNT = 3;
 const int         S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 20;
 
@@ -552,42 +555,7 @@ irods::error s3Init (
     _prop_map.set<std::vector<std::string> >(s3_default_hostname_vector, hostname_vector);
     _prop_map.set<size_t>(s3_hostname_index, hostname_index);
 
-
     g_hostnameIdxLock.unlock();
-
-    size_t retry_count = 10;
-    std::string retry_count_str;
-    ret = _prop_map.get< std::string >(
-        s3_retry_count,
-        retry_count_str );
-    if( ret.ok() ) {
-        try {
-            retry_count = boost::lexical_cast<size_t>( retry_count_str );
-        } catch ( const boost::bad_lexical_cast& ) {
-            rodsLog(
-                LOG_ERROR,
-                "[resource_name=%s] failed to cast retry count [%s] to an int", resource_name.c_str(),
-                retry_count_str.c_str() );
-        }
-    }
-    _prop_map.set<size_t>(s3_retry_count_size_t, retry_count);
-
-    size_t wait_time = 1;
-    std::string wait_time_str;
-    ret = _prop_map.get< std::string >(
-        s3_wait_time_sec,
-        wait_time_str );
-    if( ret.ok() ) {
-        try {
-            wait_time = boost::lexical_cast<size_t>( wait_time_str );
-        } catch ( const boost::bad_lexical_cast& ) {
-            rodsLog(
-                LOG_ERROR,
-                "[resource_name=%s] failed to cast wait time [%s] to an int", resource_name.c_str(),
-                wait_time_str.c_str() );
-        }
-    }
-    _prop_map.set<size_t>(s3_wait_time_sec_size_t, wait_time);
 
     return result;
 }
@@ -845,11 +813,9 @@ static void mrdWorkerThread (
     std::stringstream msg;
     S3GetObjectHandler getObjectHandler = { {mrdRangeRespPropCB, mrdRangeRespCompCB }, mrdRangeGetDataCB };
 
-    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-    _prop_map.get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-    _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+    size_t retry_count_limit = get_retry_count(_prop_map);
+    size_t retry_wait = get_retry_wait_time_sec(_prop_map);
+    size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
 
     /* Will break out when no work detected */
     while (1) {
@@ -896,6 +862,9 @@ static void mrdWorkerThread (
             if (rangeData.status != S3StatusOK) {
                 s3_sleep( retry_wait, 0 );
                 retry_wait *= 2;
+                if (retry_wait > max_retry_wait) {
+                    retry_wait = max_retry_wait;
+                }
             }
         } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt <= retry_count_limit));
         if (rangeData.status != S3StatusOK) {
@@ -952,6 +921,89 @@ std::string get_cache_directory(irods::plugin_property_map& _prop_map) {
         return s3_cache_dir_str;
 }
 
+size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
+
+    // if it has already been parsed into size_t use that
+
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    irods::error ret = _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+
+    if (!ret.ok()) {
+
+        std::string wait_time_str;
+        ret = _prop_map.get< std::string >( s3_wait_time_sec, wait_time_str );
+        if( ret.ok() ) {
+            try {
+                retry_wait = boost::lexical_cast<size_t>( wait_time_str );
+            } catch ( const boost::bad_lexical_cast& ) {
+                std::string resource_name = get_resource_name(_prop_map);
+                rodsLog(
+                    LOG_ERROR,
+                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                    s3_wait_time_sec.c_str(), wait_time_str.c_str() );
+            }
+        }
+        _prop_map.set<size_t>(s3_wait_time_sec_size_t, retry_wait);
+    }
+
+    return retry_wait;
+}
+
+size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
+
+    // if it has already been parsed into size_t use that
+
+    size_t max_retry_wait = S3_DEFAULT_MAX_RETRY_WAIT_SEC;
+    irods::error ret = _prop_map.get<size_t>(s3_max_wait_time_sec_size_t, max_retry_wait);
+
+    if (!ret.ok()) {
+
+        std::string max_retry_wait_str;
+        ret = _prop_map.get< std::string >( s3_max_wait_time_sec, max_retry_wait_str );
+        if( ret.ok() ) {
+            try {
+                max_retry_wait = boost::lexical_cast<size_t>( max_retry_wait_str );
+            } catch ( const boost::bad_lexical_cast& ) {
+                std::string resource_name = get_resource_name(_prop_map);
+                rodsLog(
+                    LOG_ERROR,
+                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                    s3_max_wait_time_sec.c_str(), max_retry_wait_str.c_str() );
+            }
+        }
+        _prop_map.set<size_t>(s3_max_wait_time_sec_size_t, max_retry_wait);
+    }
+
+    return max_retry_wait;
+}
+
+size_t get_retry_count(irods::plugin_property_map& _prop_map) {
+
+    // if it has already been parsed into size_t use that
+
+    size_t retry_count = S3_DEFAULT_RETRY_COUNT;
+    irods::error ret = _prop_map.get<size_t>(s3_retry_count_size_t, retry_count);
+
+    if (!ret.ok()) {
+
+        std::string retry_count_str;
+        ret = _prop_map.get< std::string >( s3_retry_count, retry_count_str );
+        if( ret.ok() ) {
+            try {
+                retry_count = boost::lexical_cast<size_t>( retry_count_str );
+            } catch ( const boost::bad_lexical_cast& ) {
+                std::string resource_name = get_resource_name(_prop_map);
+                rodsLog(
+                    LOG_ERROR,
+                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                    s3_retry_count.c_str(), retry_count_str.c_str() );
+            }
+        }
+        _prop_map.set<size_t>(s3_retry_count_size_t, retry_count);
+    }
+
+    return retry_count;
+}
 
 irods::error s3GetFile(
     const std::string& _filename,
@@ -966,11 +1018,9 @@ irods::error s3GetFile(
 
     std::string resource_name = get_resource_name(_prop_map);
 
-    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-    _prop_map.get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-    _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+    size_t retry_count_limit = get_retry_count(_prop_map);
+    size_t retry_wait = get_retry_wait_time_sec(_prop_map);
+    size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
 
     int cache_fd = -1;
     std::string bucket;
@@ -1024,6 +1074,9 @@ irods::error s3GetFile(
                         if (data.status != S3StatusOK) {
                             s3_sleep( retry_wait, 0 );
                             retry_wait *= 2;
+                            if (retry_wait > max_retry_wait) {
+                                retry_wait = max_retry_wait;
+                            }
                         }
                     } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                     if (data.status != S3StatusOK) {
@@ -1299,13 +1352,9 @@ static void mpuWorkerThread (
     std::stringstream msg;
     S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
 
-    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-    _prop_map.get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-
-    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-    _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
-
+    size_t retry_count_limit = get_retry_count(_prop_map);
+    size_t retry_wait = get_retry_wait_time_sec(_prop_map);
+    size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
 
     /* Will break out when no work detected */
     while (1) {
@@ -1376,6 +1425,9 @@ static void mpuWorkerThread (
             if (partData.status != S3StatusOK) {
                 s3_sleep( retry_wait, 0 );
                 retry_wait *= 2;
+                if (retry_wait > max_retry_wait) {
+                    retry_wait = max_retry_wait;
+                }
             }
         } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt <= retry_count_limit));
         if (partData.status != S3StatusOK) {
@@ -1416,11 +1468,9 @@ irods::error s3PutCopyFile(
 
     std::string resource_name = get_resource_name(_prop_map);
 
-    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-    _prop_map.get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-    _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+    size_t retry_count_limit = get_retry_count(_prop_map);
+    size_t retry_wait = get_retry_wait_time_sec(_prop_map);
+    size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
 
     ret = parseS3Path(_s3ObjName, bucket, key, _prop_map);
     if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed parsing the S3 bucket and key from the physical path: \"%s\".", resource_name.c_str(),
@@ -1489,6 +1539,9 @@ irods::error s3PutCopyFile(
                         if (data.status != S3StatusOK) {
                             s3_sleep( retry_wait, 0 );
                             retry_wait *= 2;
+                            if (retry_wait > max_retry_wait) {
+                                retry_wait = max_retry_wait;
+                            }
                         }
                     } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                     if (data.status != S3StatusOK) {
@@ -1583,6 +1636,9 @@ irods::error s3PutCopyFile(
                         if (manager.status != S3StatusOK) {
                             s3_sleep( retry_wait, 0 );
                             retry_wait *= 2;
+                            if (retry_wait > max_retry_wait) {
+                                retry_wait = max_retry_wait;
+                            }
                         }
                     } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt <= retry_count_limit));
                     if (manager.upload_id == NULL || manager.status != S3StatusOK) {
@@ -1700,6 +1756,9 @@ irods::error s3PutCopyFile(
                             if (manager.status != S3StatusOK) {
                                 s3_sleep( retry_wait, 0 );
                                 retry_wait *= 2;
+                                if (retry_wait > max_retry_wait) {
+                                    retry_wait = max_retry_wait;
+                                }
                             }
                         } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt <= retry_count_limit));
                         if (manager.status != S3StatusOK) {
@@ -1760,11 +1819,9 @@ irods::error s3CopyFile(
     std::string dest_bucket;
     std::string dest_key;
 
-    size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-    _src_ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-    _src_ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+    size_t retry_count_limit = get_retry_count(_src_ctx.prop_map());
+    size_t retry_wait = get_retry_wait_time_sec(_src_ctx.prop_map());
+    size_t max_retry_wait = get_max_retry_wait_time_sec(_src_ctx.prop_map());
 
     std::string resource_name = get_resource_name(_src_ctx.prop_map());
 
@@ -1835,6 +1892,9 @@ irods::error s3CopyFile(
                     if (data.status != S3StatusOK) {
                         s3_sleep( retry_wait, 0 );
                         retry_wait *= 2;
+                        if (retry_wait > max_retry_wait) {
+                            retry_wait = max_retry_wait;
+                        }
                     }
                 } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                 if (data.status != S3StatusOK) {

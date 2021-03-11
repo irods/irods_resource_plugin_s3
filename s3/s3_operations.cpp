@@ -457,9 +457,9 @@ namespace irods_s3 {
         s3_config.server_encrypt_flag = s3GetServerEncrypt(_ctx.prop_map());
         s3_config.cache_directory = s3_cache_dir_str;
         s3_config.multipart_enabled = s3GetEnableMultiPartUpload (_ctx.prop_map());
-
-        s3_config.retry_count_limit = 5;
-        s3_config.retry_wait_seconds = 5;
+        s3_config.retry_count_limit = get_retry_count(_ctx.prop_map());
+        s3_config.retry_wait_seconds = get_retry_wait_time_sec(_ctx.prop_map());
+        s3_config.max_retry_wait_seconds = get_max_retry_wait_time_sec(_ctx.prop_map());
 
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [put_repl_flag=%d][object_size=%ld][multipart_enabled=%d][minimum_part_size=%ld] ",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, s3_config.put_repl_flag, s3_config.object_size,
@@ -846,11 +846,9 @@ namespace irods_s3 {
             return PASS(ret);
         }
 
-        size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-        _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-        size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-        _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+        size_t retry_count_limit = get_retry_count(_ctx.prop_map());
+        size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
+        size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -937,6 +935,9 @@ namespace irods_s3 {
             if(data.status != S3StatusOK) {
                 s3_sleep( retry_wait, 0 );
                 retry_wait *= 2;
+                if (retry_wait > max_retry_wait) {
+                    retry_wait = max_retry_wait;
+                }
             }
 
         } while((data.status != S3StatusOK) &&
@@ -974,11 +975,9 @@ namespace irods_s3 {
 
         irods::error result = SUCCESS();
 
-        size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-        _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-        size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-        _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+        size_t retry_count_limit = get_retry_count(_ctx.prop_map());
+        size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
+        size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
@@ -1037,6 +1036,9 @@ namespace irods_s3 {
 
                                 s3_sleep( retry_wait, 0 );
                                 retry_wait *= 2;
+                                if (retry_wait > max_retry_wait) {
+                                    retry_wait = max_retry_wait;
+                                }
                             }
                         } while ( data.status != S3StatusOK &&
                                 ( irods::experimental::io::s3_transport::S3_status_is_retryable(data.status) ||
@@ -1341,11 +1343,9 @@ namespace irods_s3 {
             // see if we need to get more data
             if (data.returned_objects.size() == 0 && data.returned_collections.size() == 0 && data.is_truncated) {
 
-                size_t retry_count_limit = S3_DEFAULT_RETRY_COUNT;
-                _ctx.prop_map().get<size_t>(s3_retry_count_size_t, retry_count_limit);
-
-                size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-                _ctx.prop_map().get<size_t>(s3_wait_time_sec_size_t, retry_wait);
+                size_t retry_count_limit = get_retry_count(_ctx.prop_map());
+                size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
+                size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
 
                 result = s3InitPerOperation( _ctx.prop_map() );
                 if(!result.ok()) {
@@ -1391,6 +1391,9 @@ namespace irods_s3 {
                     if (data.status != S3StatusOK) {
                         s3_sleep( retry_wait, 0 );
                         retry_wait *= 2;
+                        if (retry_wait > max_retry_wait) {
+                            retry_wait = max_retry_wait;
+                        }
                     }
 
                 } while ( (data.status != S3StatusOK) &&
@@ -1710,7 +1713,7 @@ namespace irods_s3 {
         try {
             *_out_vote = irv::calculate(*_opr, _ctx, *_curr_host, *_out_parser);
             std::string resource_name = get_resource_name(_ctx);
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] resc=%s, vote=%f, host=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), resource_name.c_str(), *_out_vote, _curr_host->c_str());
+            rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] resc=%s, vote=%f, host=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), resource_name.c_str(), *_out_vote, _curr_host->c_str());
             return SUCCESS();
         }
         catch(const std::out_of_range& e) {
