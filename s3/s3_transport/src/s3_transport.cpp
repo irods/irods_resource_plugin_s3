@@ -68,35 +68,44 @@ namespace irods::experimental::io::s3_transport
     {
 
         int log_level = LOG_DEBUG;
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         pStatus = status;
         if(status != libs3_types::status_ok ) {
             log_level = LOG_ERROR;
         }
 
-        rodsLog(log_level,  "  libs3_types::status: [%s] - %d\n", S3_get_status_name( status ), static_cast<int>(status) );
+        rodsLog(log_level,  "%s:%d [%s] [[%lu]]  libs3_types::status: [%s] - %d\n",
+                __FILE__, __LINE__, __FUNCTION__, thread_id, S3_get_status_name( status ), static_cast<int>(status) );
         if (saved_bucket_context.hostName) {
-            rodsLog(log_level,  "    S3Host: %s\n", saved_bucket_context.hostName );
+            rodsLog(log_level,  "%s:%d [%s] [[%lu]]  S3Host: %s\n",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id, saved_bucket_context.hostName );
         }
 
-        rodsLog(log_level,  "  Function: %s\n", function.c_str() );
+        rodsLog(log_level,  "%s:%d [%s] [[%lu]]  Function: %s\n",
+                __FILE__, __LINE__, __FUNCTION__, thread_id, function.c_str() );
 
         if (error) {
 
             if (error->message) {
-                rodsLog(log_level,  "  Message: %s\n", error->message);
+                rodsLog(log_level,  "%s:%d [%s] [[%lu]]  Message: %s\n",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, error->message);
             }
             if (error->resource) {
-                rodsLog(log_level,  "  Resource: %s\n", error->resource);
+                rodsLog(log_level,  "%s:%d [%s] [[%lu]]  Resource: %s\n",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, error->resource);
             }
             if (error->furtherDetails) {
-                rodsLog(log_level,  "  Further Details: %s\n", error->furtherDetails);
+                rodsLog(log_level,  "%s:%d [%s] [[%lu]]  Further Details: %s\n",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, error->furtherDetails);
             }
             if (error->extraDetailsCount) {
-                rodsLog(log_level,  "%s", "  Extra Details:\n");
+                rodsLog(log_level,  "%s:%d [%s] [[%lu]]%s",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, "  Extra Details:\n");
 
                 for (int i = 0; i < error->extraDetailsCount; i++) {
-                    rodsLog(log_level,  "    %s: %s\n", error->extraDetails[i].name,
+                    rodsLog(log_level,  "%s:%d [%s] [[%lu]]    %s: %s\n",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->extraDetails[i].name,
                             error->extraDetails[i].value);
                 }
             }
