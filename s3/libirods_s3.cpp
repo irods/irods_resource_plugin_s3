@@ -145,7 +145,7 @@ const std::string s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to sa
 const size_t      S3_DEFAULT_RETRY_WAIT_SEC = 2;
 const size_t      S3_DEFAULT_MAX_RETRY_WAIT_SEC = 30;
 const size_t      S3_DEFAULT_RETRY_COUNT = 3;
-const int         S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 20;
+const int         S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 
 S3ResponseProperties savedProperties;
 

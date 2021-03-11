@@ -123,7 +123,7 @@ namespace irods_s3 {
             int fd_counter;
     };
 
-    int debug_log_level = LOG_NOTICE;
+    int debug_log_level = LOG_DEBUG;
     fd_to_data_map fd_data;
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
@@ -1713,7 +1713,6 @@ namespace irods_s3 {
         try {
             *_out_vote = irv::calculate(*_opr, _ctx, *_curr_host, *_out_parser);
             std::string resource_name = get_resource_name(_ctx);
-            rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] resc=%s, vote=%f, host=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()), resource_name.c_str(), *_out_vote, _curr_host->c_str());
             return SUCCESS();
         }
         catch(const std::out_of_range& e) {
