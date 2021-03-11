@@ -65,6 +65,7 @@ namespace irods::experimental::io::s3_transport
             , bytes_this_thread{1000}
             , retry_count_limit{3}
             , retry_wait_seconds{3}
+            , max_retry_wait_seconds{30}
             , hostname{"s3.amazonaws.com"}
             , region_name{"us-east-1"}
             , bucket_name{""}
@@ -90,6 +91,7 @@ namespace irods::experimental::io::s3_transport
         int64_t      bytes_this_thread;                  // only used when doing a multipart upload
         unsigned int retry_count_limit;
         int          retry_wait_seconds;
+        int          max_retry_wait_seconds;
         std::string  hostname;
         std::string  region_name;
         std::string  bucket_name;
@@ -1335,6 +1337,9 @@ namespace irods::experimental::io::s3_transport
                     if (upload_manager_.status != libs3_types::status_ok) {
                         s3_sleep( retry_wait_seconds, 0 );
                         retry_wait_seconds *= 2;
+                        if (retry_wait_seconds > config_.max_retry_wait_seconds) {
+                            retry_wait_seconds = config_.max_retry_wait_seconds;
+                        }
                     }
 
                 } while ( (upload_manager_.status != libs3_types::status_ok)
@@ -1448,8 +1453,8 @@ namespace irods::experimental::io::s3_transport
                     }
                     xml << "</CompleteMultipartUpload>\n";
 
-                    rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%lu]] Response: %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                            xml.str().c_str() );
+                    rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%lu]] [key=%s] Request: %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                            object_key_.c_str(), xml.str().c_str() );
 
                     int manager_remaining = xml.str().size();
                     upload_manager_.offset = 0;
@@ -1467,17 +1472,24 @@ namespace irods::experimental::io::s3_transport
                         S3_complete_multipart_upload(&bucket_context_, object_key_.c_str(),
                                 &commit_handler, upload_id.c_str(),
                                 upload_manager_.remaining, nullptr, 0, &upload_manager_);
-                        rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] [manager.status=%s]\n", __FILE__, __LINE__,
-                                __FUNCTION__, get_thread_identifier(), S3_get_status_name(upload_manager_.status));
+                        rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] [key=%s][manager.status=%s]\n", __FILE__, __LINE__,
+                                __FUNCTION__, get_thread_identifier(), object_key_.c_str(), S3_get_status_name(upload_manager_.status));
 
-                        if (upload_manager_.status != libs3_types::status_ok) {
+                        retry_cnt++;
+                        if (upload_manager_.status != libs3_types::status_ok && retry_cnt <= config_.retry_count_limit) {
+                            rodsLog(LOG_NOTICE, "%s:%d (%s) [[%lu]] S3_complete_multipart_upload returned error [status=%s][object_key=%s][attempt=%d][retry_count_limit=%d].  Sleeping for %d seconds\n",
+                                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                                    S3_get_status_name(upload_manager_.status), object_key_.c_str(), retry_cnt, config_.retry_count_limit, retry_wait_seconds);
                             s3_sleep( retry_wait_seconds, 0 );
                             retry_wait_seconds *= 2;
+                            if (retry_wait_seconds > config_.max_retry_wait_seconds) {
+                                retry_wait_seconds = config_.max_retry_wait_seconds;
+                            }
                         }
 
                     } while ((upload_manager_.status != libs3_types::status_ok) &&
                             irods::experimental::io::s3_transport::S3_status_is_retryable(upload_manager_.status) &&
-                            ( ++retry_cnt <= config_.retry_count_limit));
+                            ( retry_cnt <= config_.retry_count_limit ));
 
                     if (upload_manager_.status != libs3_types::status_ok) {
                         msg.str( std::string() ); // Clear
@@ -1617,6 +1629,9 @@ namespace irods::experimental::io::s3_transport
                 if (read_callback->status != libs3_types::status_ok) {
                     s3_sleep( retry_wait_seconds, 0 );
                     retry_wait_seconds *= 2;
+                    if (retry_wait_seconds > config_.max_retry_wait_seconds) {
+                        retry_wait_seconds = config_.max_retry_wait_seconds;
+                    }
                 }
 
             } while ((read_callback->status != libs3_types::status_ok)
@@ -1854,14 +1869,19 @@ namespace irods::experimental::io::s3_transport
                     rodsLog(config_.debug_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                             msg.str().c_str() );
 
-                    if (write_callback->status != libs3_types::status_ok) {
+                    retry_cnt += 1;
+                    if (write_callback->status != libs3_types::status_ok && retry_cnt <= config_.retry_count_limit) {
+                        rodsLog(LOG_NOTICE, "S3_upload_part returned error [status=%s][attempt=%d][retry_count_limit=%d].  Sleeping for %d seconds\n", S3_get_status_name(write_callback->status), retry_cnt, config_.retry_count_limit, retry_wait_seconds);
                         s3_sleep( retry_wait_seconds, 0 );
                         retry_wait_seconds *= 2;
+                        if (retry_wait_seconds > config_.max_retry_wait_seconds) {
+                            retry_wait_seconds = config_.max_retry_wait_seconds;
+                        }
                     }
 
                 } while ((write_callback->status != libs3_types::status_ok)
                         && irods::experimental::io::s3_transport::S3_status_is_retryable(write_callback->status)
-                        && (++retry_cnt <= config_.retry_count_limit));
+                        && (retry_cnt <= config_.retry_count_limit));
 
                 if (write_callback->status != libs3_types::status_ok) {
 
@@ -1962,6 +1982,9 @@ namespace irods::experimental::io::s3_transport
                     if (write_callback->status != libs3_types::status_ok) {
                         s3_sleep( retry_wait_seconds, 0 );
                         retry_wait_seconds *= 2;
+                        if (retry_wait_seconds > config_.max_retry_wait_seconds) {
+                            retry_wait_seconds = config_.max_retry_wait_seconds;
+                        }
                     }
 
             } while ((write_callback->status != libs3_types::status_ok)
