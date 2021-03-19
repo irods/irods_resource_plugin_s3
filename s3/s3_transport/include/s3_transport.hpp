@@ -555,21 +555,32 @@ namespace irods::experimental::io::s3_transport
             // pushing until all bytes are pushed
             int64_t offset = 0;
             while (offset < _buffer_size) {
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] pushing buffer of size %ld on circular_buffer\n",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.circular_buffer_size);
-                offset += circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
-                rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] wrote buffer of size %ld on circular_buffer\n",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.circular_buffer_size);
+
+                try {
+                    offset += circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
+                } catch (timeout_exception& e) {
+
+                    // timeout trying to push onto circular buffer
+                    rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                            "Unexpected timeout when pushing onto circular buffer.  "
+                            "Thread writing to S3 may have died.  Returning 0 bytes processed."
+                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                    return 0;
+                }
+
             }
 
-            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] pushing buffer of size %ld on circular_buffer\n",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), _buffer_size - offset + 1);
+            try {
+                circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
+            } catch (timeout_exception& e) {
 
-            circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
-
-            rodsLog(config_.debug_log_level, "%s:%d (%s) [[%lu]] wrote buffer of size %ld on circular_buffer\n",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), _buffer_size - offset + 1);
-
+                // timeout trying to push onto circular buffer
+                rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                        "Unexpected timeout when pushing onto circular buffer.  "
+                        "Thread writing to S3 may have died.  Returning 0 bytes processed."
+                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                return 0;
+            }
 
             return _buffer_size;
 
@@ -1826,6 +1837,8 @@ namespace irods::experimental::io::s3_transport
 
             int retry_wait_seconds = config_.retry_wait_seconds;
 
+            bool circular_buffer_read_timeout = false;
+
             for (unsigned int part_number = start_part_number; part_number <= end_part_number; ++part_number) {
 
                 do {
@@ -1878,11 +1891,24 @@ namespace irods::experimental::io::s3_transport
 
                     retry_cnt += 1;
                     if (write_callback->status != libs3_types::status_ok && retry_cnt <= config_.retry_count_limit) {
-                        rodsLog(LOG_NOTICE, "S3_upload_part returned error [status=%s][attempt=%d][retry_count_limit=%d].  Sleeping for %d seconds\n", S3_get_status_name(write_callback->status), retry_cnt, config_.retry_count_limit, retry_wait_seconds);
-                        s3_sleep( retry_wait_seconds, 0 );
-                        retry_wait_seconds *= 2;
-                        if (retry_wait_seconds > config_.max_retry_wait_seconds) {
-                            retry_wait_seconds = config_.max_retry_wait_seconds;
+
+                        // Check for a timeout reading from circular buffer.  If we got one then bypass retries.
+                        circular_buffer_read_timeout =  shm_obj.atomic_exec([](auto& data) {
+                            return data.circular_buffer_read_timeout;
+                        });
+
+                        // break out of do/while if we timed out reading from circular buffer
+                        if (circular_buffer_read_timeout) {
+                            break;
+                        } else {
+
+                            rodsLog(LOG_NOTICE, "S3_upload_part returned error [status=%s][attempt=%d][retry_count_limit=%d].  Sleeping for %d seconds\n", S3_get_status_name(write_callback->status), retry_cnt, config_.retry_count_limit, retry_wait_seconds);
+                            s3_sleep( retry_wait_seconds, 0 );
+                            retry_wait_seconds *= 2;
+                            if (retry_wait_seconds > config_.max_retry_wait_seconds) {
+                                retry_wait_seconds = config_.max_retry_wait_seconds;
+                            }
+
                         }
                     }
 
@@ -1892,7 +1918,6 @@ namespace irods::experimental::io::s3_transport
 
                 if (write_callback->status != libs3_types::status_ok) {
 
-
                     this->set_error(ERROR(S3_PUT_ERROR, "failed in S3_upload_part"));
 
                     shm_obj.atomic_exec([](auto& data) {
@@ -1900,7 +1925,13 @@ namespace irods::experimental::io::s3_transport
                     });
                 }
                 write_callback->bytes_written = 0;
-            }
+
+                // break out of for loop if we timed out reading from circular buffer
+                if (circular_buffer_read_timeout) {
+                    break;
+                }
+
+            } // for
         }
 
         error_codes s3_upload_file(bool read_from_cache = false)
@@ -1915,6 +1946,7 @@ namespace irods::experimental::io::s3_transport
             unsigned int retry_cnt = 0;
 
             int retry_wait_seconds = config_.retry_wait_seconds;
+            bool circular_buffer_read_timeout = false;
 
             do {
 
@@ -1986,13 +2018,29 @@ namespace irods::experimental::io::s3_transport
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                         S3_get_status_name(write_callback->status));
 
-                    if (write_callback->status != libs3_types::status_ok) {
+                if (write_callback->status != libs3_types::status_ok) {
+
+                    // Check for a timeout reading from circular buffer.  If we got one then bypass retries.
+                    named_shared_memory_object shm_obj{shmem_key_,
+                        config_.shared_memory_timeout_in_seconds,
+                        constants::MAX_S3_SHMEM_SIZE};
+
+                    circular_buffer_read_timeout =  shm_obj.atomic_exec([](auto& data) {
+                        return data.circular_buffer_read_timeout;
+                    });
+
+                    // break out of do/while if we timed out reading from circular buffer
+                    if (circular_buffer_read_timeout) {
+                        break;
+                    } else {
+
                         s3_sleep( retry_wait_seconds, 0 );
                         retry_wait_seconds *= 2;
                         if (retry_wait_seconds > config_.max_retry_wait_seconds) {
                             retry_wait_seconds = config_.max_retry_wait_seconds;
                         }
                     }
+                }
 
             } while ((write_callback->status != libs3_types::status_ok)
                     && irods::experimental::io::s3_transport::S3_status_is_retryable(write_callback->status)

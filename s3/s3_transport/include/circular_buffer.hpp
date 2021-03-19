@@ -16,7 +16,7 @@ namespace experimental {
 
             explicit circular_buffer(
                 const size_t capacity,
-                std::unique_ptr<lock_and_wait_strategy> lws = std::make_unique<lock_and_wait>())
+                std::unique_ptr<lock_and_wait_strategy> lws = std::make_unique<lock_and_wait_with_timeout>())
                 : cb_{capacity}
                 , lws_{std::move(lws)}
             {
