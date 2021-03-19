@@ -3,9 +3,18 @@
 
 #include <functional>
 #include <condition_variable>
+#include <chrono>
 
 namespace irods {
 namespace experimental {
+
+    class timeout_exception : public std::exception
+    {
+        virtual const char* what() const throw()
+        {
+             return "Timeout waiting for lock";
+        }
+    };
 
     class lock_and_wait_strategy {
         public:
@@ -36,7 +45,32 @@ namespace experimental {
         private:
             std::condition_variable cv;
             std::mutex cv_mutex;
-    };
+   };
+
+   class lock_and_wait_with_timeout : public lock_and_wait_strategy {
+        public:
+            void operator()(wait_predicate p, the_work w) {
+                bool wait_until_ret = false;
+                {
+                    std::unique_lock<std::mutex> lk(cv_mutex);
+                    auto now = std::chrono::system_clock::now();
+                    wait_until_ret = cv.wait_until(lk, now + std::chrono::seconds(10), p);
+                    if (wait_until_ret) {
+                        // predicate met
+                        w();
+                    }
+                }
+                cv.notify_all();
+
+                if (!wait_until_ret) {
+                    throw timeout_exception();
+                }
+            }
+
+        private:
+            std::condition_variable cv;
+            std::mutex cv_mutex;
+   };
 
 } // namespace experimental
 } // namespace irods
