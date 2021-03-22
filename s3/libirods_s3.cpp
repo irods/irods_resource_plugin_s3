@@ -121,11 +121,8 @@ const std::string s3_auth_file{"S3_AUTH_FILE"};
 const std::string s3_key_id{"S3_ACCESS_KEY_ID"};
 const std::string s3_access_key{"S3_SECRET_ACCESS_KEY"};
 const std::string s3_retry_count{"S3_RETRY_COUNT"};
-const std::string s3_retry_count_size_t{"S3_RETRY_COUNT_SIZE_T"};     // so we only parse str to size_t once
 const std::string s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
-const std::string s3_wait_time_sec_size_t{"S3_WAIT_TIME_SEC_SIZE_T"}; // so we only parse str to size_t once
 const std::string s3_max_wait_time_sec{"S3_MAX_WAIT_TIME_SEC"};
-const std::string s3_max_wait_time_sec_size_t{"S3_MAX_WAIT_TIME_SEC_SIZE_T"}; // so we only parse str to size_t once
 const std::string s3_proto{"S3_PROTO"};
 const std::string s3_stsdate{"S3_STSDATE"};
 const std::string s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
@@ -574,8 +571,7 @@ irods::error s3InitPerOperation (
         s3_retry_count,
         retry_count );
 
-    size_t wait_time = S3_DEFAULT_RETRY_WAIT_SEC;
-    _prop_map.get<size_t>(s3_wait_time_sec_size_t, wait_time);
+    size_t wait_time = get_retry_wait_time_sec(_prop_map);
 
     size_t ctr = 0;
     while( ctr < retry_count ) {
@@ -926,24 +922,18 @@ size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
     // if it has already been parsed into size_t use that
 
     size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
-    irods::error ret = _prop_map.get<size_t>(s3_wait_time_sec_size_t, retry_wait);
-
-    if (!ret.ok()) {
-
-        std::string wait_time_str;
-        ret = _prop_map.get< std::string >( s3_wait_time_sec, wait_time_str );
-        if( ret.ok() ) {
-            try {
-                retry_wait = boost::lexical_cast<size_t>( wait_time_str );
-            } catch ( const boost::bad_lexical_cast& ) {
-                std::string resource_name = get_resource_name(_prop_map);
-                rodsLog(
-                    LOG_ERROR,
-                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
-                    s3_wait_time_sec.c_str(), wait_time_str.c_str() );
-            }
+    std::string wait_time_str;
+    irods::error ret = _prop_map.get< std::string >( s3_wait_time_sec, wait_time_str );
+    if( ret.ok() ) {
+        try {
+            retry_wait = boost::lexical_cast<size_t>( wait_time_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(
+                LOG_ERROR,
+                "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                s3_wait_time_sec.c_str(), wait_time_str.c_str() );
         }
-        _prop_map.set<size_t>(s3_wait_time_sec_size_t, retry_wait);
     }
 
     return retry_wait;
@@ -954,24 +944,18 @@ size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
     // if it has already been parsed into size_t use that
 
     size_t max_retry_wait = S3_DEFAULT_MAX_RETRY_WAIT_SEC;
-    irods::error ret = _prop_map.get<size_t>(s3_max_wait_time_sec_size_t, max_retry_wait);
-
-    if (!ret.ok()) {
-
-        std::string max_retry_wait_str;
-        ret = _prop_map.get< std::string >( s3_max_wait_time_sec, max_retry_wait_str );
-        if( ret.ok() ) {
-            try {
-                max_retry_wait = boost::lexical_cast<size_t>( max_retry_wait_str );
-            } catch ( const boost::bad_lexical_cast& ) {
-                std::string resource_name = get_resource_name(_prop_map);
-                rodsLog(
-                    LOG_ERROR,
-                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
-                    s3_max_wait_time_sec.c_str(), max_retry_wait_str.c_str() );
-            }
+    std::string max_retry_wait_str;
+    irods::error ret = _prop_map.get< std::string >( s3_max_wait_time_sec, max_retry_wait_str );
+    if( ret.ok() ) {
+        try {
+            max_retry_wait = boost::lexical_cast<size_t>( max_retry_wait_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(
+                LOG_ERROR,
+                "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                s3_max_wait_time_sec.c_str(), max_retry_wait_str.c_str() );
         }
-        _prop_map.set<size_t>(s3_max_wait_time_sec_size_t, max_retry_wait);
     }
 
     return max_retry_wait;
@@ -982,24 +966,19 @@ size_t get_retry_count(irods::plugin_property_map& _prop_map) {
     // if it has already been parsed into size_t use that
 
     size_t retry_count = S3_DEFAULT_RETRY_COUNT;
-    irods::error ret = _prop_map.get<size_t>(s3_retry_count_size_t, retry_count);
 
-    if (!ret.ok()) {
-
-        std::string retry_count_str;
-        ret = _prop_map.get< std::string >( s3_retry_count, retry_count_str );
-        if( ret.ok() ) {
-            try {
-                retry_count = boost::lexical_cast<size_t>( retry_count_str );
-            } catch ( const boost::bad_lexical_cast& ) {
-                std::string resource_name = get_resource_name(_prop_map);
-                rodsLog(
-                    LOG_ERROR,
-                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
-                    s3_retry_count.c_str(), retry_count_str.c_str() );
-            }
+    std::string retry_count_str;
+    irods::error ret = _prop_map.get< std::string >( s3_retry_count, retry_count_str );
+    if( ret.ok() ) {
+        try {
+            retry_count = boost::lexical_cast<size_t>( retry_count_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(
+                LOG_ERROR,
+                "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                s3_retry_count.c_str(), retry_count_str.c_str() );
         }
-        _prop_map.set<size_t>(s3_retry_count_size_t, retry_count);
     }
 
     return retry_count;
