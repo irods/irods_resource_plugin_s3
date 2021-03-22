@@ -30,9 +30,7 @@ extern const std::string s3_auth_file;
 extern const std::string s3_key_id;
 extern const std::string s3_access_key;
 extern const std::string s3_retry_count;
-extern const std::string s3_retry_count_size_t;     // so we only parse str to size_t once
 extern const std::string s3_wait_time_sec;
-extern const std::string s3_wait_time_sec_size_t; // so we only parse str to size_t once
 extern const std::string s3_proto;
 extern const std::string s3_stsdate;
 extern const std::string s3_max_upload_size;
