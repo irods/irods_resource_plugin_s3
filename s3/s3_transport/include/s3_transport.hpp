@@ -82,6 +82,7 @@ namespace irods::experimental::io::s3_transport
             , minimum_part_size{DEFAULT_MINIMUM_PART_SIZE}
             , multipart_enabled{true}
             , put_repl_flag{false}
+            , resource_name{""}
 
         {}
 
@@ -123,6 +124,8 @@ namespace irods::experimental::io::s3_transport
         // Note:  If the put_repl_flag is set to true but the above rules are not followed, the behavior
         //        is undefined.
         bool         put_repl_flag;
+
+        std::string  resource_name;
     };
 
     template <typename CharT>
@@ -1117,7 +1120,7 @@ namespace irods::experimental::io::s3_transport
 
             object_key_ = _p.string();
             shmem_key_ = constants::SHARED_MEMORY_KEY_PREFIX +
-                std::to_string(std::hash<std::string>{}(object_key_));
+                std::to_string(std::hash<std::string>{}(config_.resource_name + "/" + object_key_));
 
             upload_manager_.object_key = object_key_;
             upload_manager_.shmem_key = shmem_key_;
@@ -1438,6 +1441,7 @@ namespace irods::experimental::io::s3_transport
 
                 std::stringstream xml("");
 
+rodsLog(LOG_NOTICE, "UPLOAD_ID=%s", data.upload_id.c_str());
                 std::string upload_id  = data.upload_id.c_str();
 
                 if ("" == upload_id) {

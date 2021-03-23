@@ -460,6 +460,7 @@ namespace irods_s3 {
         s3_config.retry_count_limit = get_retry_count(_ctx.prop_map());
         s3_config.retry_wait_seconds = get_retry_wait_time_sec(_ctx.prop_map());
         s3_config.max_retry_wait_seconds = get_max_retry_wait_time_sec(_ctx.prop_map());
+        s3_config.resource_name = get_resource_name(_ctx.prop_map());
 
         rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [put_repl_flag=%d][object_size=%ld][multipart_enabled=%d][minimum_part_size=%ld] ",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, s3_config.put_repl_flag, s3_config.object_size,
