@@ -349,6 +349,7 @@ namespace irods_s3 {
         std::string access_key;
         std::string secret_access_key;
         unsigned int circular_buffer_size = S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
+        unsigned int circular_buffer_timeout_seconds = S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS;
 
         // create entry for fd if it doesn't exist
         if (!fd_data.exists(fd)) {
@@ -434,6 +435,15 @@ namespace irods_s3 {
             circular_buffer_size = 2;
         }
 
+        // read the circular buffer timeout from configuration
+        std::string circular_buffer_timeout_seconds_str;
+        ret = _ctx.prop_map().get<std::string>(s3_circular_buffer_timeout_seconds, circular_buffer_timeout_seconds_str);
+        if (ret.ok()) {
+            try {
+                circular_buffer_timeout_seconds = boost::lexical_cast<unsigned int>(circular_buffer_timeout_seconds_str);
+            } catch (const boost::bad_lexical_cast &) {}
+        }
+
         std::string s3_cache_dir_str = get_cache_directory(_ctx.prop_map());
 
         std::string&& hostname = s3GetHostname(_ctx.prop_map());
@@ -449,6 +459,7 @@ namespace irods_s3 {
         s3_config.shared_memory_timeout_in_seconds = 180;
         s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
         s3_config.circular_buffer_size = circular_buffer_size * s3_config.minimum_part_size;
+        s3_config.circular_buffer_timeout_seconds = circular_buffer_timeout_seconds;
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
         s3_config.debug_log_level = debug_log_level;

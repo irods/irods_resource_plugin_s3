@@ -48,13 +48,19 @@ namespace experimental {
    };
 
    class lock_and_wait_with_timeout : public lock_and_wait_strategy {
+
         public:
+
+            explicit lock_and_wait_with_timeout(int timeout_sec)
+                : timeout_seconds(timeout_sec)
+            {}
+
             void operator()(wait_predicate p, the_work w) {
                 bool wait_until_ret = false;
                 {
                     std::unique_lock<std::mutex> lk(cv_mutex);
                     auto now = std::chrono::system_clock::now();
-                    wait_until_ret = cv.wait_until(lk, now + std::chrono::seconds(10), p);
+                    wait_until_ret = cv.wait_until(lk, now + std::chrono::seconds(timeout_seconds), p);
                     if (wait_until_ret) {
                         // predicate met
                         w();
@@ -70,6 +76,7 @@ namespace experimental {
         private:
             std::condition_variable cv;
             std::mutex cv_mutex;
+            int timeout_seconds;
    };
 
 } // namespace experimental

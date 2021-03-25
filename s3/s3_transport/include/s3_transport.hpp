@@ -78,6 +78,7 @@ namespace irods::experimental::io::s3_transport
             , s3_sts_date_str{"amz"}
             , cache_directory{"/tmp"}
             , circular_buffer_size{DEFAULT_MINIMUM_PART_SIZE * S3_DEFAULT_CIRCULAR_BUFFER_SIZE}
+            , circular_buffer_timeout_seconds{120}
             , s3_uri_request_style{""}
             , minimum_part_size{DEFAULT_MINIMUM_PART_SIZE}
             , multipart_enabled{true}
@@ -106,6 +107,7 @@ namespace irods::experimental::io::s3_transport
         std::string  s3_sts_date_str;
         std::string  cache_directory;
         uint64_t     circular_buffer_size;
+        int          circular_buffer_timeout_seconds;
         std::string  s3_uri_request_style;
         int64_t      minimum_part_size;
         bool         multipart_enabled;
@@ -173,7 +175,7 @@ namespace irods::experimental::io::s3_transport
             , call_s3_upload_part_flag_{true}
             , call_s3_download_part_flag_{true}
             , begin_part_upload_thread_ptr_{nullptr}
-            , circular_buffer_{_config.circular_buffer_size}
+            , circular_buffer_{_config.circular_buffer_size, _config.circular_buffer_timeout_seconds}
             , mode_{0}
             , file_offset_{0}
             , existing_object_size_{config::UNKNOWN_OBJECT_SIZE}
