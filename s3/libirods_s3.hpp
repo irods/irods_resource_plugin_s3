@@ -22,34 +22,36 @@
 // For s3PutCopyFile to identify the real source type
 typedef enum { S3_PUTFILE, S3_COPYOBJECT } s3_putcopy;
 
-extern const std::string s3_default_hostname;
-extern const std::string s3_default_hostname_vector;
-extern const std::string s3_hostname_index;
-extern const std::string host_mode;
-extern const std::string s3_auth_file;
-extern const std::string s3_key_id;
-extern const std::string s3_access_key;
-extern const std::string s3_retry_count;
-extern const std::string s3_wait_time_sec;
-extern const std::string s3_proto;
-extern const std::string s3_stsdate;
-extern const std::string s3_max_upload_size;
-extern const std::string s3_enable_mpu;
-extern const std::string s3_mpu_chunk;
-extern const std::string s3_mpu_threads;
-extern const std::string s3_enable_md5;
-extern const std::string s3_server_encrypt;
-extern const std::string s3_region_name;
-extern const std::string REPL_POLICY_KEY;
-extern const std::string REPL_POLICY_VAL;
-extern const std::string s3_cache_dir;
-extern const std::string s3_circular_buffer_size;
-extern const std::string s3_uri_request_style;        //  either "path" or "virtual_hosted" - default "path"
-extern const std::string s3_number_of_threads;        //  to save number of threads
-extern const size_t      S3_DEFAULT_RETRY_WAIT_SEC;
-extern const size_t      S3_DEFAULT_MAX_RETRY_WAIT_SEC;
-extern const size_t      S3_DEFAULT_RETRY_COUNT;
-extern const int         S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
+extern const std::string  s3_default_hostname;
+extern const std::string  s3_default_hostname_vector;
+extern const std::string  s3_hostname_index;
+extern const std::string  host_mode;
+extern const std::string  s3_auth_file;
+extern const std::string  s3_key_id;
+extern const std::string  s3_access_key;
+extern const std::string  s3_retry_count;
+extern const std::string  s3_wait_time_sec;
+extern const std::string  s3_proto;
+extern const std::string  s3_stsdate;
+extern const std::string  s3_max_upload_size;
+extern const std::string  s3_enable_mpu;
+extern const std::string  s3_mpu_chunk;
+extern const std::string  s3_mpu_threads;
+extern const std::string  s3_enable_md5;
+extern const std::string  s3_server_encrypt;
+extern const std::string  s3_region_name;
+extern const std::string  REPL_POLICY_KEY;
+extern const std::string  REPL_POLICY_VAL;
+extern const std::string  s3_cache_dir;
+extern const std::string  s3_circular_buffer_size; 
+extern const std::string  s3_circular_buffer_timeout_seconds; // timeout for read or write to circular buffer
+extern const std::string  s3_uri_request_style;        //  either "path" or "virtual_hosted" - default "path"
+extern const std::string  s3_number_of_threads;        //  to save number of threads
+extern const size_t       S3_DEFAULT_RETRY_WAIT_SEC;
+extern const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SEC;
+extern const size_t       S3_DEFAULT_RETRY_COUNT;
+extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
+extern const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
