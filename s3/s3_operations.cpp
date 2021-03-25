@@ -1077,9 +1077,6 @@ namespace irods_s3 {
                                 msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
                             }
                             msg << " - Error stat'ing the S3 object: \"" << object->physical_path() << "\":  ";
-                            msg << "This error is likely due to a delay in read after write consistency in the ";
-                            msg << "S3 provider.  Consider increasing the the S3_RETRY_COUNT or S3_WAIT_TIME.  ";
-                            msg << "It is suggested that the multiple of these two be at least 5 seconds.";
                             result = ERROR(S3_FILE_STAT_ERR, msg.str());
 
                         } else if (data.status == S3StatusHttpErrorNotFound) {
