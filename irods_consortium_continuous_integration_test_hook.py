@@ -33,7 +33,7 @@ def get_build_prerequisites():
 
 def install_build_prerequisites():
     irods_python_ci_utilities.subprocess_get_output(['sudo', 'pip', 'install', 'boto3', '--upgrade'], check_rc=True)
-    irods_python_ci_utilities.subprocess_get_output(['sudo', 'pip', 'install', 'minio', '--upgrade'], check_rc=True)
+    irods_python_ci_utilities.subprocess_get_output(['sudo', 'pip', 'install', 'minio==6.0.2', '--upgrade'], check_rc=True)
     irods_python_ci_utilities.subprocess_get_output(['sudo', '-EH', 'pip', 'install', 'unittest-xml-reporting==1.14.0'])
     if irods_python_ci_utilities.get_distribution() == 'Ubuntu': # cmake from externals requires newer libstdc++ on ub12
         if irods_python_ci_utilities.get_distribution_version_major() == '12':
