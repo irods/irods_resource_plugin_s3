@@ -258,7 +258,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 3 "," & "+filename]) # should have a dirty copy
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 4 "," & "+filename]) # should have a dirty copy
 
-        self.admin.assert_icommand("irepl -U "+filename)                                 # update last replica
+        self.admin.assert_icommand(['irepl', filename])                # update replica on default resource
 
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 "," & "+filename]) # should have a clean copy
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 "," & "+filename]) # should have a clean copy
@@ -292,9 +292,9 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)                   # for debugging
         self.admin.assert_icommand("irepl "+filename)                                    # replicate to default resource
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)                   # for debugging
-        self.admin.assert_icommand("irepl "+filename)                                    # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 3 "," & "+filename]) # should not have a replica 3
-        self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)               # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 3 "," & "+filename]) # should not have a replica 3
         # local cleanup
         os.remove(filepath)
@@ -310,11 +310,11 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         self.admin.assert_icommand("iput "+filename)                            # put file
         self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)      # replicate to test resource
         self.admin.assert_icommand("irepl -R thirdresc "+filename)              # replicate to third resource
-        self.admin.assert_icommand("irepl "+filename)                           # replicate overtop default resource
+        self.admin.assert_icommand(['irepl', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop default resource
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
-        self.admin.assert_icommand("irepl -R "+self.testresc+" "+filename)      # replicate overtop test resource
+        self.admin.assert_icommand(['irepl', '-R', self.testresc, filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop test resource
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
-        self.admin.assert_icommand("irepl -R thirdresc "+filename)              # replicate overtop third resource
+        self.admin.assert_icommand(['irepl', '-R', 'thirdresc', filename], 'STDERR', 'SYS_NOT_ALLOWED') # replicate overtop third resource
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',filename)          # for debugging
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 4 "," & "+filename]) # should not have a replica 4
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 5 "," & "+filename]) # should not have a replica 5
