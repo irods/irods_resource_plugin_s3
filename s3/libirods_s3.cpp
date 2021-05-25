@@ -197,12 +197,11 @@ std::tuple<bool, bool> get_modes_from_properties(irods::plugin_property_map& _pr
 }
 
 
-// Sleep for *at least* the given time, plus some up to 1s additional
+// Sleep between _s/2 to _s. 
 // The random addition ensures that threads don't all cluster up and retry
 // at the same time (dogpile effect)
 void s3_sleep(
-    int _s,
-    int _ms ) {
+    int _s) {
     // We're the only user of libc rand(), so if we mutex around calls we can
     // use the thread-unsafe rand() safely and randomly...if this is changed
     // in the future, need to use rand_r and init a static seed in this function
@@ -210,13 +209,8 @@ void s3_sleep(
     randMutex.lock();
     int random = rand();
     randMutex.unlock();
-    //int addl = (int)(((double)random / (double)RAND_MAX) * 1000.0); // Add up to 1000 ms (1 sec)
-    //int addl = (int)(((double)random / (double)RAND_MAX) * .5 * _s * 1000.0); // Add up to 50% of sleep time
-    //useconds_t us = ( _s * 1000000 ) + ( (_ms + addl) * 1000 );
-    //usleep( us );
-    int addl = (int)(((double)random / (double)RAND_MAX) * .5 * _s); // Add up to 50% of sleep time
-    std::this_thread::sleep_for (std::chrono::seconds (_s+addl));
-
+    int sleep_time = (int)((((double)random / (double)RAND_MAX) + 1) * .5 * _s); // sleep between _s/2 and _s 
+    std::this_thread::sleep_for (std::chrono::seconds (sleep_time));
 }
 
 // Returns timestamp in usec for delta-t comparisons
@@ -615,7 +609,7 @@ irods::error s3InitPerOperation (
 
         ctr++;
 
-        s3_sleep( wait_time, 0 );
+        s3_sleep( wait_time );
 
         rodsLog(
             LOG_NOTICE,
@@ -858,7 +852,7 @@ static void mrdWorkerThread (
             msg << " -- END -- BW=" << bw << " MB/s";
             rodsLog( LOG_DEBUG, msg.str().c_str() );
             if (rangeData.status != S3StatusOK) {
-                s3_sleep( retry_wait, 0 );
+                s3_sleep( retry_wait );
                 retry_wait *= 2;
                 if (retry_wait > max_retry_wait) {
                     retry_wait = max_retry_wait;
@@ -1053,7 +1047,7 @@ irods::error s3GetFile(
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "GETBW=%lf", bw);
                         if (data.status != S3StatusOK) {
-                            s3_sleep( retry_wait, 0 );
+                            s3_sleep( retry_wait );
                             retry_wait *= 2;
                             if (retry_wait > max_retry_wait) {
                                 retry_wait = max_retry_wait;
@@ -1404,7 +1398,7 @@ static void mpuWorkerThread (
             msg << " -- END -- BW=" << bw << " MB/s";
             rodsLog( LOG_DEBUG, msg.str().c_str() );
             if (partData.status != S3StatusOK) {
-                s3_sleep( retry_wait, 0 );
+                s3_sleep( retry_wait );
                 retry_wait *= 2;
                 if (retry_wait > max_retry_wait) {
                     retry_wait = max_retry_wait;
@@ -1518,7 +1512,7 @@ irods::error s3PutCopyFile(
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "BW=%lf", bw);
                         if (data.status != S3StatusOK) {
-                            s3_sleep( retry_wait, 0 );
+                            s3_sleep( retry_wait );
                             retry_wait *= 2;
                             if (retry_wait > max_retry_wait) {
                                 retry_wait = max_retry_wait;
@@ -1615,7 +1609,7 @@ irods::error s3PutCopyFile(
                         manager.pCtx = &bucketContext;
                         S3_initiate_multipart(&bucketContext, key.c_str(), putProps, &mpuInitialHandler, NULL, 0, &manager);
                         if (manager.status != S3StatusOK) {
-                            s3_sleep( retry_wait, 0 );
+                            s3_sleep( retry_wait );
                             retry_wait *= 2;
                             if (retry_wait > max_retry_wait) {
                                 retry_wait = max_retry_wait;
@@ -1735,7 +1729,7 @@ irods::error s3PutCopyFile(
                             manager.pCtx = &bucketContext;
                             S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, 0, &manager);
                             if (manager.status != S3StatusOK) {
-                                s3_sleep( retry_wait, 0 );
+                                s3_sleep( retry_wait );
                                 retry_wait *= 2;
                                 if (retry_wait > max_retry_wait) {
                                     retry_wait = max_retry_wait;
@@ -1871,7 +1865,7 @@ irods::error s3CopyFile(
                     S3_copy_object(&bucketContext, src_key.c_str(), dest_bucket.c_str(), dest_key.c_str(), &putProps, &lastModified, sizeof(eTag), eTag, 0,
                                    0, &responseHandler, &data);
                     if (data.status != S3StatusOK) {
-                        s3_sleep( retry_wait, 0 );
+                        s3_sleep( retry_wait );
                         retry_wait *= 2;
                         if (retry_wait > max_retry_wait) {
                             retry_wait = max_retry_wait;

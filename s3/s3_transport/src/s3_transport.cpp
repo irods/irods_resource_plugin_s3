@@ -40,7 +40,7 @@
 namespace irods::experimental::io::s3_transport
 {
     int S3_status_is_retryable(S3Status status) {
-        return ::S3_status_is_retryable(status) || S3StatusErrorQuotaExceeded == status || S3StatusErrorSlowDown == status;
+        return ::S3_status_is_retryable(status) || S3StatusErrorQuotaExceeded == status || S3StatusErrorSlowDown == status || 128 == status;
     }
 
 
@@ -64,11 +64,15 @@ namespace irods::experimental::io::s3_transport
                                const libs3_types::error_details *error,
                                const std::string& function,
                                const libs3_types::bucket_context& saved_bucket_context,
-                               libs3_types::status& pStatus )
+                               libs3_types::status& pStatus,
+                               unsigned long thread_id )
     {
 
         int log_level = LOG_DEBUG;
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+        if (thread_id == 0) {
+            thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        }
 
         pStatus = status;
         if(status != libs3_types::status_ok ) {
@@ -121,12 +125,11 @@ namespace irods::experimental::io::s3_transport
         return (tv.tv_sec) * 1000000LL + tv.tv_usec;
     } // end get_time_in_microseconds
 
-    // Sleep for *at least* the given time, plus some up to 1s additional
+    // Sleep between _s/2 to _s. 
     // The random addition ensures that threads don't all cluster up and retry
     // at the same time (dogpile effect)
-    void s3_sleep(int _s,
-                  int _ms )
-    {
+    void s3_sleep(
+        int _s) {
         // We're the only user of libc rand(), so if we mutex around calls we can
         // use the thread-unsafe rand() safely and randomly...if this is changed
         // in the future, need to use rand_r and init a static seed in this function
@@ -134,14 +137,9 @@ namespace irods::experimental::io::s3_transport
         rand_mutex.lock();
         int random = rand();
         rand_mutex.unlock();
-        // Add up to 1000 ms (1 sec)
-        int addl = static_cast<int>((static_cast<double>(random) / static_cast<double>(RAND_MAX)) * 1000.0);
-
-        struct timespec tim, rem;
-        tim.tv_sec = 0;
-        tim.tv_nsec = 1000 * (( _s * 1000000 ) + ( (_ms + addl) * 1000 ));
-        nanosleep(&tim, &rem);
-    } // end s3_sleep
+        int sleep_time = (int)((((double)random / (double)RAND_MAX) + 1) * .5 * _s); // Sleep between _s/2 and _s.
+        std::this_thread::sleep_for (std::chrono::seconds (sleep_time));
+    }
 
     namespace s3_head_object_callback
     {
@@ -158,7 +156,7 @@ namespace irods::experimental::io::s3_transport
                                    void *callback_data)
         {
             data_for_head_callback *data = (data_for_head_callback*)callback_data;
-            store_and_log_status( status, error, __FUNCTION__, data->bucket_context,
+            store_and_log_status( status, error, "s3_head_object_callback::on_response_complete", data->bucket_context,
                     data->status );
         }
 
@@ -210,7 +208,7 @@ namespace irods::experimental::io::s3_transport
                                     void *callback_data)
             {
                 upload_manager *data = (upload_manager*)callback_data;
-                store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context,
+                store_and_log_status( status, error, "s3_upload::on_response_complete", data->saved_bucket_context,
                         data->status );
             } // end on_response_complete
 
@@ -248,7 +246,7 @@ namespace irods::experimental::io::s3_transport
                                       void *callback_data)
             {
                 upload_manager *data = (upload_manager*)callback_data;
-                store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context,
+                store_and_log_status( status, error, "s3_upload::on_response_completion", data->saved_bucket_context,
                         data->status );
                 // Don't change the global error, we may want to retry at a higher level.
                 // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
@@ -276,7 +274,7 @@ namespace irods::experimental::io::s3_transport
                                       const libs3_types::error_details *error,
                                       void *callback_data)
             {
-                store_and_log_status( status, error, __FUNCTION__, *g_response_completion_saved_bucket_context,
+                store_and_log_status( status, error, "cancel_callback::on_response_completion", *g_response_completion_saved_bucket_context,
                         g_response_completion_status);
                 // Don't change the global error, we may want to retry at a higher level.
                 // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
@@ -332,7 +330,7 @@ namespace irods::experimental::io::s3_transport
                                     void *callback_data)
             {
                 upload_manager *data = (upload_manager*)callback_data;
-                store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context,
+                store_and_log_status( status, error, "s3_multipart_upload::on_response_complete", data->saved_bucket_context,
                         data->status);
             } // end on_response_complete
 
@@ -370,7 +368,7 @@ namespace irods::experimental::io::s3_transport
                                       void *callback_data)
             {
                 upload_manager *data = (upload_manager*)callback_data;
-                store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context,
+                store_and_log_status( status, error, "s3_multipart_upload::on_response_completion", data->saved_bucket_context,
                         data->status );
                 // Don't change the global error, we may want to retry at a higher level.
                 // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
@@ -398,7 +396,7 @@ namespace irods::experimental::io::s3_transport
                                       const libs3_types::error_details *error,
                                       void *callback_data)
             {
-                store_and_log_status( status, error, __FUNCTION__, *g_response_completion_saved_bucket_context,
+                store_and_log_status( status, error, "cancel_callback::on_response_completion", *g_response_completion_saved_bucket_context,
                         g_response_completion_status );
                 // Don't change the global error, we may want to retry at a higher level.
                 // The WorkerThread will note that status!=OK and act appropriately (retry or fail)

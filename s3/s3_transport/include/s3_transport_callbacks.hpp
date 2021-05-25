@@ -96,7 +96,7 @@ namespace irods::experimental::io::s3_transport
                                                 void *callback_data)
             {
                 callback_for_read_from_s3_base *data = static_cast<callback_for_read_from_s3_base*>(callback_data);
-                store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context, data->status);
+                store_and_log_status( status, error, "callback_for_read_from_s3_base::on_response_completion", data->saved_bucket_context, data->status);
                 // Don't change the global error, we may want to retry at a higher level.
                 // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
             }
@@ -307,7 +307,7 @@ namespace irods::experimental::io::s3_transport
                 {
                     callback_for_write_to_s3_base *data =
                         static_cast<callback_for_write_to_s3_base*>(callback_data);
-                    store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context,
+                    store_and_log_status( status, error, "s3_upload::callback_for_write_to_s3_base::on_response_completion", data->saved_bucket_context,
                             data->status);
 
                     if (libs3_types::status_ok == status) {
@@ -446,7 +446,7 @@ namespace irods::experimental::io::s3_transport
 
                     // if we've already written the expected number of bytes, just return 0 which will
                     // trigger the completion
-                    if (this->content_length < this->bytes_written) {
+                    if (this->content_length <= this->bytes_written) {
                         return 0;
                     }
 
@@ -652,7 +652,7 @@ namespace irods::experimental::io::s3_transport
                 {
                     callback_for_write_to_s3_base *data =
                         static_cast<callback_for_write_to_s3_base*>(callback_data);
-                    store_and_log_status( status, error, __FUNCTION__, data->saved_bucket_context,
+                    store_and_log_status( status, error, "s3_multipart_upload::callback_for_write_to_s3_base::on_response_completion", data->saved_bucket_context,
                             data->status);
 
                     if (libs3_types::status_ok == status) {
@@ -796,7 +796,7 @@ namespace irods::experimental::io::s3_transport
 
                     // if we've already written the expected number of bytes, just return 0 which will
                     // trigger the completion
-                    if (this->content_length < this->bytes_written) {
+                    if (this->content_length <= this->bytes_written) {
                         return 0;
                     }
 

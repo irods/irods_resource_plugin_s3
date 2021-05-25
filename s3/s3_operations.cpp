@@ -945,7 +945,7 @@ namespace irods_s3 {
                 &responseHandler,
                 &data);
             if(data.status != S3StatusOK) {
-                s3_sleep( retry_wait, 0 );
+                s3_sleep( retry_wait );
                 retry_wait *= 2;
                 if (retry_wait > max_retry_wait) {
                     retry_wait = max_retry_wait;
@@ -1046,8 +1046,14 @@ namespace irods_s3 {
                             if ((retry_on_not_found && data.status != S3StatusOK) ||
                                 (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
 
-                                s3_sleep( retry_wait, 0 );
-                                retry_wait *= 2;
+
+                                // On not found just sleep for a second and don't do exponential backoff 
+                                if (data.status == S3StatusHttpErrorNotFound) {
+                                    s3_sleep( 1 );
+                                } else {
+                                    s3_sleep( retry_wait );
+                                    retry_wait *= 2;
+                                }
                                 if (retry_wait > max_retry_wait) {
                                     retry_wait = max_retry_wait;
                                 }
@@ -1398,7 +1404,7 @@ namespace irods_s3 {
                             );
 
                     if (data.status != S3StatusOK) {
-                        s3_sleep( retry_wait, 0 );
+                        s3_sleep( retry_wait );
                         retry_wait *= 2;
                         if (retry_wait > max_retry_wait) {
                             retry_wait = max_retry_wait;
