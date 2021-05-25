@@ -134,12 +134,10 @@ typedef struct multirange_data
     irods::plugin_property_map *prop_map_ptr;
 } multirange_data_t;
 
-// Sleep for *at least* the given time, plus some up to 1s additional
+// Sleep between _s/2 and _s seconds.
 // The random addition ensures that threads don't all cluster up and retry
 // at the same time (dogpile effect)
-void s3_sleep(
-    int _s,
-    int _ms );
+void s3_sleep( int _s );
 
 void responseCompleteCallback(
     S3Status status,
