@@ -1351,7 +1351,7 @@ namespace irods::experimental::io::s3_transport
                             __FUNCTION__, get_thread_identifier(), S3_get_status_name(upload_manager_.status));
 
                     if (upload_manager_.status != libs3_types::status_ok) {
-                        s3_sleep( retry_wait_seconds, 0 );
+                        s3_sleep( retry_wait_seconds );
                         retry_wait_seconds *= 2;
                         if (retry_wait_seconds > config_.max_retry_wait_seconds) {
                             retry_wait_seconds = config_.max_retry_wait_seconds;
@@ -1443,7 +1443,6 @@ namespace irods::experimental::io::s3_transport
 
                 std::stringstream xml("");
 
-rodsLog(LOG_NOTICE, "UPLOAD_ID=%s", data.upload_id.c_str());
                 std::string upload_id  = data.upload_id.c_str();
 
                 if ("" == upload_id) {
@@ -1503,7 +1502,7 @@ rodsLog(LOG_NOTICE, "UPLOAD_ID=%s", data.upload_id.c_str());
                             rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] S3_complete_multipart_upload returned error [status=%s][object_key=%s][attempt=%d][retry_count_limit=%d].  Sleeping for %d seconds\n",
                                     __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                                     S3_get_status_name(upload_manager_.status), object_key_.c_str(), retry_cnt, config_.retry_count_limit, retry_wait_seconds);
-                            s3_sleep( retry_wait_seconds, 0 );
+                            s3_sleep( retry_wait_seconds );
                             retry_wait_seconds *= 2;
                             if (retry_wait_seconds > config_.max_retry_wait_seconds) {
                                 retry_wait_seconds = config_.max_retry_wait_seconds;
@@ -1626,8 +1625,10 @@ rodsLog(LOG_NOTICE, "UPLOAD_ID=%s", data.upload_id.c_str());
                 // if reading into buffer, write at beginning of buffer
                 if (buffer == nullptr) {
                     read_callback->offset = offset;
+                    read_callback->bytes_read_from_s3 = 0;
                 } else {
                     read_callback->offset = 0;
+                    read_callback->bytes_read_from_s3 = 0;
                 }
 
                 msg.str( std::string() ); // Clear
@@ -1651,7 +1652,7 @@ rodsLog(LOG_NOTICE, "UPLOAD_ID=%s", data.upload_id.c_str());
                         get_thread_identifier(), msg.str().c_str());
 
                 if (read_callback->status != libs3_types::status_ok) {
-                    s3_sleep( retry_wait_seconds, 0 );
+                    s3_sleep( retry_wait_seconds );
                     retry_wait_seconds *= 2;
                     if (retry_wait_seconds > config_.max_retry_wait_seconds) {
                         retry_wait_seconds = config_.max_retry_wait_seconds;
@@ -1908,8 +1909,10 @@ rodsLog(LOG_NOTICE, "UPLOAD_ID=%s", data.upload_id.c_str());
                             break;
                         } else {
 
-                            rodsLog(LOG_NOTICE, "S3_upload_part returned error [status=%s][attempt=%d][retry_count_limit=%d].  Sleeping for %d seconds\n", S3_get_status_name(write_callback->status), retry_cnt, config_.retry_count_limit, retry_wait_seconds);
-                            s3_sleep( retry_wait_seconds, 0 );
+                            rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] S3_upload_part returned error [status=%s][attempt=%d][retry_count_limit=%d].  Sleeping between %d and %d seconds\n",
+                                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), S3_get_status_name(write_callback->status), retry_cnt, config_.retry_count_limit, 
+                                    retry_wait_seconds >> 1, retry_wait_seconds);
+                            s3_sleep( retry_wait_seconds );
                             retry_wait_seconds *= 2;
                             if (retry_wait_seconds > config_.max_retry_wait_seconds) {
                                 retry_wait_seconds = config_.max_retry_wait_seconds;
@@ -2040,7 +2043,7 @@ rodsLog(LOG_NOTICE, "UPLOAD_ID=%s", data.upload_id.c_str());
                         break;
                     } else {
 
-                        s3_sleep( retry_wait_seconds, 0 );
+                        s3_sleep( retry_wait_seconds );
                         retry_wait_seconds *= 2;
                         if (retry_wait_seconds > config_.max_retry_wait_seconds) {
                             retry_wait_seconds = config_.max_retry_wait_seconds;
