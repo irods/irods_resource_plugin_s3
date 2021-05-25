@@ -64,16 +64,15 @@ namespace irods::experimental::io::s3_transport
                                const libs3_types::error_details *error,
                                const std::string& function,
                                const libs3_types::bucket_context& saved_bucket_context,
-                               libs3_types::status& pStatus);
+                               libs3_types::status& pStatus,
+                               unsigned long thread_id = 0);
+    // Sleep between _s / 2 and _s seconds.
+    // The random addition ensures that threads don't all cluster up and retry
+    // at the same time (dogpile effect)
+    void s3_sleep( int _s );
 
     // Returns timestamp in usec for delta-t comparisons
     auto get_time_in_microseconds() -> uint64_t;
-
-    // Sleep for *at least* the given time, plus some up to 1s additional
-    // The random addition ensures that threads don't all cluster up and retry
-    // at the same time (dogpile effect)
-    void s3_sleep(int _s,
-                  int _ms );
 
     struct upload_manager
     {
