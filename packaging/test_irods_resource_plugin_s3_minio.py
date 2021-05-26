@@ -19,6 +19,19 @@ class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
         self.s3sse = 0 # server side encryption
         super(Test_Compound_With_S3_Resource, self).__init__(*args, **kwargs)
 
+class Test_Compound_With_S3_Resource_EU_Central_1(Test_S3_Cache_Base, unittest.TestCase):
+    '''
+    This also tests signature V4 with the x-amz-date header.
+    '''
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        self.proto = 'HTTP'
+        self.keypairfile='/var/lib/irods/minio.keypair'
+        self.s3stsdate=''
+        self.s3region='eu-central-1'
+        self.s3endPoint='localhost:9001'
+        super(Test_Compound_With_S3_Resource_EU_Central_1, self).__init__(*args, **kwargs)
+
 class Test_S3_NoCache_V4(Test_S3_NoCache_Base, unittest.TestCase):
 
     def __init__(self, *args, **kwargs):
@@ -43,10 +56,11 @@ class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_Base, unittest.TestCase):
 class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         """Set up the test."""
+        self.proto = 'HTTP'
         self.keypairfile='/var/lib/irods/minio.keypair'
         self.s3region='us-east-1'
         self.s3endPoint = 'localhost:9000'
-        self.s3EnableMPU=0
+        self.s3EnableMPU=1
         self.archive_naming_policy = 'decoupled'
         super(Test_S3_NoCache_Decoupled, self).__init__(*args, **kwargs)
 
@@ -66,4 +80,15 @@ class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
     def test_put_get_large_file_in_repl_node(self):
         pass
 
-
+class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
+    '''
+    This also tests signature V4 with the x-amz-date header.
+    '''
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        self.proto = 'HTTP'
+        self.keypairfile='/var/lib/irods/minio.keypair'
+        self.s3region='eu-central-1'
+        self.s3endPoint='localhost:9001'
+        self.s3EnableMPU=1
+        super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
