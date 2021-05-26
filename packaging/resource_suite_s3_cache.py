@@ -81,12 +81,14 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             s3_client = Minio(self.s3endPoint,
                               access_key=self.aws_access_key_id,
                               secret_key=self.aws_secret_access_key,
-                              http_client=httpClient)
+                              http_client=httpClient,
+                              region=self.s3region)
         else:
             s3_client = Minio(self.s3endPoint,
                               access_key=self.aws_access_key_id,
                               secret_key=self.aws_secret_access_key,
                               http_client=httpClient,
+                              region=self.s3region,
                               secure=False)
 
         self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
@@ -143,12 +145,14 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             s3_client = Minio(self.s3endPoint,
                               access_key=self.aws_access_key_id,
                               secret_key=self.aws_secret_access_key,
-                              http_client=httpClient)
+                              http_client=httpClient,
+                              region=self.s3region)
         else:
             s3_client = Minio(self.s3endPoint,
                               access_key=self.aws_access_key_id,
                               secret_key=self.aws_secret_access_key,
                               http_client=httpClient,
+                              region=self.s3region,
                               secure=False)
 
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
