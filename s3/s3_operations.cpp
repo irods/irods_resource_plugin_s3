@@ -123,7 +123,7 @@ namespace irods_s3 {
             int fd_counter;
     };
 
-    int debug_log_level = LOG_DEBUG;
+    int debug_log_level = LOG_NOTICE;
     fd_to_data_map fd_data;
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
@@ -280,10 +280,10 @@ namespace irods_s3 {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] call_from=%s oflag=%d oflag&O_TRUNC=%d oflag&O_CREAT=%d\n",
-                __FILE__, __LINE__, __FUNCTION__, thread_id, call_from.c_str(), oflag, oflag & O_TRUNC, oflag & O_CREAT);
-        rodsLog(debug_log_level, "%s:%d (%s) O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n",
-                __FILE__, __LINE__, __FUNCTION__, O_WRONLY, O_RDWR, O_RDONLY, O_TRUNC, O_CREAT, O_APPEND);
+        rodsLog(debug_log_level, "%s:%d (%s)  [[%lu]] call_from=%s O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n",
+                __FILE__, __LINE__, __FUNCTION__, thread_id, call_from.c_str(),
+                (oflag & O_ACCMODE) == O_WRONLY, (oflag & O_ACCMODE) == O_RDWR, (oflag & O_ACCMODE) == O_RDONLY,
+                (oflag & O_TRUNC) != 0, (oflag & O_CREAT) != 0, (oflag & O_APPEND) != 0);
 
         ios_base::openmode mode = 0;
 
