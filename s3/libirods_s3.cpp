@@ -135,8 +135,8 @@ const std::string  s3_region_name{"S3_REGIONNAME"};
 const std::string  REPL_POLICY_KEY{"repl_policy"};
 const std::string  REPL_POLICY_VAL{"reg_repl"};
 const std::string  s3_cache_dir{"S3_CACHE_DIR"};
-const std::string  s3_circular_buffer_size{"S3_CIRCULAR_BUFFER_SIZE"};
-const std::string  s3_circular_buffer_timeout_seconds{"S3_CIRCULAR_BUFFER_TIMEOUT_SECONDS"};
+const std::string  s3_circular_buffer_size{"CIRCULAR_BUFFER_SIZE"};
+const std::string  s3_circular_buffer_timeout_seconds{"CIRCULAR_BUFFER_TIMEOUT_SECONDS"};
 const std::string  s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
