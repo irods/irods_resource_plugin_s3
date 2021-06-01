@@ -51,7 +51,7 @@
 
 namespace irods::experimental::io::s3_transport
 {
-    const int S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 10;
+    const int S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 
     int S3_status_is_retryable(S3Status status);
 
