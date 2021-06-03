@@ -50,20 +50,20 @@ def download_and_start_minio_server():
 
     subprocess.check_output(['wget',  'https://dl.min.io/server/minio/release/linux-amd64/minio'])
     subprocess.check_output(['chmod', '+x', 'minio'])
-   
+
     access_key = ''.join(random.choice(string.letters) for i in xrange(10))
     secret_key = ''.join(random.choice(string.letters) for i in xrange(10))
-   
+
     with open('/var/lib/irods/minio.keypair', 'w') as f:
         f.write('%s\n' % access_key)
         f.write('%s\n' % secret_key)
-    
+
     os.environ['MINIO_ACCESS_KEY'] = access_key
     os.environ['MINIO_SECRET_KEY'] = secret_key
-   
+
     proc1 = subprocess.Popen(['./minio', 'server', '/data'])
 
-    os.environ['MINIO_REGION_NAME'] = 'eu-central-1' 
+    os.environ['MINIO_REGION_NAME'] = 'eu-central-1'
     proc2 = subprocess.Popen(['./minio', 'server', '--address', ':9001', '/data2'])
 
     return (proc1, proc2)

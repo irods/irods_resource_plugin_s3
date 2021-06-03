@@ -70,11 +70,11 @@ S3_DEFAULT_HOSTNAME=s3.<bucket-region>.amazonaws.com
 ```
 
 To define S3 provider constraints and control multipart behavior:
--    `S3_MPU_CHUNK` - This defines the minimum part size allowed (in MB).  The default is 5MB which is the minimum part size defined in AWS.
--    `S3_ENABLE_MPU=0` disables multipart uploads.
--    `S3_MAX_UPLOAD_SIZE` - This defines the maximum upload size for non-multipart uploads (in MB), maximum part size, as well as the maximum size when using the CopyObject API.  The default is 5120MB (5GB).  This setting is ignored if MPU uploads are disable.
--    `S3_MPU_THREADS` is the number of parts to upload in parallel.
--    `S3_URI_REQUEST_STYLE` - The path request style used.  This is either "path" or "virtual_hosted".  The default is "path".  See [path vs virtual hosted requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
+-   `S3_MPU_CHUNK` - This defines the minimum part size allowed (in MB).  The default is 5MB which is the minimum part size defined in AWS.
+-   `S3_ENABLE_MPU=0` disables multipart uploads.
+-   `S3_MAX_UPLOAD_SIZE` - This defines the maximum upload size for non-multipart uploads (in MB), maximum part size, as well as the maximum size when using the CopyObject API.  The default is 5120MB (5GB).  This setting is ignored if MPU uploads are disabled.
+-   `S3_MPU_THREADS` is the number of parts to upload in parallel.
+-   `S3_URI_REQUEST_STYLE` - The path request style used.  This is either "path" or "virtual_hosted".  The default is "path".  See [path vs virtual hosted requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
 
 Use the `ARCHIVE_NAMING_POLICY` parameter to control whether the names of the files within the object storage service (S3, or similar) are kept in sync with the logical names in the iRODS Catalog.
 The default value of `consistent` will keep the names consistent.  Setting `ARCHIVE_NAMING_POLICY=decoupled` will not keep the names of the objects in sync.
@@ -110,9 +110,9 @@ An additional flag called `HOST_MODE` is used to enable cacheless mode.  The def
 
 Cacheless mode has a few extra configuration parameters in addition to HOST_MODE.
 
--    `CIRCULAR_BUFFER_SIZE` - The plugin uses a circular buffer to store data while it is being streamed to S3.  The size of the circular buffer is CIRCULAR_BUFFER_SIZE * S3_MPU_CHUNK.  The default value is 4 so if the S3_MPU_CHUNK is the default of 5MB the circular buffer size will be 20MB.  CIRCULAR_BUFFER_SIZE must be at least 2.  If a size is set lower than 2 then it will default to 2.
--    `CIRCULAR_BUFFER_TIMEOUT_SECONDS` - The number of seconds the plugin will wait when waiting to read or write data from the circular buffer.  The default is 180s.
--    `S3_CACHE_DIR` - This is the directory where temporary cache files are located in cases where a cache file is required.  (See below.)  The default is `/tmp`.
+-   `CIRCULAR_BUFFER_SIZE` - The plugin uses a circular buffer to store data while it is being streamed to S3.  The size of the circular buffer is CIRCULAR_BUFFER_SIZE * S3_MPU_CHUNK.  The default value is 4 so if the S3_MPU_CHUNK is the default of 5MB the circular buffer size will be 20MB.  CIRCULAR_BUFFER_SIZE must be at least 2.  If a size is set lower than 2 then it will default to 2.
+-   `CIRCULAR_BUFFER_TIMEOUT_SECONDS` - The number of seconds the plugin will wait when waiting to read or write data from the circular buffer.  The default is 180s.
+-   `S3_CACHE_DIR` - This is the directory where temporary cache files are located in cases where a cache file is required.  (See below.)  The default is `/tmp`.
 
 The following is an example of how to configure a `cacheless_attached` S3 resource:
 
