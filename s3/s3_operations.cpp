@@ -123,7 +123,7 @@ namespace irods_s3 {
             int fd_counter;
     };
 
-    int debug_log_level = LOG_NOTICE;
+    int developer_messages_log_level = LOG_DEBUG;
     fd_to_data_map fd_data;
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
@@ -177,7 +177,7 @@ namespace irods_s3 {
                        && L1desc[i].dataObjInp->oprType == REPLICATE_SRC ) {
 
                    data_size = L1desc[i].dataObjInfo->dataSize;
-                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
+                   rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
                            __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
                    break;
                }
@@ -203,7 +203,7 @@ namespace irods_s3 {
             number_of_threads = 1;
         }
 
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] number_of_threads set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
         // save the number of threads and data_size
         {
@@ -264,7 +264,7 @@ namespace irods_s3 {
                 s3_key_name << "/" << bucket_name << "/" << obj_id << "/" << object_name;
 
                 // update physical path
-                rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] updating physical_path to %s\n",
+                rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] updating physical_path to %s\n",
                         __FILE__, __LINE__, __FUNCTION__, thread_id, s3_key_name.str().c_str());
                 object->physical_path(s3_key_name.str());
                 strncpy(L1desc[index].dataObjInfo->filePath, s3_key_name.str().c_str(), MAX_NAME_LEN);
@@ -280,7 +280,7 @@ namespace irods_s3 {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        rodsLog(debug_log_level, "%s:%d (%s)  [[%lu]] call_from=%s O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n",
+        rodsLog(developer_messages_log_level, "%s:%d (%s)  [[%lu]] call_from=%s O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, call_from.c_str(),
                 (oflag & O_ACCMODE) == O_WRONLY, (oflag & O_ACCMODE) == O_RDWR, (oflag & O_ACCMODE) == O_RDONLY,
                 (oflag & O_TRUNC) != 0, (oflag & O_CREAT) != 0, (oflag & O_APPEND) != 0);
@@ -368,7 +368,7 @@ namespace irods_s3 {
             return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
         }
 
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [physical_path=%s][bucket_name=%s][fd=%d]\n",
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [physical_path=%s][bucket_name=%s][fd=%d]\n",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str(), bucket_name.c_str(), fd);
 
         ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
@@ -377,20 +377,20 @@ namespace irods_s3 {
         }
 
         // ********* DEBUG - print L1desc for all
-        if (debug_log_level == LOG_DEBUG) {
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+        if (getRodsLogLevel() >= developer_messages_log_level) {
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
             for (int i = 0; i < NUM_L1_DESC; ++i) {
-                if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {// && L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
+                if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {
                            int thread_count = L1desc[i].dataObjInp->numThreads;
                    int oprType = L1desc[i].dataObjInp->oprType;
                    int64_t data_size = L1desc[i].dataSize;
-                   rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d][requested_number_of_threads=%d]"
+                   rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d][requested_number_of_threads=%d]"
                            "[dataSize=%zd][dataObjInfo->dataSize=%zd][srcL1descInx=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id,
                            i, L1desc[i].dataObjInp->objPath, L1desc[i].dataObjInfo->filePath, oprType, thread_count, data_size,
                            L1desc[i].dataObjInfo->dataSize, L1desc[i].srcL1descInx);
                 }
             }
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         }
         // ********* END DEBUG - print L1desc for all
 
@@ -417,9 +417,9 @@ namespace irods_s3 {
 
         get_number_of_threads_and_data_size(_ctx, number_of_threads, data_size);
 
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] number_of_threads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] number_of_threads=%d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
         // read the size of the circular buffer from configuration
         std::string circular_buffer_size_str;
@@ -462,7 +462,7 @@ namespace irods_s3 {
         s3_config.circular_buffer_timeout_seconds = circular_buffer_timeout_seconds;
         s3_config.s3_protocol_str = get_protocol_as_string(_ctx.prop_map());
         s3_config.s3_uri_request_style = s3_get_uri_request_style(_ctx.prop_map()) == S3UriStyleVirtualHost ? "host" : "path";
-        s3_config.debug_log_level = debug_log_level;
+        s3_config.developer_messages_log_level = developer_messages_log_level;
         s3_config.region_name = get_region_name(_ctx.prop_map());
         s3_config.put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
         s3_config.server_encrypt_flag = s3GetServerEncrypt(_ctx.prop_map());
@@ -473,7 +473,7 @@ namespace irods_s3 {
         s3_config.max_retry_wait_seconds = get_max_retry_wait_time_sec(_ctx.prop_map());
         s3_config.resource_name = get_resource_name(_ctx.prop_map());
 
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] [put_repl_flag=%d][object_size=%ld][multipart_enabled=%d][minimum_part_size=%ld] ",
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [put_repl_flag=%d][object_size=%ld][multipart_enabled=%d][minimum_part_size=%ld] ",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, s3_config.put_repl_flag, s3_config.object_size,
                 s3_config.multipart_enabled, s3_config.minimum_part_size);
 
@@ -573,7 +573,7 @@ namespace irods_s3 {
             fd_data.set(fd, data);
             file_obj->file_descriptor(fd);
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
 
             return SUCCESS();
 
@@ -590,7 +590,7 @@ namespace irods_s3 {
 
 
         if (is_cacheless_mode(_ctx.prop_map())) {
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__,
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__,
                     std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
@@ -616,7 +616,7 @@ namespace irods_s3 {
                }
             }
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n",
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n",
                     __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
 
             // fix open mode
@@ -651,7 +651,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
             irods::error result = SUCCESS();
 
             std::shared_ptr<dstream> dstream_ptr;
@@ -699,7 +699,7 @@ namespace irods_s3 {
         if (is_cacheless_mode(_ctx.prop_map())) {
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::error result = SUCCESS();
 
@@ -742,7 +742,7 @@ namespace irods_s3 {
                 number_of_threads = 1;
             }
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] read number_of_threads of %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] read number_of_threads of %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
             // determine the part size based on the offset
             off_t offset = s3_transport_ptr->get_offset();
@@ -780,7 +780,7 @@ namespace irods_s3 {
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
 
             int fd = file_obj->file_descriptor();
 
@@ -849,7 +849,7 @@ namespace irods_s3 {
     irods::error s3_file_unlink_operation(
         irods::plugin_context& _ctx) {
 
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
@@ -983,7 +983,7 @@ namespace irods_s3 {
         bool retry_on_not_found )
     {
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         irods::error result = SUCCESS();
 
@@ -1120,7 +1120,7 @@ namespace irods_s3 {
         struct stat* _statbuf )
     {
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         return s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, _statbuf, false);
     }
 
@@ -1148,11 +1148,9 @@ namespace irods_s3 {
         if (is_cacheless_mode(_ctx.prop_map())) {
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::error result = SUCCESS();
-
-            irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
             std::shared_ptr<dstream> dstream_ptr;
             std::shared_ptr<s3_transport> s3_transport_ptr;
@@ -1170,7 +1168,7 @@ namespace irods_s3 {
                 PASS(result);;
             }
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] offset=%lld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, _offset);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] offset=%lld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, _offset);
 
             std::ios_base::seekdir seek_directive =
                 _whence == SEEK_SET ? std::ios_base::beg : (
@@ -1185,7 +1183,7 @@ namespace irods_s3 {
                 result.code(pos);
             }
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu] tellg=%lu\n", __FILE__, __LINE__, __FUNCTION__, thread_id, pos);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu] tellg=%lu\n", __FILE__, __LINE__, __FUNCTION__, thread_id, pos);
 
             return result;
 
@@ -1260,7 +1258,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
             struct readdir_callback_data {
 
@@ -1465,7 +1463,7 @@ namespace irods_s3 {
     irods::error s3_file_rename_operation( irods::plugin_context& _ctx,
                                      const char*         _new_file_name )
     {
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
         irods::error result = SUCCESS();
         irods::error ret;
@@ -1685,7 +1683,7 @@ namespace irods_s3 {
         irods::hierarchy_parser*            _out_parser,
         float*                              _out_vote )
     {
-        rodsLog(debug_log_level, "%s:%d (%s) [[%lu]] _opr=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()),
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] _opr=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()),
                 _opr == nullptr ? "nullptr" : _opr->c_str());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
@@ -1718,7 +1716,7 @@ namespace irods_s3 {
         }
 
         if (getValByKey(&file_obj->cond_input(), RECURSIVE_OPR__KW)) {
-            rodsLog(debug_log_level,
+            rodsLog(developer_messages_log_level,
                 "%s: %s found in cond_input for file_obj",
                 __FUNCTION__, RECURSIVE_OPR__KW);
         }

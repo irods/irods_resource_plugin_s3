@@ -259,7 +259,7 @@ void upload_part(const char* const hostname,
     s3_config.s3_sts_date_str = s3_sts_date_str;
     s3_config.server_encrypt_flag = server_encrypt_flag;
     s3_config.put_repl_flag = put_repl_flag;
-    s3_config.debug_log_level = LOG_NOTICE;
+    s3_config.developer_messages_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
     s3_config.circular_buffer_size = 4 * s3_config.bytes_this_thread;
 
@@ -340,7 +340,7 @@ void download_part(const char* const hostname,
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;
     s3_config.shared_memory_timeout_in_seconds = 20;
-    s3_config.debug_log_level = LOG_NOTICE;
+    s3_config.developer_messages_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
 
     s3_transport tp1{s3_config};
@@ -409,7 +409,7 @@ void read_write_on_file(const char *hostname,
     s3_config.secret_access_key = secret_access_key;
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.put_repl_flag = false;
-    s3_config.debug_log_level = LOG_NOTICE;
+    s3_config.developer_messages_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
     s3_config.cache_directory = ".";
     s3_config.circular_buffer_size = 10*1024*1024;
