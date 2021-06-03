@@ -716,13 +716,6 @@ namespace irods_s3 {
                 return PASS(result);
             }
 
-            // If an error has occurred somewhere in the transport,
-            // short circuit process and return error.
-            result = s3_transport_ptr->get_error();
-            if (!result.ok()) {
-                PASS(result);;
-            }
-
             std::stringstream msg;
 
             if (!s3_transport_ptr) {
@@ -730,6 +723,12 @@ namespace irods_s3 {
                 return ERROR(S3_FILE_OPEN_ERR, msg.str());
             }
 
+            // If an error has occurred somewhere in the transport,
+            // short circuit process and return error.
+            result = s3_transport_ptr->get_error();
+            if (!result.ok()) {
+                PASS(result);;
+            }
 
             uint64_t data_size = 0;
             int number_of_threads;

@@ -46,7 +46,7 @@ class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3endPoint = self.read_endpoint('/var/lib/irods/ceph_endpoint.txt')
         self.s3EnableMPU=0
         self.archive_naming_policy = 'decoupled'
-        super(Test_S3_NoCache_MPU_Disabled, self).__init__(*args, **kwargs)
+        super(Test_S3_NoCache_Decoupled, self).__init__(*args, **kwargs)
 
     @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
     def test_iget_with_stale_replica(self):  # formerly known as 'dirty'
