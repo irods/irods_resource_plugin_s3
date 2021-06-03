@@ -1045,7 +1045,7 @@ namespace irods::experimental::io::s3_transport
                 // override for cases where we must use cache
                 //   1. If we don't know the file size.
                 //   2. If we have > 1 thread and multipart is disabled
-                //   3. If doing multiplart upload file size < #threads * minimum part size
+                //   3. If doing multipart upload file size < #threads * minimum part size
                 if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
                         ( config_.number_of_client_transfer_threads > 1 && !config_.multipart_enabled ) ||
                         ( config_.number_of_client_transfer_threads > 1 &&
