@@ -518,8 +518,6 @@ irods::error s3Init (
     std::vector<std::string> hostname_vector;
     size_t hostname_index = 0;
 
-    std::string resource_name = get_resource_name(_prop_map);
-
     g_hostnameIdxLock.lock();
 
     // First, parse the default hostname (if present) into a list of

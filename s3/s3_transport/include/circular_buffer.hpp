@@ -60,8 +60,6 @@ namespace experimental {
             //  precondition: array is large enough to hold n items
             void peek(off_t offset, size_t n, T array[])
             {
-                assert(sizeof(array) / sizeof(array[0] >= n));
-
                 auto length = offset + n;
                 (*lws_)([this, length] { return length <= cb_.size(); },
                         [this, offset, n, &array] {

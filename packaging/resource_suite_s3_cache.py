@@ -17,7 +17,6 @@ import shutil
 import string
 import subprocess
 import urllib3
-import getpass
 
 from resource_suite_s3_nocache import Test_S3_NoCache_Base
 
@@ -311,7 +310,6 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         filename = "thirdreplicatest.txt"
         filepath = lib.create_local_testfile(filename)
         hostname = lib.get_hostname()
-        hostuser = getpass.getuser()
         # assertions
         self.admin.assert_icommand("iadmin mkresc thirdresc unixfilesystem %s:/tmp/thirdrescVault" % hostname, 'STDOUT_SINGLELINE', "Creating") # create third resource
         self.admin.assert_icommand("ils -L "+filename,'STDERR_SINGLELINE',"does not exist") # should not be listed
@@ -396,24 +394,6 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         finally:
             if os.path.exists(filepath):
                 os.unlink(filepath)
-
-    def test_iput_with_purgec(self):
-        # local setup
-        filename = "purgecfile.txt"
-        filepath = os.path.abspath(filename)
-        f = open(filepath,'wb')
-        f.write("TESTFILE -- ["+filepath+"]")
-        f.close()
-
-        # assertions
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
-        self.admin.assert_icommand("iput -f --purgec "+filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.') # get file and purge 'cached' replica
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 ",filename]) # should not be listed (trimmed)
-        self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 ",filename]) # should be listed once - replica 1
-        self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should be listed only once
-
-        # local cleanup
-        output = commands.getstatusoutput( 'rm '+filepath )
 
     def test_iget_with_purgec(self):
         # local setup
