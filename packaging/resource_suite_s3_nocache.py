@@ -13,7 +13,6 @@ import platform
 import random
 import string
 import io
-import random
 
 try:
    from minio import Minio
