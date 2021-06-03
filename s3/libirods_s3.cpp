@@ -905,7 +905,7 @@ std::string get_cache_directory(irods::plugin_property_map& _prop_map) {
         }
 
         // No longer using shared_memory_name_salt because it uses irods main server process PID and a hash
-        // which changes every time the server is restarted.  While that is preferrable in case something goes
+        // which changes every time the server is restarted.  While that is preferable in case something goes
         // terribly wrong, it introduces cleanup issues.  Instead simply use the resource name which
         // can be persistent.
         s3_cache_dir_str += "/" + get_resource_name(_prop_map);
