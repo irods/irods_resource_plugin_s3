@@ -143,6 +143,26 @@ namespace irods_s3 {
         {
             std::lock_guard<std::mutex> lock(global_mutex);
             data_size = irods_s3::data_size;
+            number_of_threads = irods_s3::number_of_threads;
+        }
+
+        // if data size is still unknown, try to get if from DATA_SIZE_KW
+        if (data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE) {
+            char *data_size_str = getValByKey(&file_obj->cond_input(), DATA_SIZE_KW);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] data_size_str = %p\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
+            if (data_size_str) {
+
+                rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] read DATA_SIZE_KW of %s\n",
+                       __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
+
+                try {
+                    data_size = boost::lexical_cast<uint64_t>(data_size_str);
+                } catch (boost::bad_lexical_cast const& e) {
+                    data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
+                    rodsLog(LOG_WARNING, "%s:%d (%s) [[%lu]] DATA_SIZE_KW (%s) could not be parsed as size_t\n",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
+                }
+            }
         }
 
         // first get requested number of threads and data size if necessary
@@ -172,31 +192,59 @@ namespace irods_s3 {
 
             for (int i = 0; i < NUM_L1_DESC; ++i) {
 
-               if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo
+                if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo
                        && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
                        && L1desc[i].dataObjInp->oprType == REPLICATE_SRC ) {
 
-                   data_size = L1desc[i].dataObjInfo->dataSize;
-                   rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
-                           __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
-                   break;
-               }
+                    data_size = L1desc[i].dataObjInfo->dataSize;
+                    rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+                    break;
+                }
             }
         }
 
-        // get the number of threads
-        const int single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
-        number_of_threads = requested_number_of_threads;
+        // if number_of_threads is still zero, first try readng from NUM_THREADS_KW otherwise get it from getNumThreads
+        if (number_of_threads == 0) {
 
-        if (data_size > single_buff_sz && oprType != REPLICATE_DEST && oprType != COPY_DEST) {
+            // try to get number of threads from NUM_THREADS_KW
+            char *num_threads_str = getValByKey(&file_obj->cond_input(), NUM_THREADS_KW);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] num_threads_str = %p\n", __FILE__, __LINE__, __FUNCTION__, thread_id, num_threads_str);
 
-            number_of_threads = getNumThreads( _ctx.comm(),
-                    data_size,
-                    requested_number_of_threads,
-                    const_cast<KeyValPair*>(&file_obj->cond_input()),
-                    nullptr,                     // destination resc hier
-                    nullptr,                     // source resc hier
-                    0 );                         // opr type - not used
+            if (num_threads_str) {
+                rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] num_threads_str = %s\n",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id, num_threads_str);
+                try {
+                    number_of_threads = boost::lexical_cast<int>(num_threads_str);
+                    // save the number of threads
+                    {
+                        std::lock_guard<std::mutex> lock(global_mutex);
+                        irods_s3::number_of_threads = number_of_threads;
+                    }
+                    } catch (const boost::bad_lexical_cast &) {
+                        number_of_threads = 0;
+                        rodsLog(LOG_WARNING, "%s:%d (%s) [[%lu]] NUM_THREADS_KW (%s) could not be parsed as int\n",
+                                __FILE__, __LINE__, __FUNCTION__, thread_id, num_threads_str);
+                    }
+            }
+
+            // if number of threads was not successfully set above
+            if (number_of_threads == 0) { 
+
+                const int single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
+                number_of_threads = requested_number_of_threads;
+
+                if (data_size > single_buff_sz && oprType != REPLICATE_DEST && oprType != COPY_DEST) {
+
+                    number_of_threads = getNumThreads( _ctx.comm(),
+                            data_size,
+                            requested_number_of_threads,
+                            const_cast<KeyValPair*>(&file_obj->cond_input()),
+                            nullptr,                     // destination resc hier
+                            nullptr,                     // source resc hier
+                            0 );                         // opr type - not used
+                }
+            }
         }
 
         if (number_of_threads < 1) {
@@ -541,7 +589,7 @@ namespace irods_s3 {
             return ERROR(SYS_NOT_SUPPORTED,
                     boost::str(boost::format("[resource_name=%s] %s") %
                         get_resource_name(_ctx.prop_map()) % __FUNCTION__));
-        }
+       }
     }
 
     // =-=-=-=-=-=-=-
@@ -596,7 +644,7 @@ namespace irods_s3 {
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-
+ 
             // get oprType
             // note on replication there will be two matching entries for repl source, one for put and one for repl src
             // get the highest one
@@ -1685,23 +1733,50 @@ namespace irods_s3 {
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] _opr=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()),
                 _opr == nullptr ? "nullptr" : _opr->c_str());
 
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
-        // read the data size and save and save it under the property plugin property map
+        // read the data size from DATA_SIZE_KW save it
         uint64_t data_size = 0;
         char *data_size_str = getValByKey(&file_obj->cond_input(), DATA_SIZE_KW);
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] data_size_str = %p\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
         if (data_size_str) {
             try {
                 data_size = boost::lexical_cast<uint64_t>(data_size_str);
+
+                // save the data size
+                std::lock_guard<std::mutex> lock(global_mutex);
+                irods_s3::data_size = data_size;
+
             } catch (boost::bad_lexical_cast const& e) {
-                data_size = 0;
+                data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
+                rodsLog(LOG_WARNING, "%s:%d (%s) [[%lu]] DATA_SIZE_KW (%s) could not be parsed as size_t\n",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
             }
+
         }
 
-        // brackets reduce scope of lock_guard
-        {
-            std::lock_guard<std::mutex> lock(global_mutex);
-            irods_s3::data_size = data_size;
+        // try to get number of threads from NUM_THREADS_KW
+        char *num_threads_str = getValByKey(&file_obj->cond_input(), NUM_THREADS_KW);
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] num_threads_str = %p\n", __FILE__, __LINE__, __FUNCTION__, thread_id, num_threads_str);
+
+        if (num_threads_str) {
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] num_threads_str = %s\n",
+                __FILE__, __LINE__, __FUNCTION__, thread_id, num_threads_str);
+            try {
+
+                int number_of_threads = boost::lexical_cast<int>(num_threads_str);
+
+                // save the number of threads
+                std::lock_guard<std::mutex> lock(global_mutex);
+                irods_s3::number_of_threads = number_of_threads;
+
+            } catch (const boost::bad_lexical_cast &) {
+                number_of_threads = 0;
+                rodsLog(LOG_WARNING, "%s:%d (%s) [[%lu]] NUM_THREADS_KW (%s) could not be parsed as int\n",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, num_threads_str);
+            }
         }
 
         namespace irv = irods::experimental::resource::voting;
