@@ -1906,3 +1906,33 @@ OUTPUT ruleExecOut
 
             if os.path.exists(file1):
                 os.unlink(file1)
+
+    def test_missing_keyfile(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            s3_context = 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+            s3_context += ';S3_AUTH_FILE=doesnotexit.keypair'
+            s3_context += ';S3_REGIONNAME=' + self.s3region
+            s3_context += ';S3_RETRY_COUNT=2'
+            s3_context += ';S3_WAIT_TIME_SEC=3'
+            s3_context += ';S3_PROTO=' + self.proto
+            s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+            s3_context += ';HOST_MODE=cacheless_attached'
+            s3_context += ';S3_ENABLE_MD5=1'
+            s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
+            s3_context += ';S3_CACHE_DIR=/var/lib/irods'
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            # do an ils to make sure server is up
+            self.user0.assert_icommand("ils", 'STDOUT_SINGLELINE', 'tempZone')
+
+        finally:
+
+            # cleanup
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
