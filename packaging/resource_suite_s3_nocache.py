@@ -1496,42 +1496,36 @@ OUTPUT ruleExecOut
             if os.path.exists(read_rule_file_path):
                 os.unlink(read_rule_file_path)
 
-    @unittest.skipIf(True, "TODO")
     def test_detached_mode(self):
 
-        # in non-topology HOSTNAME_3 is just local host so it really doesn't test detached mode
-        # but in topology it will
-
-        file1 = "f1"
-        file2 = "f2"
-        #resource_host = test.settings.HOSTNAME_3
-        resource_host = "irods.org"
-
-        # change demoResc to use detached mode
-
-        s3_context_detached = "S3_DEFAULT_HOSTNAME=%s;S3_AUTH_FILE=%s;S3_REGIONNAME=%s;S3_RETRY_COUNT=2;S3_WAIT_TIME_SEC=3;S3_PROTO=%s;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_detached;S3_ENABLE_MD5=1;S3_ENABLE_MPU=%d" % (self.s3endPoint, self.keypairfile, self.s3region, self.proto, self.s3EnableMPU)
-        s3_context_detached = 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint
-        s3_context_detached += ';S3_AUTH_FILE=' + self.keypairfile
-        s3_context_detached += ';S3_REGIONNAME=' + self.s3region
-        s3_context_detached += ';S3_RETRY_COUNT=2'
-        s3_context_detached += ';S3_WAIT_TIME_SEC=3'
-        s3_context_detached += ';S3_PROTO=' + self.proto
-        s3_context_detached += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
-        s3_context_detached += ';HOST_MODE=cacheless_detached'
-        s3_context_detached += ';S3_ENABLE_MD5=1'
-        s3_context_detached += ';S3_ENABLE_MPU=' + self.s3EnableMPU
-
-
-        self.admin.assert_icommand("iadmin modresc demoResc context %s" % s3_context_detached , 'EMPTY')
-        self.admin.assert_icommand("iadmin modresc demoResc host %s" % resource_host, 'EMPTY')
-
-        # create file to put
-        lib.make_file(file1, 100)
-
         try:
+            file1 = "f1"
+            file2 = "f2"
+            resource_host = "irods.org"
+            resource_name = 's3resc1'
+
+            hostuser = getpass.getuser()
+
+            s3_context = 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+            s3_context += ';S3_AUTH_FILE=' + self.keypairfile
+            s3_context += ';S3_REGIONNAME=' + self.s3region
+            s3_context += ';S3_RETRY_COUNT=2'
+            s3_context += ';S3_WAIT_TIME_SEC=3'
+            s3_context += ';S3_PROTO=' + self.proto
+            s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+            s3_context += ';HOST_MODE=cacheless_detached'
+            s3_context += ';S3_ENABLE_MD5=1'
+            s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
+            s3_context += ';S3_CACHE_DIR=/var/lib/irods'
+
+            self.admin.assert_icommand("iadmin mkresc %s s3 %s:/%s/%s/s3resc1 %s" %
+                                   (resource_name, resource_host, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            # create file to put
+            lib.make_file(file1, 100)
 
             # put small file
-            self.admin.assert_icommand("iput %s" % file1)  # iput
+            self.admin.assert_icommand("iput -R %s %s" % (resource_name, file1))  # iput
 
             # get file
             self.admin.assert_icommand("iget %s %s" % (file1, file2))  # iput
@@ -1548,6 +1542,9 @@ OUTPUT ruleExecOut
                 os.unlink(file1)
             if os.path.exists(file2):
                 os.unlink(file2)
+
+            # cleanup
+            self.admin.assert_icommand("iadmin rmresc %s" % resource_name, 'EMPTY')
 
 
     def test_attached_mode_invalid_resource_host(self):
