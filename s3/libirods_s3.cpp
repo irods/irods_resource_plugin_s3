@@ -1954,9 +1954,37 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
     std::tie(cacheless_mode, attached_mode) = get_modes_from_properties(_prop_map);
 
     if (!attached_mode) {
+
+        // update host to new host
         char resource_location[MAX_NAME_LEN];
         gethostname(resource_location, MAX_NAME_LEN);
-        _prop_map.set<std::string>(irods::RESOURCE_LOCATION, resource_location);
+
+        bool error = false;
+        rodsLong_t resc_id = 0;
+        irods::error ret = resc_mgr.hier_to_leaf_id(resource_name, resc_id);
+        if( !ret.ok() ) { 
+            error = true;
+        } else {
+
+            rodsServerHost_t *resource_host = nullptr;
+            ret = irods::get_resource_property< rodsServerHost_t*& >(resc_id, irods::RESOURCE_HOST, resource_host);
+
+            if (!ret.ok() || !resource_host) {
+                 error = true;
+            } else {
+                 resource_host->hostName->name = strdup(resource_location);
+                 resource_host->localFlag = LOCAL_HOST;
+                 ret = irods::set_resource_property< rodsServerHost_t* >( resource_name, irods::RESOURCE_HOST, resource_host);
+                 if (!ret.ok()) {
+                     error = true;
+                 }
+            }
+        }
+
+        if (error) {
+            // log the error but continue
+            rodsLog(LOG_ERROR, "[resource_name=%s] Attached mode failed to set RESOURCE_HOST to %s.", resource_name.c_str(), resource_location);
+        }
     }
 
     return result;
