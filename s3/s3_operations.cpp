@@ -25,6 +25,9 @@
 #include <irods_virtual_path.hpp>
 #include <irods_query.hpp>
 #include "voting.hpp"
+#include "get_file_descriptor_info.h"
+#include <rsModAVUMetadata.hpp>
+
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -39,6 +42,7 @@
 // =-=-=-=-=-=-=-
 // other includes
 #include <string>
+#include <sstream>
 #include <iomanip>
 #include <fcntl.h>
 #include <libxml/xpath.h>
@@ -48,9 +52,7 @@
 #include <list>
 #include <map>
 #include <assert.h>
-
 #include <curl/curl.h>
-
 
 extern size_t g_retry_count;
 extern size_t g_retry_wait;
@@ -68,6 +70,7 @@ namespace irods_s3 {
     std::mutex global_mutex;
     int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
     int number_of_threads = 0;
+    int oprType = -1;
 
     // data per thread
     struct per_thread_data {
@@ -130,12 +133,31 @@ namespace irods_s3 {
             struct stat* _statbuf, bool retry_on_not_found );
 
     // determines the data size and number of threads, stores them, and returns them
-    void get_number_of_threads_and_data_size(irods::plugin_context& _ctx, int& number_of_threads, int64_t& data_size) {
+    void get_number_of_threads_data_size_and_opr_type(irods::plugin_context& _ctx,
+        int& number_of_threads, int64_t& data_size, int& oprType, bool query_metadata = true) {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        int oprType = -1;
-        int requested_number_of_threads;
+        // ********* DEBUG - print L1desc for all
+        if (getRodsLogLevel() >= developer_messages_log_level) {
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            for (int i = 0; i < NUM_L1_DESC; ++i) {
+                if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {
+                   int thread_count = L1desc[i].dataObjInp->numThreads;
+                   int oprType = L1desc[i].dataObjInp->oprType;
+                   int64_t data_size = L1desc[i].dataSize;
+                   rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d][requested_number_of_threads=%d]"
+                           "[dataSize=%zd][dataObjInfo->dataSize=%zd][srcL1descInx=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id,
+                           i, L1desc[i].dataObjInp->objPath, L1desc[i].dataObjInfo->filePath, oprType, thread_count, data_size,
+                           L1desc[i].dataObjInfo->dataSize, L1desc[i].srcL1descInx);
+                }
+            }
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+        }
+        // ********* END DEBUG - print L1desc for all
+
+        oprType = -1;
+        int requested_number_of_threads = 0;
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         // get data size stored earlier in s3_resolve_resc_hier_operation
@@ -144,6 +166,7 @@ namespace irods_s3 {
             std::lock_guard<std::mutex> lock(global_mutex);
             data_size = irods_s3::data_size;
             number_of_threads = irods_s3::number_of_threads;
+            oprType = irods_s3::oprType;
         }
 
         // if data size is still unknown, try to get if from DATA_SIZE_KW
@@ -165,7 +188,10 @@ namespace irods_s3 {
             }
         }
 
-        // first get requested number of threads and data size if necessary
+        // first try to get requested number of threads, data size, and oprType from L1desc
+        // Note: On a replication from an s3 src within a replication node, there are two entries for the
+        //   replica - one for PUT and one for REPL_DEST.  During the initial PUT there is only one
+        //   entry.  To see of we are doing the PUT or REPL, look for the last entry on the list.
         bool found = false;
         for (int i = 0; i < NUM_L1_DESC; ++i) {
             if (L1desc[i].inuseFlag) {
@@ -182,10 +208,11 @@ namespace irods_s3 {
                         data_size = L1desc[i].dataSize;
                     }
                 }
-           } else if (found) {
-               break;
-           }
+            } else if (found) {
+                break;
+            }
         }
+
 
         // if this is a replication and we're the destination, get the data size from the source dataObjInfo
         if (oprType == REPLICATE_DEST) {
@@ -204,7 +231,7 @@ namespace irods_s3 {
             }
         }
 
-        // if number_of_threads is still zero, first try readng from NUM_THREADS_KW otherwise get it from getNumThreads
+        // if number_of_threads is still zero, first try readng from NUM_THREADS_KW
         if (number_of_threads == 0) {
 
             // try to get number of threads from NUM_THREADS_KW
@@ -229,7 +256,7 @@ namespace irods_s3 {
             }
 
             // if number of threads was not successfully set above
-            if (number_of_threads == 0) { 
+            if (number_of_threads == 0) {
 
                 const int single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
                 number_of_threads = requested_number_of_threads;
@@ -245,10 +272,12 @@ namespace irods_s3 {
                             0 );                         // opr type - not used
                 }
             }
-        }
 
-        if (number_of_threads < 1) {
-            number_of_threads = 1;
+            // If we still don't know the # of threads, set it to 1 unless the oprType is unknown in
+            // which case it will remain 1 which will force use of cache.
+            if (number_of_threads == 0 && oprType != -1) {
+                number_of_threads = 1;
+            }
         }
 
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] number_of_threads set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
@@ -258,6 +287,7 @@ namespace irods_s3 {
             std::lock_guard<std::mutex> lock(global_mutex);
             irods_s3::number_of_threads = number_of_threads;
             irods_s3::data_size = data_size;
+            irods_s3::oprType = oprType;
         }
 
     }
@@ -389,9 +419,9 @@ namespace irods_s3 {
         int fd = file_obj->file_descriptor();
 
         irods::error ret;
-        int64_t data_size;
+        int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
         int oprType = -1;
-        int number_of_threads;
+        int number_of_threads = 0;
         std::string bucket_name;
         std::string object_key;
         std::string access_key;
@@ -424,46 +454,7 @@ namespace irods_s3 {
             return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
         }
 
-        // ********* DEBUG - print L1desc for all
-        if (getRodsLogLevel() >= developer_messages_log_level) {
-            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-            for (int i = 0; i < NUM_L1_DESC; ++i) {
-                if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {
-                           int thread_count = L1desc[i].dataObjInp->numThreads;
-                   int oprType = L1desc[i].dataObjInp->oprType;
-                   int64_t data_size = L1desc[i].dataSize;
-                   rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d][requested_number_of_threads=%d]"
-                           "[dataSize=%zd][dataObjInfo->dataSize=%zd][srcL1descInx=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id,
-                           i, L1desc[i].dataObjInp->objPath, L1desc[i].dataObjInfo->filePath, oprType, thread_count, data_size,
-                           L1desc[i].dataObjInfo->dataSize, L1desc[i].srcL1descInx);
-                }
-            }
-            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
-        }
-        // ********* END DEBUG - print L1desc for all
-
-        // get oprType
-        // Note: On a replication from an s3 src within a replication node, there are two entries for the
-        //   replica - one for PUT and one for REPL_DEST.  During the initial PUT there is only one
-        //   entry.  To see of we are doing the PUT or REPL, look for the last entry on the list.
-        // TODO:  Come up with a more reliable way to determine this.
-        bool found = false;
-        for (int i = 0; i < NUM_L1_DESC; ++i) {
-            if (L1desc[i].inuseFlag) {
-                if (L1desc[i].dataObjInp && L1desc[i].dataObjInfo &&
-                        L1desc[i].dataObjInp->objPath == file_obj->logical_path()
-                        && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
-
-                    found = true;
-                    oprType = L1desc[i].dataObjInp->oprType;
-
-                }
-           } else if (found) {
-               break;
-           }
-        }
-
-        get_number_of_threads_and_data_size(_ctx, number_of_threads, data_size);
+        get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType);
 
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
@@ -498,9 +489,10 @@ namespace irods_s3 {
         s3_transport_config s3_config;
         s3_config.hostname = hostname;
         s3_config.object_size = data_size;
-        s3_config.number_of_cache_transfer_threads = s3GetMPUThreads(_ctx.prop_map());    // number of threads created by s3_transport when writing/reading to/from cache
-        s3_config.number_of_client_transfer_threads = number_of_threads;    // number of threads created by s3_transport when writing/reading to/from cache
-        s3_config.bytes_this_thread = data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE ? 0 : data_size / number_of_threads;
+        s3_config.number_of_cache_transfer_threads = s3GetMPUThreads(_ctx.prop_map());      // number of threads created by s3_transport when writing/reading to/from cache
+        s3_config.number_of_client_transfer_threads = number_of_threads;                    // number of threads created by client
+        s3_config.bytes_this_thread = data_size == s3_transport_config::UNKNOWN_OBJECT_SIZE // if number of threads is 0, cache is forced and bytes_this_thread is n/a
+            || number_of_threads == 0 ? 0 : data_size / number_of_threads;
         s3_config.bucket_name = bucket_name;
         s3_config.access_key = access_key;
         s3_config.secret_access_key = secret_access_key;
@@ -644,7 +636,7 @@ namespace irods_s3 {
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
- 
+
             // get oprType
             // note on replication there will be two matching entries for repl source, one for put and one for repl src
             // get the highest one
@@ -905,10 +897,6 @@ namespace irods_s3 {
             return PASS(ret);
         }
 
-        size_t retry_count_limit = get_retry_count(_ctx.prop_map());
-        size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
-        size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
-
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         std::string repl_policy;
@@ -979,29 +967,17 @@ namespace irods_s3 {
 
         callback_data_t data;
         S3ResponseHandler responseHandler = { 0, &responseCompleteCallback };
-        size_t retry_cnt = 0;
-        do {
-            data = {};
-            std::string&& hostname = s3GetHostname(_ctx.prop_map());
-            bucketContext.hostName = hostname.c_str();
-            data.pCtx = &bucketContext;
-            S3_delete_object(
-                &bucketContext,
-                key.c_str(), 0,
-                0,                    //timeout
-                &responseHandler,
-                &data);
-            if(data.status != S3StatusOK) {
-                s3_sleep( retry_wait );
-                retry_wait *= 2;
-                if (retry_wait > max_retry_wait) {
-                    retry_wait = max_retry_wait;
-                }
-            }
 
-        } while((data.status != S3StatusOK) &&
-                irods::experimental::io::s3_transport::S3_status_is_retryable(data.status) &&
-                (++retry_cnt < retry_count_limit));
+        data = {};
+        std::string&& hostname = s3GetHostname(_ctx.prop_map());
+        bucketContext.hostName = hostname.c_str();
+        data.pCtx = &bucketContext;
+        S3_delete_object(
+            &bucketContext,
+            key.c_str(), 0,
+            0,                    //timeout
+            &responseHandler,
+            &data);
 
         if(data.status != S3StatusOK) {
             std::stringstream msg;
@@ -1094,7 +1070,7 @@ namespace irods_s3 {
                                 (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
 
 
-                                // On not found just sleep for a second and don't do exponential backoff 
+                                // On not found just sleep for a second and don't do exponential backoff
                                 if (data.status == S3StatusHttpErrorNotFound) {
                                     s3_sleep( 1 );
                                 } else {
@@ -1730,8 +1706,19 @@ namespace irods_s3 {
         irods::hierarchy_parser*            _out_parser,
         float*                              _out_vote )
     {
-        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] _opr=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()),
-                _opr == nullptr ? "nullptr" : _opr->c_str());
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] _opr=%s _curr_host=%s\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()),
+                _opr == nullptr ? "nullptr" : _opr->c_str(), _curr_host->c_str());
+
+            for (int i = 0; i < NUM_FILE_DESC; ++i) {
+                if (FileDesc[i].inuseFlag) {
+
+                   char* hostname = FileDesc[i].rodsServerHost->hostName->name;
+                   int localFlag = FileDesc[i].rodsServerHost->localFlag;
+
+                   rodsLog(developer_messages_log_level, "%s:%d (%s) FileDesc[%d][hostname=%s][localFlag=%d][fileName=%s][objPath=%s][rescHier=%s]\n",
+                           __FILE__, __LINE__, __FUNCTION__, i, hostname, localFlag, FileDesc[i].fileName,FileDesc[i].objPath,FileDesc[i].rescHier);
+                }
+            }
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
@@ -1795,11 +1782,12 @@ namespace irods_s3 {
                 __FUNCTION__, RECURSIVE_OPR__KW);
         }
 
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] get_resource_name=%s\n",
+                __FILE__, __LINE__, __FUNCTION__, thread_id, irods::get_resource_name(_ctx).c_str());
         _out_parser->add_child(irods::get_resource_name(_ctx));
         *_out_vote = irv::vote::zero;
         try {
             *_out_vote = irv::calculate(*_opr, _ctx, *_curr_host, *_out_parser);
-            std::string resource_name = get_resource_name(_ctx);
             return SUCCESS();
         }
         catch(const std::out_of_range& e) {
