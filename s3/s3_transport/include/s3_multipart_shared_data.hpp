@@ -50,6 +50,9 @@ namespace irods::experimental::io::s3_transport::shared_data
             , ref_count{0}
             , existing_object_size{-1}
             , circular_buffer_read_timeout{false}
+            , file_open_counter{0}
+            , cache_file_flushed{false}
+            , know_number_of_threads{true}
         {}
 
         void reset_fields()
@@ -62,11 +65,15 @@ namespace irods::experimental::io::s3_transport::shared_data
             cache_file_download_progress = cache_file_download_status::NOT_STARTED;
             ref_count = 1;   // current object has reference so ref_count = 1
             circular_buffer_read_timeout = false;
-
+            file_open_counter = 0;
+            cache_file_flushed = false;
+            know_number_of_threads = true;
         }
 
         bool can_delete() {
-            return threads_remaining_to_close == 0;
+            return know_number_of_threads
+                   ? threads_remaining_to_close == 0
+                   : file_open_counter == 0;
         }
 
         int                                   threads_remaining_to_close;
@@ -78,6 +85,9 @@ namespace irods::experimental::io::s3_transport::shared_data
         int                                   ref_count;
         int64_t                               existing_object_size;
         bool                                  circular_buffer_read_timeout;
+        int                                   file_open_counter;
+        bool                                  cache_file_flushed;
+        bool                                  know_number_of_threads;
     };
 
 }

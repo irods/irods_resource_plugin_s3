@@ -61,7 +61,7 @@ namespace irods::experimental::io::s3_transport
         config()
             : object_size{UNKNOWN_OBJECT_SIZE}
             , number_of_cache_transfer_threads{1}  // this is the number of transfer threads when transferring from cache
-            , number_of_client_transfer_threads{1}  // this is the number of transfer threads defined by iRODS for PUTs, GETs
+            , number_of_client_transfer_threads{0}  // this is the number of transfer threads defined by iRODS for PUTs, GETs
             , bytes_this_thread{1000}
             , retry_count_limit{3}
             , retry_wait_seconds{3}
@@ -389,7 +389,23 @@ namespace irods::experimental::io::s3_transport
                 if (data.threads_remaining_to_close > 0) {
                     data.threads_remaining_to_close -= 1;
                 }
-                last_file_to_close_ = data.threads_remaining_to_close == 0;
+
+                rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] close BEFORE decrement file_open_counter = %d\n",
+                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), data.file_open_counter);
+
+                if (data.file_open_counter > 0) {
+                    data.file_open_counter -= 1;
+                }
+
+                rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] close AFTER decrement file_open_counter = %d\n",
+                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), data.file_open_counter);
+
+                // determine if this is the last file to close
+                // for now on redirect cache is forced and we do not know the # threads
+                // so use the file_open_counter 
+                last_file_to_close_ =
+                    ( data.know_number_of_threads && data.threads_remaining_to_close == 0 )  ||
+                    ( !(data.know_number_of_threads) && data.file_open_counter == 0 && !data.cache_file_flushed );
 
                 rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] [last_file_to_close=%d]\n",
                         __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(),
@@ -406,7 +422,7 @@ namespace irods::experimental::io::s3_transport
                     if (this->use_cache_) {
 
                         rv = additional_processing_enum::DO_FLUSH_CACHE_FILE;
-
+                        data.cache_file_flushed = true;
 
                     } else {
 
@@ -507,7 +523,8 @@ namespace irods::experimental::io::s3_transport
                     rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), msg.str().c_str());
 
                     // return bytes written
-                    return current_position - position_before_write;
+                    std::streamsize bytes_written = current_position - position_before_write;
+                    return bytes_written; 
                 });
             }
 
@@ -1044,9 +1061,11 @@ namespace irods::experimental::io::s3_transport
 
                 // override for cases where we must use cache
                 //   1. If we don't know the file size.
-                //   2. If we have > 1 thread and multipart is disabled
-                //   3. If doing multipart upload file size < #threads * minimum part size
+                //   2. If we don't know the # of threads.
+                //   3. If we have > 1 thread and multipart is disabled
+                //   4. If doing multipart upload file size < #threads * minimum part size
                 if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
+                        ( config_.number_of_client_transfer_threads == 0 ) ||
                         ( config_.number_of_client_transfer_threads > 1 && !config_.multipart_enabled ) ||
                         ( config_.number_of_client_transfer_threads > 1 &&
                           config_.object_size < static_cast<int64_t>(config_.number_of_client_transfer_threads) *
@@ -1165,6 +1184,14 @@ namespace irods::experimental::io::s3_transport
 
                 bool object_exists = false;
                 int64_t s3_object_size = 0;
+
+                data.file_open_counter += 1;
+                if (this->config_.number_of_client_transfer_threads == 0) {
+                    data.know_number_of_threads = false;
+                }
+
+                rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] open file_open_counter = %d\n",
+                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), data.file_open_counter);
 
                 if (object_must_exist_ || download_to_cache_) {
 
