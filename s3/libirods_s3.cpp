@@ -447,6 +447,7 @@ irods::error readS3AuthInfo (
 
     if ((result = ASSERT_ERROR(fptr != NULL, SYS_CONFIG_FILE_ERR, "[resource_name=%s] Failed to open S3 auth file: \"%s\", errno = \"%s\".", resource_name.c_str(),
                                _filename.c_str(), strerror(errno))).ok()) {
+
         while ((lineLen = getLine (fptr, inbuf, MAX_NAME_LEN)) > 0) {
             char *inPtr = inbuf;
             if (linecnt == 0) {
@@ -469,7 +470,9 @@ irods::error readS3AuthInfo (
         return result;
     }
 
-    fclose(fptr);
+    if (fptr) {
+        fclose(fptr);
+    }
 
     return result;
 }
