@@ -70,7 +70,9 @@ To define S3 provider constraints and control multipart behavior:
 -   `S3_ENABLE_MPU=0` disables multipart uploads.
 -   `S3_MAX_UPLOAD_SIZE` - This defines the maximum upload size for non-multipart uploads (in MB), maximum part size, as well as the maximum size when using the CopyObject API.  The default is 5120MB (5GB).  This setting is ignored if MPU uploads are disabled.
 -   `S3_MPU_THREADS` is the number of parts to upload in parallel.
--   `S3_URI_REQUEST_STYLE` - The path request style used.  This is either "path" or "virtual_hosted".  The default is "path".  See [path vs virtual hosted requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
+-   `S3_URI_REQUEST_STYLE` - The path request style used.  This is either "path" or "virtualhost".  The default is "path".  See [path vs virtual hosted requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
+
+> Notes about virtual hosting:  When using virtual hosted request style, configurate the resource path and S3_DEFAULT_HOSTNAME as you would for path request style.  Leave the bucket name in the path and do not put the bucket name in the S3_DEFAULT_HOSTNAME.  This is important to retain backward compatibility with objects already created using path request style. 
 
 Use the `ARCHIVE_NAMING_POLICY` parameter to control whether the names of the files within the object storage service (S3, or similar) are kept in sync with the logical names in the iRODS Catalog.
 The default value of `consistent` will keep the names consistent.  Setting `ARCHIVE_NAMING_POLICY=decoupled` will not keep the names of the objects in sync.
