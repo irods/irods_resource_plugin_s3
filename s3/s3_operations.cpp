@@ -513,6 +513,9 @@ namespace irods_s3 {
         s3_config.max_retry_wait_seconds = get_max_retry_wait_time_sec(_ctx.prop_map());
         s3_config.resource_name = get_resource_name(_ctx.prop_map());
 
+        auto sts_date_setting = s3GetSTSDate(_ctx.prop_map());
+        s3_config.s3_sts_date_str = sts_date_setting == S3STSAmzOnly ? "amz" : sts_date_setting == S3STSAmzAndDate ? "both" : "date";
+
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [put_repl_flag=%d][object_size=%ld][multipart_enabled=%d][minimum_part_size=%ld] ",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, s3_config.put_repl_flag, s3_config.object_size,
                 s3_config.multipart_enabled, s3_config.minimum_part_size);
