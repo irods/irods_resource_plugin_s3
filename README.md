@@ -75,6 +75,8 @@ To define S3 provider constraints and control multipart behavior:
 -   `S3_MAX_UPLOAD_SIZE` - This defines the maximum upload size for non-multipart uploads (in MB), maximum part size, as well as the maximum size when using the CopyObject API.  The default is 5120MB (5GB).  This setting is ignored if MPU uploads are disabled.
 -   `S3_MPU_THREADS` is the number of parts to upload in parallel.
 -   `S3_URI_REQUEST_STYLE` - The path request style used.  This is either "path" or "virtualhost".  The default is "path".  See [path vs virtual hosted requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
+-   `S3_RESTORATION_DAYS` - The number of days an object is to be restored when restoring from Glacier.  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
+-   `S3_RESTORATION_TIER` - The data access tier option when restoring from Glacier.  Valid values are "Expedited", "Standard", and "Bulk".  The default is "Standard".  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
 
 > Notes about virtual hosting:  When using virtual hosted request style, configure the resource path and S3_DEFAULT_HOSTNAME as you would for path request style.  Leave the bucket name in the path and do not put the bucket name in the S3_DEFAULT_HOSTNAME.  This is important to retain backward compatibility with objects already created using path request style. 
 

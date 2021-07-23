@@ -57,7 +57,7 @@
 extern size_t g_retry_count;
 extern size_t g_retry_wait;
 
-extern S3ResponseProperties savedProperties;
+extern thread_local S3ResponseProperties savedProperties;
 
 using odstream            = irods::experimental::io::odstream;
 using idstream            = irods::experimental::io::idstream;
@@ -77,7 +77,7 @@ namespace irods_s3 {
         std::ios_base::openmode open_mode;
         std::shared_ptr<dstream> dstream_ptr;
         std::shared_ptr<s3_transport> s3_transport_ptr;
-    };
+    }; // end per_thread_data
 
     class fd_to_data_map {
 
@@ -124,10 +124,38 @@ namespace irods_s3 {
             std::mutex fd_to_data_map_mutex;
             std::map<int, per_thread_data> data_map;
             int fd_counter;
-    };
+    }; // end class fd_to_data_map
 
     int developer_messages_log_level = LOG_DEBUG;
     fd_to_data_map fd_data;
+
+    bool get_object_must_exist_from_open_mode(std::ios_base::openmode open_mode, int oprType) {
+
+        using std::ios_base;
+
+        bool put_repl_flag = ( oprType == PUT_OPR || oprType == REPLICATE_DEST || oprType == COPY_DEST );
+
+        const auto m = open_mode & ~(ios_base::ate | ios_base::binary);
+
+        // read only, object must exist
+        if (ios_base::in == m) {
+            return true;
+        }
+
+        // full file upload, object need not exist
+        if (put_repl_flag) {
+            return false;
+
+        }
+
+        // both input and output, object must exist
+        if ((ios_base::out | ios_base::in) == m) {
+            return true;
+        }
+
+        // default - object need not exist
+        return false;
+    } // end get_object_must_exist_from_open_mode
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
             struct stat* _statbuf, bool retry_on_not_found );
@@ -140,19 +168,22 @@ namespace irods_s3 {
 
         // ********* DEBUG - print L1desc for all
         if (getRodsLogLevel() >= developer_messages_log_level) {
-            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------- L1desc ---------------\n",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id);
             for (int i = 0; i < NUM_L1_DESC; ++i) {
                 if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {
                    int thread_count = L1desc[i].dataObjInp->numThreads;
                    int oprType = L1desc[i].dataObjInp->oprType;
                    int64_t data_size = L1desc[i].dataSize;
-                   rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d][requested_number_of_threads=%d]"
-                           "[dataSize=%zd][dataObjInfo->dataSize=%zd][srcL1descInx=%d]\n", __FILE__, __LINE__, __FUNCTION__, thread_id,
-                           i, L1desc[i].dataObjInp->objPath, L1desc[i].dataObjInfo->filePath, oprType, thread_count, data_size,
+                   rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d]"
+                           "[requested_number_of_threads=%d][dataSize=%zd][dataObjInfo->dataSize=%zd][srcL1descInx=%d]\n",
+                           __FILE__, __LINE__, __FUNCTION__, thread_id, i, L1desc[i].dataObjInp->objPath,
+                           L1desc[i].dataObjInfo->filePath, oprType, thread_count, data_size,
                            L1desc[i].dataObjInfo->dataSize, L1desc[i].srcL1descInx);
                 }
             }
-            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] ------------------------------------\n",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id);
         }
         // ********* END DEBUG - print L1desc for all
 
@@ -512,6 +543,8 @@ namespace irods_s3 {
         s3_config.retry_wait_seconds = get_retry_wait_time_sec(_ctx.prop_map());
         s3_config.max_retry_wait_seconds = get_max_retry_wait_time_sec(_ctx.prop_map());
         s3_config.resource_name = get_resource_name(_ctx.prop_map());
+        s3_config.restoration_days = s3_get_restoration_days(_ctx.prop_map());
+        s3_config.restoration_tier = s3_get_restoration_tier(_ctx.prop_map());
 
         auto sts_date_setting = s3GetSTSDate(_ctx.prop_map());
         s3_config.s3_sts_date_str = sts_date_setting == S3STSAmzOnly ? "amz" : sts_date_setting == S3STSAmzAndDate ? "both" : "date";
@@ -536,7 +569,7 @@ namespace irods_s3 {
 
         irods::error return_error = SUCCESS();
 
-        if (!data.s3_transport_ptr || !data.dstream_ptr || !data.dstream_ptr->is_open()) {
+        if (!data.s3_transport_ptr || !data.dstream_ptr) {
             return_error  = ERROR(S3_FILE_OPEN_ERR,
                     boost::str(boost::format("[resource_name=%s] null dstream or s3_transport encountered") %
                     get_resource_name(_ctx.prop_map())));
@@ -633,6 +666,12 @@ namespace irods_s3 {
 
 
         if (is_cacheless_mode(_ctx.prop_map())) {
+
+            using std::ios_base;
+            using irods::experimental::io::s3_transport::object_s3_status;
+            using irods::experimental::io::s3_transport::get_object_s3_status;
+            using irods::experimental::io::s3_transport::restore_s3_object;
+
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__,
                     std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
@@ -663,7 +702,7 @@ namespace irods_s3 {
                     __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
 
             // fix open mode
-            std::ios_base::openmode open_mode;
+            ios_base::openmode open_mode;
             if (oprType == PUT_OPR) {
                 open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY | O_TRUNC, __FUNCTION__);
             } else {
@@ -675,6 +714,84 @@ namespace irods_s3 {
             data.open_mode = open_mode;
             fd_data.set(fd, data);
             file_obj->file_descriptor(fd);
+
+            bool object_must_exist = get_object_must_exist_from_open_mode(open_mode, oprType);
+
+            if (object_must_exist) {
+
+                S3BucketContext bucket_context = {};
+
+                std::string hostname = s3GetHostname(_ctx.prop_map()).c_str();
+                std::string region_name = get_region_name(_ctx.prop_map());
+
+                std::string access_key, secret_access_key;
+                irods::error ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
+                if(!ret.ok()) {
+                    return PASS(ret);
+                }
+
+                std::string bucket_name;
+                std::string object_key;
+                ret = parseS3Path(file_obj->physical_path(), bucket_name, object_key, _ctx.prop_map());
+                if(!ret.ok()) {
+                    return PASS(ret);
+                }
+
+                bucket_context.hostName         = hostname.c_str();
+                bucket_context.bucketName       = bucket_name.c_str();
+                bucket_context.authRegion       = region_name.c_str();
+                bucket_context.accessKeyId      = access_key.c_str();
+                bucket_context.secretAccessKey  = secret_access_key.c_str();
+                bucket_context.protocol         = s3GetProto(_ctx.prop_map());
+                bucket_context.stsDate          = s3GetSTSDate(_ctx.prop_map());
+                bucket_context.uriStyle         = s3_get_uri_request_style(_ctx.prop_map());
+
+                // determine if the object exists
+                object_s3_status object_status;
+                int64_t object_size = 0;
+                irods::error result = get_object_s3_status(object_key, bucket_context, object_size, object_status);
+                if (!result.ok()) {
+                    addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
+                    return PASS(result);
+                }
+
+                rodsLog(developer_messages_log_level, "%s:%d (%s) object_status = %s", __FILE__, __LINE__, __FUNCTION__,
+                        object_status == object_s3_status::IN_S3 ? "IN_S3" :
+                        object_status == object_s3_status::IN_GLACIER ? "IN_GLACIER" :
+                        object_status == object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS ? "IN_GLACIER_RESTORE_IN_PROGRESS" :
+                        "DOES_NOT_EXIST");
+
+                if (object_must_exist && object_status == object_s3_status::DOES_NOT_EXIST) {
+                    rodsLog(LOG_ERROR, "Object does not exist and open mode requires it to exist.\n");
+                    return ERROR(S3_FILE_OPEN_ERR, "Object does not exist and open mode requires it to exist.");
+                }
+
+                if ( object_must_exist && ( object_status == object_s3_status::IN_GLACIER
+                    || object_status == object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS ) ) {
+
+                    // if it is currently in glacier then try restoration
+                    // otherwise just report that restoration is in progress
+                    if (object_status == object_s3_status::IN_GLACIER) {
+
+                        unsigned int restoration_days = s3_get_restoration_days(_ctx.prop_map());
+                        std::string restoration_tier = s3_get_restoration_tier(_ctx.prop_map());
+
+                        result =  restore_s3_object(object_key, bucket_context, restoration_days, restoration_tier);
+
+                        addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
+                        return(PASS(result));
+
+                    } else {
+
+                        // restoration is already in progress
+                        result = ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and is currently being restored.  "
+                                "Try again later.");
+                        addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
+                        return(PASS(result));
+                    }
+                }
+
+            }
 
             return SUCCESS();
 
@@ -695,6 +812,7 @@ namespace irods_s3 {
         if (is_cacheless_mode(_ctx.prop_map())) {
 
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+
             irods::error result = SUCCESS();
 
             std::shared_ptr<dstream> dstream_ptr;
@@ -702,15 +820,11 @@ namespace irods_s3 {
 
             std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
 
-            if (!result.ok()) {
-                return PASS(result);
-            }
-
             // If an error has occurred somewhere in the transport,
             // short circuit process and return error.
-            result = s3_transport_ptr->get_error();
             if (!result.ok()) {
-                PASS(result);;
+                addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
+                return PASS(result);
             }
 
             off_t offset = s3_transport_ptr->get_offset();
@@ -746,9 +860,6 @@ namespace irods_s3 {
 
             irods::error result = SUCCESS();
 
-            irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-            int fd = file_obj->file_descriptor();
-
             // make and read dstream_ptr
             std::shared_ptr<dstream> dstream_ptr;
             std::shared_ptr<s3_transport> s3_transport_ptr;
@@ -756,21 +867,8 @@ namespace irods_s3 {
             std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
 
             if (!result.ok()) {
+                addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
                 return PASS(result);
-            }
-
-            std::stringstream msg;
-
-            if (!s3_transport_ptr) {
-                msg << "No valid transport found for fd " << fd;
-                return ERROR(S3_FILE_OPEN_ERR, msg.str());
-            }
-
-            // If an error has occurred somewhere in the transport,
-            // short circuit process and return error.
-            result = s3_transport_ptr->get_error();
-            if (!result.ok()) {
-                PASS(result);;
             }
 
             uint64_t data_size = 0;
@@ -1183,15 +1281,11 @@ namespace irods_s3 {
 
             std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
 
-            if (!result.ok()) {
-                return PASS(result);
-            }
-
             // If an error has occurred somewhere in the transport,
             // short circuit process and return error.
-            result = s3_transport_ptr->get_error();
             if (!result.ok()) {
-                PASS(result);;
+                addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
+                return PASS(result);
             }
 
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] offset=%lld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, _offset);
