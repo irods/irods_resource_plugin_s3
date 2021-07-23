@@ -53,6 +53,18 @@ namespace irods::experimental::io::s3_transport
 {
     const int S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 
+    enum class object_s3_status { DOES_NOT_EXIST, IN_S3, IN_GLACIER, IN_GLACIER_RESTORE_IN_PROGRESS };
+
+    irods::error get_object_s3_status(const std::string& object_key,
+            libs3_types::bucket_context& bucket_context,
+            int64_t& object_size,
+            object_s3_status& object_status);
+
+    irods::error restore_s3_object(const std::string& object_key,
+            libs3_types::bucket_context& bucket_context,
+            unsigned int restoration_days,
+            const std::string& restoration_tier);
+
     int S3_status_is_retryable(S3Status status);
 
     struct config
@@ -84,6 +96,8 @@ namespace irods::experimental::io::s3_transport
             , multipart_enabled{true}
             , put_repl_flag{false}
             , resource_name{""}
+            , restoration_days{7}
+            , restoration_tier{"Standard"}
 
         {}
 
@@ -128,7 +142,10 @@ namespace irods::experimental::io::s3_transport
         bool         put_repl_flag;
 
         std::string  resource_name;
+        unsigned int restoration_days;
+        std::string  restoration_tier;
     };
+
 
     template <typename CharT>
     class s3_transport : public transport<CharT>
@@ -253,21 +270,6 @@ namespace irods::experimental::io::s3_transport
             }
 
         }
-
-        bool object_exists_in_s3(int64_t& object_size) {
-
-            data_for_head_callback data(bucket_context_);
-
-            S3ResponseHandler head_object_handler = { &s3_head_object_callback::on_response_properties,
-                &s3_head_object_callback::on_response_complete };
-
-            S3_head_object(&bucket_context_, object_key_.c_str(), 0, 0, &head_object_handler, &data);
-
-            object_size = data.content_length;
-
-            return libs3_types::status_ok == data.status;
-        }
-
 
         bool open(const irods::experimental::filesystem::path& _p,
                   std::ios_base::openmode _mode) override
@@ -402,7 +404,7 @@ namespace irods::experimental::io::s3_transport
 
                 // determine if this is the last file to close
                 // for now on redirect cache is forced and we do not know the # threads
-                // so use the file_open_counter 
+                // so use the file_open_counter
                 last_file_to_close_ =
                     ( data.know_number_of_threads && data.threads_remaining_to_close == 0 )  ||
                     ( !(data.know_number_of_threads) && data.file_open_counter == 0 && !data.cache_file_flushed );
@@ -485,7 +487,6 @@ namespace irods::experimental::io::s3_transport
             // just get what is asked for
             std::streamsize length = s3_download_part_worker_routine(_buffer, _buffer_size);
 
-
             // if we are not using cache file, update the read/write pointer
             if (!use_cache_) {
                 this->seekpos(static_cast<off_type>(length), std::ios_base::cur);
@@ -524,7 +525,7 @@ namespace irods::experimental::io::s3_transport
 
                     // return bytes written
                     std::streamsize bytes_written = current_position - position_before_write;
-                    return bytes_written; 
+                    return bytes_written;
                 });
             }
 
@@ -1182,7 +1183,8 @@ namespace irods::experimental::io::s3_transport
 
             shm_obj.atomic_exec([this, &return_value, &shm_obj](auto& data) {
 
-                bool object_exists = false;
+                object_s3_status object_status = object_s3_status::DOES_NOT_EXIST;
+
                 int64_t s3_object_size = 0;
 
                 data.file_open_counter += 1;
@@ -1198,9 +1200,13 @@ namespace irods::experimental::io::s3_transport
                     // do a head to get the object size, if a previous thread has already done one then
                     // just read the object size from shmem
                     if (data.cache_file_download_progress == cache_file_download_status::SUCCESS) {
-                        object_exists = true;
+                        object_status = object_s3_status::IN_S3;
                     } else {
-                        object_exists = object_exists_in_s3(s3_object_size);
+                        irods::error ret = get_object_s3_status(object_key_, bucket_context_, s3_object_size, object_status);
+                        if (!ret.ok()) {
+                            return_value = false;
+                            this->set_error(ret);
+                        }
                         data.existing_object_size = s3_object_size;
                     }
 
@@ -1209,14 +1215,35 @@ namespace irods::experimental::io::s3_transport
 
                 }
 
-                if (object_must_exist_ && !object_exists) {
+                if (object_must_exist_ && object_status == object_s3_status::DOES_NOT_EXIST) {
                     rodsLog(LOG_ERROR, "Object does not exist and open mode requires it to exist.\n");
                     this->set_error(ERROR(S3_FILE_OPEN_ERR, "Object does not exist and open mode requires it to exist."));
                     return_value = false;
                     return;
                 }
 
-                if (object_exists && this->download_to_cache_) {
+                if ( object_must_exist_ && ( object_status == object_s3_status::IN_GLACIER
+                    || object_status == object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS ) ) {
+
+                    // if it is currently in glacier then try restoration
+                    // otherwise just report that restoration is in progress
+                    if (object_status == object_s3_status::IN_GLACIER) {
+
+                        irods::error ret = restore_s3_object(object_key_, bucket_context_,
+                                config_.restoration_days, config_.restoration_tier);
+
+                        this->set_error(ret);
+
+                    } else {
+                        this->set_error(ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and is currently being restored.  "
+                                    "Try again later."));
+                    }
+
+                    return_value = false;
+                    return;
+                }
+
+		        if (object_status == object_s3_status::IN_S3 && this->download_to_cache_) {
 
                     cache_file_download_status download_status = this->download_object_to_cache(shm_obj, s3_object_size);
 
@@ -1319,7 +1346,6 @@ namespace irods::experimental::io::s3_transport
             });  // end atomic exec
 
             return return_value;
-
 
         }  // end open_impl
 
@@ -1568,6 +1594,7 @@ namespace irods::experimental::io::s3_transport
 
             return result;
         } // end complete_multipart_upload
+
 
         // download the part from the S3 object
         //   input:
@@ -1937,7 +1964,7 @@ namespace irods::experimental::io::s3_transport
                         } else {
 
                             rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] S3_upload_part returned error [status=%s][attempt=%d][retry_count_limit=%d].  Sleeping between %d and %d seconds\n",
-                                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), S3_get_status_name(write_callback->status), retry_cnt, config_.retry_count_limit, 
+                                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), S3_get_status_name(write_callback->status), retry_cnt, config_.retry_count_limit,
                                     retry_wait_seconds >> 1, retry_wait_seconds);
                             s3_sleep( retry_wait_seconds );
                             retry_wait_seconds *= 2;

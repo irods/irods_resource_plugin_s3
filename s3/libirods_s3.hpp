@@ -43,7 +43,7 @@ extern const std::string  s3_region_name;
 extern const std::string  REPL_POLICY_KEY;
 extern const std::string  REPL_POLICY_VAL;
 extern const std::string  s3_cache_dir;
-extern const std::string  s3_circular_buffer_size; 
+extern const std::string  s3_circular_buffer_size;
 extern const std::string  s3_circular_buffer_timeout_seconds; // timeout for read or write to circular buffer
 extern const std::string  s3_uri_request_style;        //  either "path" or "virtual_hosted" - default "path"
 extern const std::string  s3_number_of_threads;        //  to save number of threads
@@ -52,6 +52,8 @@ extern const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SEC;
 extern const size_t       S3_DEFAULT_RETRY_COUNT;
 extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
 extern const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS;
+extern const unsigned int S3_DEFAULT_RESTORATION_DAYS;
+extern const std::string  S3_DEFAULT_RESTORATION_TIER;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
@@ -65,6 +67,8 @@ std::string get_cache_directory(irods::plugin_property_map& _prop_map);
 size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map);
 size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map);
 size_t get_retry_count(irods::plugin_property_map& _prop_map);
+unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map);
+std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map);
 
 void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
         const char *function, const S3BucketContext *pCtx, S3Status *pStatus,
