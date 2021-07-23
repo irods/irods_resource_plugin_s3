@@ -545,7 +545,6 @@ namespace irods::experimental::io::s3_transport
 
         } // end namespace commit_callback
 
-
         template <typename CharT>
         class callback_for_write_to_s3_base
         {
@@ -875,6 +874,22 @@ namespace irods::experimental::io::s3_transport
         } // end namespace cancel_callback
 
     } // end namespace s3_multipart_upload
+
+    namespace restore_object_callback
+    {
+        int on_response (int buffer_size,
+                      libs3_types::buffer_type buffer,
+                      void *callback_data);
+
+        libs3_types::status on_response_properties (const libs3_types::response_properties *properties,
+                                      void *callback_data);
+
+        void on_response_completion (libs3_types::status status,
+                                  const libs3_types::error_details *error,
+                                  void *callback_data);
+
+    } // end namespace restore_object_callback
+
 
 } // irods::experimental::io::s3_transport
 

@@ -39,6 +39,98 @@
 
 namespace irods::experimental::io::s3_transport
 {
+
+    irods::error get_object_s3_status(const std::string& object_key,
+            libs3_types::bucket_context& bucket_context,
+            int64_t& object_size,
+            object_s3_status& object_status) {
+
+        data_for_head_callback data(bucket_context);
+
+        S3ResponseHandler head_object_handler = { &s3_head_object_callback::on_response_properties,
+            &s3_head_object_callback::on_response_complete };
+
+        S3_head_object(&bucket_context, object_key.c_str(), 0, 0, &head_object_handler, &data);
+
+        if (S3StatusOK != data.status) {
+            object_status = object_s3_status::DOES_NOT_EXIST;
+            return SUCCESS();
+        }
+
+        object_size = data.content_length;
+
+        if (data.x_amz_storage_class == "GLACIER") {
+
+            if (data.x_amz_restore.find("ongoing-request=\"false\"") != std::string::npos) {
+                // already restored
+                object_status = object_s3_status::IN_S3;
+            } else if (data.x_amz_restore.find("ongoing-request=\"true\"") != std::string::npos) {
+                // being restored
+                object_status = object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS;
+            } else {
+                object_status = object_s3_status::IN_GLACIER;
+            }
+        } else {
+            object_status = object_s3_status::IN_S3;
+        }
+
+        return SUCCESS();
+    } // end get_object_s3_status
+
+    irods::error restore_s3_object(const std::string& object_key,
+            libs3_types::bucket_context& bucket_context,
+            unsigned int restoration_days,
+            const std::string& restoration_tier) {
+
+        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+        std::stringstream xml("");
+        xml << "<RestoreRequest>\n"
+            << "  <Days>" << restoration_days << "</Days>\n"
+            << "  <GlacierJobParameters>\n"
+            << "    <Tier>" << restoration_tier << "</Tier>\n"
+            << "  </GlacierJobParameters>\n"
+            << "</RestoreRequest>\n";
+
+        irods::experimental::io::s3_transport::upload_manager upload_manager(bucket_context);
+        upload_manager.remaining = xml.str().size();
+        upload_manager.xml = const_cast<char*>(xml.str().c_str());
+        upload_manager.offset = 0;
+
+        std::stringstream msg;
+        msg.str( std::string() ); // Clear
+        msg << "Multipart:  Restoring object " << object_key.c_str();
+        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id,
+                msg.str().c_str() );
+
+        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] [key=%s] Request: %s\n", __FILE__, __LINE__, __FUNCTION__,
+                thread_id, object_key.c_str(), xml.str().c_str() );
+
+        S3RestoreObjectHandler commit_handler
+            = { {restore_object_callback::on_response_properties,
+                 restore_object_callback::on_response_completion },
+                restore_object_callback::on_response };
+
+        S3_restore_object(&bucket_context, object_key.c_str(),
+                &commit_handler, upload_manager.remaining, nullptr, 0, &upload_manager);
+
+        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] [key=%s][manager.status=%s]\n", __FILE__, __LINE__,
+                __FUNCTION__, thread_id, object_key.c_str(), S3_get_status_name(upload_manager.status));
+
+        if (upload_manager.status != S3StatusOK) {
+
+            rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] S3_restore_object returned error [status=%s][object_key=%s].\n",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id,
+                    S3_get_status_name(upload_manager.status), object_key.c_str());
+
+            return ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and scheduling restoration failed.");
+        }
+
+        return ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and has been queued for restoration.  "
+                "Try again later.");
+
+    } // end restore_s3_object
+
     int S3_status_is_retryable(S3Status status) {
         return ::S3_status_is_retryable(status) || S3StatusErrorQuotaExceeded == status || S3StatusErrorSlowDown == status || 128 == status;
     }
@@ -75,7 +167,7 @@ namespace irods::experimental::io::s3_transport
         }
 
         pStatus = status;
-        if(status != libs3_types::status_ok ) {
+        if(status != libs3_types::status_ok && status != S3StatusHttpErrorNotFound) {
             log_level = LOG_ERROR;
         }
 
@@ -125,7 +217,7 @@ namespace irods::experimental::io::s3_transport
         return (tv.tv_sec) * 1000000LL + tv.tv_usec;
     } // end get_time_in_microseconds
 
-    // Sleep between _s/2 to _s. 
+    // Sleep between _s/2 to _s.
     // The random addition ensures that threads don't all cluster up and retry
     // at the same time (dogpile effect)
     void s3_sleep(
@@ -146,8 +238,18 @@ namespace irods::experimental::io::s3_transport
         libs3_types::status on_response_properties (const libs3_types::response_properties *properties,
                                                     void *callback_data)
         {
+
             data_for_head_callback *data = (data_for_head_callback*)callback_data;
             data->content_length = properties->contentLength;
+
+            // read the headers used by GLACIER
+            if (properties->xAmzStorageClass) {
+                data->x_amz_storage_class = properties->xAmzStorageClass;
+            }
+            if (properties->xAmzRestore) {
+               data->x_amz_restore = properties->xAmzRestore;
+            }
+
             return libs3_types::status_ok;
         }
 
@@ -254,6 +356,7 @@ namespace irods::experimental::io::s3_transport
 
 
         } // end namespace commit_callback
+
 
 
         namespace cancel_callback
@@ -408,6 +511,46 @@ namespace irods::experimental::io::s3_transport
 
     } // end namespace s3_multipart_upload
 
+    namespace restore_object_callback
+    {
+        int on_response (int buffer_size,
+                      libs3_types::buffer_type buffer,
+                      void *callback_data)
+        {
+            upload_manager *manager = (upload_manager *)callback_data;
+            long ret = 0;
+            if (manager->remaining) {
+                int to_read_count = ((manager->remaining > static_cast<int64_t>(buffer_size)) ?
+                              static_cast<int64_t>(buffer_size) : manager->remaining);
+                memcpy(buffer, manager->xml.c_str() + manager->offset, to_read_count);
+                ret = to_read_count;
+            }
+            manager->remaining -= ret;
+            manager->offset += ret;
+
+            return static_cast<int>(ret);
+        } // end commit
+
+        libs3_types::status on_response_properties (const libs3_types::response_properties *properties,
+                                      void *callback_data)
+        {
+            return libs3_types::status_ok;
+        } // end response_properties
+
+        void on_response_completion (libs3_types::status status,
+                                  const libs3_types::error_details *error,
+                                  void *callback_data)
+        {
+            upload_manager *data = (upload_manager*)callback_data;
+            if (data) {
+                store_and_log_status( status, error, "s3_upload::on_response_completion", data->saved_bucket_context,
+                        data->status );
+            }
+            // Don't change the global error, we may want to retry at a higher level.
+            // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
+        } // end response_completion
+
+    } // end namespace restore_object_callback
 
 }
 
