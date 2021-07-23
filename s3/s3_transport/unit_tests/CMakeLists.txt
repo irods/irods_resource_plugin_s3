@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION ${CMAKE_VERSION})
 project(unit_tests LANGUAGES C CXX)
 
-find_package(IRODS 4.2.9 EXACT REQUIRED)
+find_package(IRODS 4.2.10 EXACT REQUIRED)
 
-set(IRODS_EXTERNALS_FULLPATH_S3 "/opt/irods-externals/libs34e684077-0/")
+set(IRODS_EXTERNALS_FULLPATH_S3 "/opt/irods-externals/libs30ac0f955-0/")    # without verbosity
+#set(IRODS_EXTERNALS_FULLPATH_S3 "/opt/irods-externals/libs3debug-0/")     # with verbosity
 
 message(STATUS "CMAKE_BINARY_DIR=${CMAKE_BINARY_DIR}")
 message(STATUS "IRODS_EXTERNALS_FULLPATH_S3=${IRODS_EXTERNALS_FULLPATH_S3}")

@@ -138,6 +138,8 @@ const std::string  s3_cache_dir{"S3_CACHE_DIR"};
 const std::string  s3_circular_buffer_size{"CIRCULAR_BUFFER_SIZE"};
 const std::string  s3_circular_buffer_timeout_seconds{"CIRCULAR_BUFFER_TIMEOUT_SECONDS"};
 const std::string  s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
+const std::string  s3_restoration_days{"S3_RESTORATION_DAYS"};          //  number of days sent to the RestoreObject operation
+const std::string  s3_restoration_tier{"S3_RESTORATION_TIER"};          //  either "standard", "bulk", or "expedited"
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const size_t       S3_DEFAULT_RETRY_WAIT_SEC = 2;
@@ -145,8 +147,10 @@ const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SEC = 30;
 const size_t       S3_DEFAULT_RETRY_COUNT = 3;
 const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS = 180;
+const unsigned int S3_DEFAULT_RESTORATION_DAYS = 7;
+const std::string  S3_DEFAULT_RESTORATION_TIER = "Standard";
 
-S3ResponseProperties savedProperties;
+thread_local S3ResponseProperties savedProperties;
 
 // gets the resource name from the property map
 std::string get_resource_name(irods::plugin_property_map& _prop_map) {
@@ -209,7 +213,7 @@ void s3_sleep(
     randMutex.lock();
     int random = rand();
     randMutex.unlock();
-    int sleep_time = (int)((((double)random / (double)RAND_MAX) + 1) * .5 * _s); // sleep between _s/2 and _s 
+    int sleep_time = (int)((((double)random / (double)RAND_MAX) + 1) * .5 * _s); // sleep between _s/2 and _s
     std::this_thread::sleep_for (std::chrono::seconds (sleep_time));
 }
 
@@ -916,8 +920,6 @@ std::string get_cache_directory(irods::plugin_property_map& _prop_map) {
 
 size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
 
-    // if it has already been parsed into size_t use that
-
     size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
     std::string wait_time_str;
     irods::error ret = _prop_map.get< std::string >( s3_wait_time_sec, wait_time_str );
@@ -937,8 +939,6 @@ size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
 }
 
 size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
-
-    // if it has already been parsed into size_t use that
 
     size_t max_retry_wait = S3_DEFAULT_MAX_RETRY_WAIT_SEC;
     std::string max_retry_wait_str;
@@ -960,8 +960,6 @@ size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
 
 size_t get_retry_count(irods::plugin_property_map& _prop_map) {
 
-    // if it has already been parsed into size_t use that
-
     size_t retry_count = S3_DEFAULT_RETRY_COUNT;
 
     std::string retry_count_str;
@@ -979,6 +977,52 @@ size_t get_retry_count(irods::plugin_property_map& _prop_map) {
     }
 
     return retry_count;
+}
+
+unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map) {
+
+    unsigned int restoration_days = S3_DEFAULT_RESTORATION_DAYS;
+    std::string restoration_days_str;
+    irods::error ret = _prop_map.get< std::string >( s3_restoration_days, restoration_days_str );
+    if( ret.ok() ) {
+        try {
+            restoration_days = boost::lexical_cast<unsigned int>( restoration_days_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(
+                LOG_ERROR,
+                "[resource_name=%s] failed to cast %s [%s] to a size_t.  Using default of %u.", resource_name.c_str(),
+                s3_restoration_days.c_str(), restoration_days_str.c_str(), S3_DEFAULT_RESTORATION_DAYS);
+        }
+    }
+
+    return restoration_days;
+}
+
+std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map)
+{
+    irods::error ret;
+    std::string restoration_tier_str;
+    ret = _prop_map.get< std::string >(
+        s3_restoration_tier,
+        restoration_tier_str );
+    if (!ret.ok()) { // Default to original behavior
+        return S3_DEFAULT_RESTORATION_TIER;
+    }
+    if ( boost::iequals(restoration_tier_str.c_str(), "expedited")) {
+        return "Expedited";
+    } else if ( boost::iequals(restoration_tier_str.c_str(), "standard")) {
+        return "Standard";
+    } else if ( boost::iequals(restoration_tier_str.c_str(), "bulk")) {
+        return "Bulk";
+    } else {
+        std::string resource_name = get_resource_name(_prop_map);
+        rodsLog(
+            LOG_ERROR,
+            "[resource_name=%s] Unknown setting for %s [%s].  Using default of \"%s\".", resource_name.c_str(),
+            s3_restoration_tier.c_str(), restoration_tier_str.c_str(), S3_DEFAULT_RESTORATION_TIER.c_str());
+        return S3_DEFAULT_RESTORATION_TIER;
+    }
 }
 
 irods::error s3GetFile(
