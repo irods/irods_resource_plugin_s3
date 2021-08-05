@@ -174,11 +174,16 @@ parent context:
 
 ## Using this plugin with Google Cloud Storage (GCS)
 
-This plugin has been manually tested to work with Google Cloud Storage with some caveats.
+This plugin has been manually tested to work with Google Cloud Storage, with some caveats.
 
-1. If an object is uploaded using multipart uploads, calls to CopyObject fail.  CopyObject is used with `imv` when consistent naming is used.  As a workaround GCS resources should be configured with one of the following options:
+1. GCS treats bucket names with dots as domain names.  These must be verified.  See [Domain-named Bucket Verification] (https://cloud.google.com/storage/docs/domain-name-verification).
+2. If an object is uploaded using multipart uploads, subsequent calls to CopyObject fail.  CopyObject is used with `imv` when consistent naming is used.  As a workaround, GCS resources should be configured with any one of the following options:
 -   Disable MPU upload: `S3_ENABLE_MPU=0`
 -   Set archive naming policy to decoupled: `ARCHIVE_NAMING_POLICY=decoupled`
 -   Disable CopyObject:  `S3_ENABLE_COPYOBJECT=0`
-2. The values in the `S3_AUTH_FILE` have to be generated according to the instructions: https://cloud.google.com/storage/docs/migrating#keys
-3. GCS treats bucket names with dots as domain names.  These must be verified.  See [Domain-named Bucket Verification] (https://cloud.google.com/storage/docs/domain-name-verification).
+
+Make sure to:
+
+-   Set `S3_DEFAULT_HOSTNAME=storage.googleapis.com`
+-   Set `S3_PROTO=HTTPS`
+-   Set 'S3_REGIONNAME` correctly - note that AWS has `us-east-1` and GCS has `us-east4` (without the second hyphen)
