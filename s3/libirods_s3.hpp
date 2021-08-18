@@ -171,6 +171,8 @@ S3Protocol s3GetProto( irods::plugin_property_map& _prop_map);
 
 S3STSDate s3GetSTSDate( irods::plugin_property_map& _prop_map);
 
+bool s3_copyobject_disabled(irods::plugin_property_map& _prop_map);
+
 irods::error s3GetFile(
     const std::string& _filename,
     const std::string& _s3ObjName,
