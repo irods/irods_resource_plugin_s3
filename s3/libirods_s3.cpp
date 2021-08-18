@@ -140,6 +140,7 @@ const std::string  s3_circular_buffer_timeout_seconds{"CIRCULAR_BUFFER_TIMEOUT_S
 const std::string  s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
 const std::string  s3_restoration_days{"S3_RESTORATION_DAYS"};          //  number of days sent to the RestoreObject operation
 const std::string  s3_restoration_tier{"S3_RESTORATION_TIER"};          //  either "standard", "bulk", or "expedited"
+const std::string  s3_disable_copyobject{"S3_DISABLE_COPYOBJECT"};      //  if set CopyObject on imv will not used.  Value makes no difference.
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const size_t       S3_DEFAULT_RETRY_WAIT_SEC = 2;
@@ -1024,6 +1025,20 @@ std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map)
         return S3_DEFAULT_RESTORATION_TIER;
     }
 }
+
+// default is false - CopyObject is enabled
+bool s3_copyobject_disabled(irods::plugin_property_map& _prop_map)
+{
+    irods::error ret;
+    std::string tmp;
+    ret = _prop_map.get< std::string >(
+        s3_disable_copyobject,
+        tmp );
+    if (!ret.ok() || tmp != "1") { // Default CopyObject enabled
+        return false;
+    }
+    return true;
+} // end s3_copyobject_disabled
 
 irods::error s3GetFile(
     const std::string& _filename,

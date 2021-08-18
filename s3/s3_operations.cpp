@@ -1091,7 +1091,8 @@ namespace irods_s3 {
                 msg << S3_get_status_name((S3Status)data.status);
                 msg << "\"";
             }
-            return ERROR(S3_FILE_UNLINK_ERR, msg.str());
+            //return ERROR(S3_FILE_UNLINK_ERR, msg.str());
+            return SUCCESS();
         }
 
         return SUCCESS();
@@ -1587,8 +1588,8 @@ namespace irods_s3 {
 
         irods::error result = SUCCESS();
         irods::error ret;
-        std::string key_id;
         std::string access_key;
+        std::string secret_access_key;
 
         // retrieve archive naming policy from resource plugin context
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
@@ -1603,18 +1604,112 @@ namespace irods_s3 {
             return SUCCESS();
         }
 
-        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
         if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get S3 credential properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
 
-            // copy the file to the new location
-            ret = s3CopyFile(_ctx, object->physical_path(), _new_file_name, key_id, access_key,
-                             s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()), s3_get_uri_request_style(_ctx.prop_map()));
-            if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy file from: \"%s\" to \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                     object->physical_path().c_str(), _new_file_name)).ok()) {
-                // delete the old file
-                ret = s3_file_unlink_operation(_ctx);
-                result = ASSERT_PASS(ret, "[resource_name=%s] Failed to unlink old S3 file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                     object->physical_path().c_str());
+            if (s3_copyobject_disabled(_ctx.prop_map())) {
+
+                // read the buffer size from rods environment
+                rodsEnv rods_env;
+                int status = getRodsEnv( &rods_env );
+                rodsLong_t buf_size = 4 * 1024 * 1024;
+                if ( status >= 0 ) {
+                    buf_size = ( rodsLong_t )rods_env.irodsTransBufferSizeForParaTrans * 1024 * 1024;
+                }
+
+                char* buf = ( char* )malloc( buf_size );
+
+                struct stat statbuf;
+                ret = s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, &statbuf, false);
+                if (( result = ASSERT_PASS(ret, "[resource_name=%s] Failed to stat the source file on rename : \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
+                                         object->physical_path().c_str())).ok()) {
+
+                    std::string bucket_name;
+                    std::string src_object_key;
+                    std::string dest_object_key;
+                    std::string&& hostname = s3GetHostname(_ctx.prop_map());
+
+                    // get source object_key
+                    ret = parseS3Path(object->physical_path(), bucket_name, src_object_key, _ctx.prop_map());
+                    if(!ret.ok()) {
+                        return ret;
+                    }
+
+                    // get destination object_key
+                    ret = parseS3Path(_new_file_name, bucket_name, dest_object_key, _ctx.prop_map());
+                    if(!ret.ok()) {
+                        return ret;
+                    }
+
+                    // read from source and write to destination
+                    s3_transport_config src_s3_config;
+                    src_s3_config.hostname = hostname;
+                    src_s3_config.number_of_cache_transfer_threads = 1;
+                    src_s3_config.number_of_client_transfer_threads = 1;
+                    src_s3_config.bucket_name = bucket_name;
+                    src_s3_config.access_key = access_key;
+                    src_s3_config.secret_access_key = secret_access_key;
+                    src_s3_config.shared_memory_timeout_in_seconds = 180;
+                    src_s3_config.developer_messages_log_level = developer_messages_log_level;
+                    src_s3_config.region_name = get_region_name(_ctx.prop_map());
+                    src_s3_config.s3_protocol_str = s3GetProto(_ctx.prop_map());
+
+                    s3_transport src_transport_object{src_s3_config};
+                    idstream src_dstream_object{src_transport_object, src_object_key};
+
+                    // get the source object size
+                    off_t object_size = src_transport_object.get_existing_object_size();
+
+                    s3_transport_config dest_s3_config;
+                    dest_s3_config.hostname = hostname;
+                    dest_s3_config.number_of_cache_transfer_threads = 1;
+                    dest_s3_config.bucket_name = bucket_name;
+                    dest_s3_config.access_key = access_key;
+                    dest_s3_config.secret_access_key = secret_access_key;
+                    dest_s3_config.shared_memory_timeout_in_seconds = 180;
+                    dest_s3_config.developer_messages_log_level = developer_messages_log_level;
+                    dest_s3_config.region_name = get_region_name(_ctx.prop_map());
+                    dest_s3_config.put_repl_flag = false;
+                    dest_s3_config.object_size = object_size;
+                    dest_s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
+                    dest_s3_config.circular_buffer_size = 2 * dest_s3_config.minimum_part_size;
+                    dest_s3_config.s3_protocol_str = s3GetProto(_ctx.prop_map());
+
+                    dest_s3_config.number_of_client_transfer_threads = 1;
+                    s3_transport dest_transport_object{dest_s3_config};
+                    odstream dest_dstream_object{dest_transport_object, dest_object_key};
+
+                    // copy from src to dest
+                    for (off_t offset = 0; offset < object_size; offset += buf_size) {
+                        off_t read_write_size = offset + buf_size <= object_size ? buf_size : object_size - offset;
+                        src_dstream_object.read(buf, read_write_size);
+                        dest_dstream_object.write(buf, read_write_size);
+                    }
+                    src_dstream_object.close();
+                    dest_dstream_object.close();
+
+                    free(buf);
+
+                    // delete the old file
+                    result = s3_file_unlink_operation(_ctx);
+
+                }
+
+
+            } else {
+
+                // copy the file to the new location
+                ret = s3CopyFile(_ctx, object->physical_path(), _new_file_name, access_key, secret_access_key,
+                                 s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()),
+                                 s3_get_uri_request_style(_ctx.prop_map()));
+                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy file from: \"%s\" to \"%s\".",
+                                get_resource_name(_ctx.prop_map()).c_str(), object->physical_path().c_str(),
+                                _new_file_name)).ok()) {
+                    // delete the old file
+                    ret = s3_file_unlink_operation(_ctx);
+                    result = ASSERT_PASS(ret, "[resource_name=%s] Failed to unlink old S3 file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
+                                         object->physical_path().c_str());
+                }
             }
         }
 
