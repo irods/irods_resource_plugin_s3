@@ -77,6 +77,7 @@ To define S3 provider constraints and control multipart behavior:
 -   `S3_URI_REQUEST_STYLE` - The path request style used.  This is either "path" or "virtualhost".  The default is "path".  See [path vs virtual hosted requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
 -   `S3_RESTORATION_DAYS` - The number of days an object is to be restored when restoring from Glacier.  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
 -   `S3_RESTORATION_TIER` - The data access tier option when restoring from Glacier.  Valid values are "Expedited", "Standard", and "Bulk".  The default is "Standard".  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
+-   `S3_DISABLE_COPYOBJECT` - Some providers (such as FujiFilm) do not implement the CopyObject S3 API.  If S3_DISABLE_COPYOBJECT=1, the copy will be performed via a read from soure and write to destination rather than calling CopyObject.  (Also see the note about GCS support.)
 
 > Notes about virtual hosting:  When using virtual hosted request style, configure the resource path and S3_DEFAULT_HOSTNAME as you would for path request style.  Leave the bucket name in the path and do not put the bucket name in the S3_DEFAULT_HOSTNAME.  This is important to retain backward compatibility with objects already created using path request style. 
 
@@ -126,7 +127,7 @@ iadmin mkresc s3resc s3 $(hostname):/s3-irods-bucket-name/prefix/in/bucket "S3_D
 
 Some configuration settings have special meaning when the resource is in cacheless mode.
 -   When S3_ENABLE_MPU = 0, a cache file will be used when the S3 plugin receives parallel uploads from iRODS.
--   When iRODS is using parallel transfer but each transfer part is less than S3_MPU_CHUNK, a cache file will be used 
+-   When iRODS is using parallel transfer but each transfer part is less than S3_MPU_CHUNK, a cache file will be used
 -   The S3_MPU_THREADS setting is only used when flushing a cache file to S3.  In streaming mode iRODS controls the number of transfer threads that are used.
 
 ### Cache Rules When Using Cacheless Mode
@@ -193,8 +194,11 @@ parent context:
 
 ## Using this plugin with Google Cloud Storage (GCS)
 
-This plugin has been manually tested to work with Google Cloud Storage. This works because Google has implemented the s3 protocol.  There are several differences:
+This plugin has been manually tested to work with Google Cloud Storage with some caveats.
 
--   Set `S3_ENABLE_MPU=0` in the context string. Google does not seem to support multipart uploads.
--   Set `S3_DEFAULT_HOSTNAME=storage.googleapis.com` in the context string.
--   The values in the `S3_AUTH_FILE` have to be generated according to the instructions: https://cloud.google.com/storage/docs/migrating#keys
+1. If an object is uploaded using multipart uploads, calls to CopyObject fail.  CopyObject is used with `imv` when consistent naming is used.  As a workaround GCS resources should be configured with one of the following options:
+-   Disable MPU upload: `S3_ENABLE_MPU=0`
+-   Set archive naming policy to decoupled: `ARCHIVE_NAMING_POLICY=decoupled`
+-   Disable CopyObject:  `S3_DISABLE_COPYOBJECT=1`
+2. The values in the `S3_AUTH_FILE` have to be generated according to the instructions: https://cloud.google.com/storage/docs/migrating#keys
+3. GCS treats bucket names with dots as domain names.  These must be verified.  See [Domain-named Bucket Verification] (https://cloud.google.com/storage/docs/domain-name-verification).
