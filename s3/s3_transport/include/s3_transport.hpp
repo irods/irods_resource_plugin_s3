@@ -762,6 +762,10 @@ namespace irods::experimental::io::s3_transport
             assert(total_bytes == bytes_this_thread);
         }
 
+        int64_t get_existing_object_size() {
+            return existing_object_size_;
+        }
+
     private:
 
         void set_file_offset(int64_t file_offset) {
@@ -2152,6 +2156,7 @@ namespace irods::experimental::io::s3_transport
         inline static std::mutex     file_offset_mutex_;
         off_t                        file_offset_;
         int64_t                      existing_object_size_;
+
 
         // operational modes based on input flags
         bool                         download_to_cache_;

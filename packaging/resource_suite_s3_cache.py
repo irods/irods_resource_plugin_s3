@@ -54,7 +54,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
 
     def setUp(self):
         # skip ssl tests on ub12
-        distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','')
+        distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','').replace('.', '')
         if self._testMethodName.startswith('test_ssl') and distro_str.lower().startswith('ubuntu12'):
            self.skipTest("skipping ssl tests on ubuntu 12")
 
@@ -90,10 +90,13 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
                               region=self.s3region,
                               secure=False)
 
-        self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d.%H-%M-%S-%f-')
-        self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
-        self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
-        s3_client.make_bucket(self.s3bucketname, location=self.s3region)
+        try:
+            self.s3bucketname = self.static_bucket_name
+        except AttributeError:
+            self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
+            self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
+            self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
+            s3_client.make_bucket(self.s3bucketname, location=self.s3region)
 
         # set up resources
 
@@ -155,12 +158,12 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
                               secure=False)
 
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
+
         try:
-            for del_err in s3_client.remove_objects(self.s3bucketname, [object.object_name for object in objects]):
-                print("Deletion Error: {}".format(del_err))
-        except ResponseError as err:
-            print(err)
-        s3_client.remove_bucket(self.s3bucketname)
+            # do not delete the bucket if we are using a static bucket name
+            self.s3bucketname = self.static_bucket_name
+        except AttributeError:
+            s3_client.remove_bucket(self.s3bucketname)
 
         # tear down resources
         with session.make_session_for_existing_admin() as admin_session:
