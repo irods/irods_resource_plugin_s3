@@ -132,7 +132,7 @@ namespace irods::experimental::io::s3_transport
     } // end restore_s3_object
 
     int S3_status_is_retryable(S3Status status) {
-        return ::S3_status_is_retryable(status) || S3StatusErrorQuotaExceeded == status || S3StatusErrorSlowDown == status || 128 == status;
+        return ::S3_status_is_retryable(status) || 128 == status;
     }
 
 
