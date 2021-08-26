@@ -17,6 +17,7 @@
 #include <condition_variable>
 #include <new>
 #include <ctime>
+#include <random>
 
 // boost includes
 #include <boost/algorithm/string/predicate.hpp>
@@ -39,6 +40,10 @@
 
 namespace irods::experimental::io::s3_transport
 {
+    const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
+    const std::string  S3_RESTORATION_TIER_STANDARD{"Standard"};
+    const unsigned int S3_DEFAULT_RESTORATION_DAYS = 7;
+    const std::string  S3_DEFAULT_RESTORATION_TIER{S3_RESTORATION_TIER_STANDARD};
 
     irods::error get_object_s3_status(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
@@ -77,9 +82,53 @@ namespace irods::experimental::io::s3_transport
         return SUCCESS();
     } // end get_object_s3_status
 
+    irods::error handle_glacier_status(const std::string& object_key,
+            libs3_types::bucket_context& bucket_context,
+            const unsigned int restoration_days,
+            const std::string& restoration_tier,
+            object_s3_status object_status) {
+
+        irods::error result = SUCCESS();
+
+	switch (object_status) {
+
+	    case object_s3_status::IN_S3:
+
+		break;
+
+	    case object_s3_status::DOES_NOT_EXIST:
+
+		rodsLog(LOG_ERROR, "Object does not exist and open mode requires it to exist.\n");
+		result = ERROR(S3_FILE_OPEN_ERR, "Object does not exist and open mode requires it to exist.");
+		break;
+
+	    case object_s3_status::IN_GLACIER:
+
+		result =  restore_s3_object(object_key, bucket_context, restoration_days, restoration_tier);
+		break;
+
+	    case object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS:
+
+		// restoration is already in progress
+		result = ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and is currently being restored.  "
+			"Try again later.");
+		break;
+
+	    default:
+
+		// invalid object status - should not happen
+		result = ERROR(S3_FILE_OPEN_ERR, "Invalid S3 object status detected.");
+		break;
+
+	}
+
+        return result;
+
+    } // end handle_glacier_status
+
     irods::error restore_s3_object(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
-            unsigned int restoration_days,
+            const unsigned int restoration_days,
             const std::string& restoration_tier) {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
@@ -123,7 +172,7 @@ namespace irods::experimental::io::s3_transport
                     __FILE__, __LINE__, __FUNCTION__, thread_id,
                     S3_get_status_name(upload_manager.status), object_key.c_str());
 
-            return ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and scheduling restoration failed.");
+            return ERROR(REPLICA_STAGING_FAILED, "Object is in glacier, but scheduling restoration failed.");
         }
 
         return ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and has been queued for restoration.  "
@@ -132,7 +181,7 @@ namespace irods::experimental::io::s3_transport
     } // end restore_s3_object
 
     int S3_status_is_retryable(S3Status status) {
-        return ::S3_status_is_retryable(status) || 128 == status;
+        return ::S3_status_is_retryable(status) || libs3_types::status_error_unknown;
     }
 
 
@@ -217,19 +266,17 @@ namespace irods::experimental::io::s3_transport
         return (tv.tv_sec) * 1000000LL + tv.tv_usec;
     } // end get_time_in_microseconds
 
-    // Sleep between _s/2 to _s.
+    // Sleep between _s/2 to _s. 
     // The random addition ensures that threads don't all cluster up and retry
     // at the same time (dogpile effect)
     void s3_sleep(
         int _s) {
-        // We're the only user of libc rand(), so if we mutex around calls we can
-        // use the thread-unsafe rand() safely and randomly...if this is changed
-        // in the future, need to use rand_r and init a static seed in this function
-        static std::mutex rand_mutex;
-        rand_mutex.lock();
-        int random = rand();
-        rand_mutex.unlock();
-        int sleep_time = (int)((((double)random / (double)RAND_MAX) + 1) * .5 * _s); // Sleep between _s/2 and _s.
+    
+        std::random_device r;
+        std::default_random_engine e1(r());
+        std::uniform_int_distribution<int> uniform_dist(0, RAND_MAX);
+        int random = uniform_dist(e1);
+        int sleep_time = (int)((((double)random / (double)RAND_MAX) + 1) * .5 * _s); // sleep between _s/2 and _s
         std::this_thread::sleep_for (std::chrono::seconds (sleep_time));
     }
 
@@ -518,24 +565,24 @@ namespace irods::experimental::io::s3_transport
                       void *callback_data)
         {
             upload_manager *manager = (upload_manager *)callback_data;
-            long ret = 0;
+            int ret = 0;
             if (manager->remaining) {
-                int to_read_count = ((manager->remaining > static_cast<int64_t>(buffer_size)) ?
-                              static_cast<int64_t>(buffer_size) : manager->remaining);
+                int to_read_count = (static_cast<int>(manager->remaining) > buffer_size) ?
+                              buffer_size : manager->remaining;
                 memcpy(buffer, manager->xml.c_str() + manager->offset, to_read_count);
                 ret = to_read_count;
             }
             manager->remaining -= ret;
             manager->offset += ret;
 
-            return static_cast<int>(ret);
-        } // end commit
+            return ret;
+        } // end on_response
 
         libs3_types::status on_response_properties (const libs3_types::response_properties *properties,
                                       void *callback_data)
         {
             return libs3_types::status_ok;
-        } // end response_properties
+        } // end on_response_properties
 
         void on_response_completion (libs3_types::status status,
                                   const libs3_types::error_details *error,
@@ -548,7 +595,7 @@ namespace irods::experimental::io::s3_transport
             }
             // Don't change the global error, we may want to retry at a higher level.
             // The WorkerThread will note that status!=OK and act appropriately (retry or fail)
-        } // end response_completion
+        } // end on_response_completion
 
     } // end namespace restore_object_callback
 

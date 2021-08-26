@@ -130,8 +130,8 @@ namespace irods::experimental::io::s3_transport
         explicit data_for_head_callback(libs3_types::bucket_context& _bucket_context)
             : last_modified{0}
             , content_length{0}
-            , x_amz_storage_class{""}   // for glacier
-            , x_amz_restore{""}         // for glacier
+            , x_amz_storage_class{}   // for glacier
+            , x_amz_restore{}         // for glacier
             , status{libs3_types::status_ok}
             , bucket_context{_bucket_context}
         {}
