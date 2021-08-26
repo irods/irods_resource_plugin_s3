@@ -27,7 +27,7 @@
 #include "voting.hpp"
 #include "get_file_descriptor_info.h"
 #include <rsModAVUMetadata.hpp>
-
+#include <irods_at_scope_exit.hpp>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -129,7 +129,7 @@ namespace irods_s3 {
     int developer_messages_log_level = LOG_DEBUG;
     fd_to_data_map fd_data;
 
-    bool get_object_must_exist_from_open_mode(std::ios_base::openmode open_mode, int oprType) {
+    bool operation_requires_that_object_exists(std::ios_base::openmode open_mode, int oprType) {
 
         using std::ios_base;
 
@@ -155,7 +155,7 @@ namespace irods_s3 {
 
         // default - object need not exist
         return false;
-    } // end get_object_must_exist_from_open_mode
+    } // end operation_requires_that_object_exists 
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
             struct stat* _statbuf, bool retry_on_not_found );
@@ -670,10 +670,12 @@ namespace irods_s3 {
             using std::ios_base;
             using irods::experimental::io::s3_transport::object_s3_status;
             using irods::experimental::io::s3_transport::get_object_s3_status;
-            using irods::experimental::io::s3_transport::restore_s3_object;
+            using irods::experimental::io::s3_transport::handle_glacier_status;
 
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__,
                     std::hash<std::thread::id>{}(std::this_thread::get_id()));
+
+            irods::error result = SUCCESS();
 
             unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
@@ -715,7 +717,7 @@ namespace irods_s3 {
             fd_data.set(fd, data);
             file_obj->file_descriptor(fd);
 
-            bool object_must_exist = get_object_must_exist_from_open_mode(open_mode, oprType);
+            bool object_must_exist = operation_requires_that_object_exists(open_mode, oprType);
 
             if (object_must_exist) {
 
@@ -725,16 +727,16 @@ namespace irods_s3 {
                 std::string region_name = get_region_name(_ctx.prop_map());
 
                 std::string access_key, secret_access_key;
-                irods::error ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
-                if(!ret.ok()) {
-                    return PASS(ret);
+                result = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
+                if(!result.ok()) {
+                    return PASS(result);
                 }
 
                 std::string bucket_name;
                 std::string object_key;
-                ret = parseS3Path(file_obj->physical_path(), bucket_name, object_key, _ctx.prop_map());
-                if(!ret.ok()) {
-                    return PASS(ret);
+                result = parseS3Path(file_obj->physical_path(), bucket_name, object_key, _ctx.prop_map());
+                if(!result.ok()) {
+                    return PASS(result);
                 }
 
                 bucket_context.hostName         = hostname.c_str();
@@ -749,7 +751,7 @@ namespace irods_s3 {
                 // determine if the object exists
                 object_s3_status object_status;
                 int64_t object_size = 0;
-                irods::error result = get_object_s3_status(object_key, bucket_context, object_size, object_status);
+                result = get_object_s3_status(object_key, bucket_context, object_size, object_status);
                 if (!result.ok()) {
                     addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
                     return PASS(result);
@@ -760,40 +762,18 @@ namespace irods_s3 {
                         object_status == object_s3_status::IN_GLACIER ? "IN_GLACIER" :
                         object_status == object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS ? "IN_GLACIER_RESTORE_IN_PROGRESS" :
                         "DOES_NOT_EXIST");
-
-                if (object_must_exist && object_status == object_s3_status::DOES_NOT_EXIST) {
-                    rodsLog(LOG_ERROR, "Object does not exist and open mode requires it to exist.\n");
-                    return ERROR(S3_FILE_OPEN_ERR, "Object does not exist and open mode requires it to exist.");
-                }
-
-                if ( object_must_exist && ( object_status == object_s3_status::IN_GLACIER
-                    || object_status == object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS ) ) {
-
-                    // if it is currently in glacier then try restoration
-                    // otherwise just report that restoration is in progress
-                    if (object_status == object_s3_status::IN_GLACIER) {
-
-                        unsigned int restoration_days = s3_get_restoration_days(_ctx.prop_map());
-                        std::string restoration_tier = s3_get_restoration_tier(_ctx.prop_map());
-
-                        result =  restore_s3_object(object_key, bucket_context, restoration_days, restoration_tier);
-
-                        addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
-                        return(PASS(result));
-
-                    } else {
-
-                        // restoration is already in progress
-                        result = ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and is currently being restored.  "
-                                "Try again later.");
-                        addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
-                        return(PASS(result));
-                    }
+                
+                unsigned int restoration_days = s3_get_restoration_days(_ctx.prop_map());
+                const std::string restoration_tier = s3_get_restoration_tier(_ctx.prop_map());
+                result = handle_glacier_status(object_key, bucket_context, restoration_days, restoration_tier, object_status);
+                if (!result.ok()) {
+                    addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
+                    return PASS(result);
                 }
 
             }
 
-            return SUCCESS();
+            return result;
 
         } else {
             return ERROR(SYS_NOT_SUPPORTED,
@@ -1080,7 +1060,8 @@ namespace irods_s3 {
             &responseHandler,
             &data);
 
-        if(data.status != S3StatusOK) {
+        if(data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound && data.status != S3StatusErrorNoSuchKey) {
+
             std::stringstream msg;
             msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
             msg << " - Error unlinking the S3 object: \"";
@@ -1091,8 +1072,7 @@ namespace irods_s3 {
                 msg << S3_get_status_name((S3Status)data.status);
                 msg << "\"";
             }
-            //return ERROR(S3_FILE_UNLINK_ERR, msg.str());
-            return SUCCESS();
+            return ERROR(S3_FILE_UNLINK_ERR, msg.str());
         }
 
         return SUCCESS();
@@ -1610,14 +1590,12 @@ namespace irods_s3 {
             if (s3_copyobject_disabled(_ctx.prop_map())) {
 
                 // read the buffer size from rods environment
-                rodsEnv rods_env;
-                int status = getRodsEnv( &rods_env );
-                rodsLong_t buf_size = 4 * 1024 * 1024;
-                if ( status >= 0 ) {
-                    buf_size = ( rodsLong_t )rods_env.irodsTransBufferSizeForParaTrans * 1024 * 1024;
-                }
-
+                rodsLong_t buf_size = irods::get_advanced_setting<const int>(irods::CFG_TRANS_BUFFER_SIZE_FOR_PARA_TRANS) * 1024 * 1024;
                 char* buf = ( char* )malloc( buf_size );
+
+                const irods::at_scope_exit free_buf { [buf]() {
+                    free(buf);
+                }};
 
                 struct stat statbuf;
                 ret = s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, &statbuf, false);
@@ -1681,16 +1659,14 @@ namespace irods_s3 {
 
                     // copy from src to dest
                     for (off_t offset = 0; offset < object_size; offset += buf_size) {
-                        off_t read_write_size = offset + buf_size <= object_size ? buf_size : object_size - offset;
+                        off_t read_write_size = (offset + buf_size) <= object_size ? buf_size : (object_size - offset);
                         src_dstream_object.read(buf, read_write_size);
                         dest_dstream_object.write(buf, read_write_size);
                     }
                     src_dstream_object.close();
                     dest_dstream_object.close();
 
-                    free(buf);
-
-                    // delete the old file
+                    // delete the original file
                     result = s3_file_unlink_operation(_ctx);
 
                 }
@@ -1698,16 +1674,16 @@ namespace irods_s3 {
 
             } else {
 
-                // copy the file to the new location
+                // copy the object to the new location
                 ret = s3CopyFile(_ctx, object->physical_path(), _new_file_name, access_key, secret_access_key,
                                  s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()),
                                  s3_get_uri_request_style(_ctx.prop_map()));
-                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy file from: \"%s\" to \"%s\".",
+                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy object from: \"%s\" to \"%s\".",
                                 get_resource_name(_ctx.prop_map()).c_str(), object->physical_path().c_str(),
                                 _new_file_name)).ok()) {
-                    // delete the old file
+                    // delete the original object
                     ret = s3_file_unlink_operation(_ctx);
-                    result = ASSERT_PASS(ret, "[resource_name=%s] Failed to unlink old S3 file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
+                    result = ASSERT_PASS(ret, "[resource_name=%s] Failed to unlink original S3 object: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                          object->physical_path().c_str());
                 }
             }

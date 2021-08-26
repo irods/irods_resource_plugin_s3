@@ -77,10 +77,8 @@ class Test_Compound_With_S3_GCS_Resource(resource_suite.ResourceSuite, ChunkyDev
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
         s3params += ';S3_REGIONNAME=' + self.s3region
         s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
-        try:
+        if hasattr(self, 's3sse'):
             s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
-        except AttributeError:
-            pass
 
         s3params=os.environ.get('S3PARAMS', s3params);
 
