@@ -44,7 +44,7 @@ class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
         super(Test_S3_NoCache_Decoupled, self).__init__(*args, **kwargs)
 
     @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
-    def test_iget_with_stale_replica(self):  # formerly known as 'dirty'
+    def test_iget_with_stale_replica(self):
         pass
 
     @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
