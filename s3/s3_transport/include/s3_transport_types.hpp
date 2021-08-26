@@ -12,6 +12,7 @@ namespace irods::experimental::io::s3_transport
         using status = S3Status;
         const static status status_ok = status::S3StatusOK;
         const static status status_request_timeout = status::S3StatusErrorRequestTimeout;
+        const static status status_error_unknown = status::S3StatusErrorUnknown;
         using bucket_context = S3BucketContext;
         using char_type   = char;
         using buffer_type = char_type*;

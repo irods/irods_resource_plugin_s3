@@ -8,12 +8,24 @@ set(IRODS_PACKAGE_REVISION "1")
 
 include(IrodsExternals)
 
+if (NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build {Debug, Release}." FORCE)
+  message(STATUS "Setting unspecified CMAKE_BUILD_TYPE to '${CMAKE_BUILD_TYPE}'")
+endif()
+
 macro(IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST DEPENDENCY_NAME DEPENDENCY_SUBDIRECTORY)
   IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH(${DEPENDENCY_NAME} ${DEPENDENCY_SUBDIRECTORY})
   list(APPEND IRODS_PACKAGE_DEPENDENCIES_LIST irods-externals-${DEPENDENCY_SUBDIRECTORY})
 endmacro()
-#IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(S3 libs3debug-0)  # with verbosity
-IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(S3 libs3e4674774-0)  # without verbosity
+
+
+if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+    message(STATUS "Using debug libs3")
+    IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(S3 libs3debug-0)  # without verbosity
+else()
+    IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(S3 libs3e4674774-0)  # without verbosity
+endif()
+
 string(REPLACE ";" ", " IRODS_PACKAGE_DEPENDENCIES_STRING "${IRODS_PACKAGE_DEPENDENCIES_LIST}")
 
 include(IrodsCXXCompiler)
@@ -137,9 +149,9 @@ install(
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_for_gcp.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_ceph.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_gcs.py
+  ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_fujifilm.py
   ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_nocache.py
   ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_cache.py
-  ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_fujifilm.py
   DESTINATION ${IRODS_HOME_DIRECTORY}/scripts/irods/test
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
   )

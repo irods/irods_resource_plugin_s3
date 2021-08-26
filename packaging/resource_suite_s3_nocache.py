@@ -65,16 +65,12 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
     def __init__(self, *args, **kwargs):
         """Set up the cacheless test."""
         # if self.proto is defined use it else default to HTTPS
-        try:
-            self.proto = self.proto
-        except AttributeError:
+        if not hasattr(self, 'proto'):
             self.proto = 'HTTPS'
 
         # if self.archive_naming_policy is defined use it
         # else default to 'consistent'
-        try:
-            self.archive_naming_policy = self.archive_naming_policy
-        except AttributeError:
+        if not hasattr(self, 'archive_naming_policy'):
             self.archive_naming_policy = 'consistent'
 
         super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
@@ -101,9 +97,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         else:
             s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region = self.s3region, secure=False)
 
-        try:
+        if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
-        except AttributeError:
+        else:
             distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','').replace('.', '')
             self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
             self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
@@ -126,17 +122,14 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.s3_context += ';S3_ENABLE_MD5=1'
         self.s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
         self.s3_context += ';S3_CACHE_DIR=/var/lib/irods'
-        try:
+
+        if hasattr(self, 's3DisableCopyObject'):
             self.s3DisableCopyObject = self.s3DisableCopyObject
-            self.s3_context += ';S3_DISABLE_COPYOBJECT=1'
-        except AttributeError:
-            pass
+            self.s3_context += ';S3_ENABLE_COPYOBJECT=0'
 
-
-        try:
+        if hasattr(self, 's3sse'):
             self.s3_context += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
-        except AttributeError:
-            pass
+
         self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
@@ -180,10 +173,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region, secure=False)
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
 
-        try:
-            # do not delete the bucket if we are using a static bucket name
+        if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
-        except AttributeError:
+        else:
             s3_client.remove_bucket(self.s3bucketname)
 
     def read_aws_keys(self):
@@ -1524,11 +1516,9 @@ OUTPUT ruleExecOut
             s3_context += ';S3_ENABLE_MD5=1'
             s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
             s3_context += ';S3_CACHE_DIR=/var/lib/irods'
-            try:
-                self.s3DisableCopyObject = self.s3DisableCopyObject
-                s3_context += ';S3_DISABLE_COPYOBJECT=1'
-            except AttributeError:
-                pass
+
+            if hasattr(self, 's3DisableCopyObject'):
+                s3_context += ';S3_ENABLE_COPYOBJECT=0'
 
             self.admin.assert_icommand("iadmin mkresc %s s3 %s:/%s/%s/s3resc1 %s" %
                                    (resource_name, resource_host, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
@@ -1934,11 +1924,9 @@ OUTPUT ruleExecOut
             s3_context += ';S3_ENABLE_MD5=1'
             s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
             s3_context += ';S3_CACHE_DIR=/var/lib/irods'
-            try:
-                self.s3DisableCopyObject = self.s3DisableCopyObject
-                s3_context += ';S3_DISABLE_COPYOBJECT=1'
-            except AttributeError:
-                pass
+
+            if hasattr(self, 's3DisableCopyObject'):
+                s3_context += ';S3_ENABLE_COPYOBJECT=0'
 
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")

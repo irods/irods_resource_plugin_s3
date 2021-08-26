@@ -38,16 +38,13 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
     def __init__(self, *args, **kwargs):
         """Set up the cache test."""
         # if self.proto is defined use it else default to HTTPS
-        try:
-            self.proto = self.proto
-        except AttributeError:
+
+        if not hasattr(self, 'proto'):
             self.proto = 'HTTPS'
 
         # if self.archive_naming_policy is defined use it
         # else default to 'consistent'
-        try:
-            self.archive_naming_policy = self.archive_naming_policy
-        except AttributeError:
+        if not hasattr(self, 'archive_naming_policy'):
             self.archive_naming_policy = 'consistent'
 
         super(Test_S3_Cache_Base, self).__init__(*args, **kwargs)
@@ -90,9 +87,9 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
                               region=self.s3region,
                               secure=False)
 
-        try:
+        if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
-        except AttributeError:
+        else:
             self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
             self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
             self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
@@ -107,10 +104,8 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
         s3params += ';S3_REGIONNAME=' + self.s3region
         s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
-        try:
+        if hasattr(self, 's3sse'):
             s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
-        except AttributeError:
-            pass
 
         s3params=os.environ.get('S3PARAMS', s3params);
 
@@ -159,10 +154,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
 
         objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
 
-        try:
-            # do not delete the bucket if we are using a static bucket name
-            self.s3bucketname = self.static_bucket_name
-        except AttributeError:
+        if not hasattr(self, 'static_bucket_name'):
             s3_client.remove_bucket(self.s3bucketname)
 
         # tear down resources

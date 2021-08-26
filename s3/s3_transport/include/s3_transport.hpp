@@ -48,10 +48,11 @@
 #include "s3_transport_util.hpp"
 #include "s3_transport_callbacks.hpp"
 
-
 namespace irods::experimental::io::s3_transport
 {
-    const int S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
+    extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
+    extern const std::string  S3_DEFAULT_RESTORATION_TIER;
+    extern const unsigned int S3_DEFAULT_RESTORATION_DAYS;
 
     enum class object_s3_status { DOES_NOT_EXIST, IN_S3, IN_GLACIER, IN_GLACIER_RESTORE_IN_PROGRESS };
 
@@ -60,9 +61,15 @@ namespace irods::experimental::io::s3_transport
             int64_t& object_size,
             object_s3_status& object_status);
 
+    irods::error handle_glacier_status(const std::string& object_key,
+            libs3_types::bucket_context& bucket_context,
+            const unsigned int restoration_days,
+            const std::string& restoration_tier,
+            object_s3_status object_status);
+
     irods::error restore_s3_object(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
-            unsigned int restoration_days,
+            const unsigned int restoration_days,
             const std::string& restoration_tier);
 
     int S3_status_is_retryable(S3Status status);
@@ -96,8 +103,8 @@ namespace irods::experimental::io::s3_transport
             , multipart_enabled{true}
             , put_repl_flag{false}
             , resource_name{""}
-            , restoration_days{7}
-            , restoration_tier{"Standard"}
+            , restoration_days{S3_DEFAULT_RESTORATION_DAYS}
+            , restoration_tier{S3_DEFAULT_RESTORATION_TIER}
 
         {}
 
@@ -1201,7 +1208,7 @@ namespace irods::experimental::io::s3_transport
 
                 if (object_must_exist_ || download_to_cache_) {
 
-                    // do a head to get the object size, if a previous thread has already done one then
+                    // do a HEAD to get the object size, if a previous thread has already done one then
                     // just read the object size from shmem
                     if (data.cache_file_download_progress == cache_file_download_status::SUCCESS) {
                         object_status = object_s3_status::IN_S3;
@@ -1219,35 +1226,18 @@ namespace irods::experimental::io::s3_transport
 
                 }
 
-                if (object_must_exist_ && object_status == object_s3_status::DOES_NOT_EXIST) {
-                    rodsLog(LOG_ERROR, "Object does not exist and open mode requires it to exist.\n");
-                    this->set_error(ERROR(S3_FILE_OPEN_ERR, "Object does not exist and open mode requires it to exist."));
-                    return_value = false;
-                    return;
-                }
+                // restore object from glacier if necessary
+                if (object_must_exist_) {
 
-                if ( object_must_exist_ && ( object_status == object_s3_status::IN_GLACIER
-                    || object_status == object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS ) ) {
-
-                    // if it is currently in glacier then try restoration
-                    // otherwise just report that restoration is in progress
-                    if (object_status == object_s3_status::IN_GLACIER) {
-
-                        irods::error ret = restore_s3_object(object_key_, bucket_context_,
-                                config_.restoration_days, config_.restoration_tier);
-
+                    irods::error ret = handle_glacier_status(object_key_, bucket_context_, config_.restoration_days, config_.restoration_tier, object_status);
+                    if (!ret.ok()) {
                         this->set_error(ret);
-
-                    } else {
-                        this->set_error(ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and is currently being restored.  "
-                                    "Try again later."));
+                        return_value = false;
+                        return;
                     }
-
-                    return_value = false;
-                    return;
                 }
 
-		        if (object_status == object_s3_status::IN_S3 && this->download_to_cache_) {
+                if (object_status == object_s3_status::IN_S3 && this->download_to_cache_) {
 
                     cache_file_download_status download_status = this->download_object_to_cache(shm_obj, s3_object_size);
 
@@ -2125,14 +2115,13 @@ namespace irods::experimental::io::s3_transport
 
         bool use_streaming_multipart() {
 
-            assert(config_.circular_buffer_size / 2 <= std::numerical_limits<int64_t>());
+            assert(config_.circular_buffer_size / 2 <= std::numeric_limits<uint64_t>::max());
 
             return !(use_cache_)
                 && is_full_upload()
                 && ( config_.number_of_client_transfer_threads > 1 || config_.object_size > static_cast<int64_t>(config_.circular_buffer_size) );
 
         }
-
 
         struct root_resource_name root_resc_name_;
         struct leaf_resource_name leaf_resc_name_;

@@ -40,6 +40,7 @@
 #include <string>
 #include <ctime>
 #include <tuple>
+#include <random>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -140,7 +141,7 @@ const std::string  s3_circular_buffer_timeout_seconds{"CIRCULAR_BUFFER_TIMEOUT_S
 const std::string  s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  either "path" or "virtual_hosted" - default "path"
 const std::string  s3_restoration_days{"S3_RESTORATION_DAYS"};          //  number of days sent to the RestoreObject operation
 const std::string  s3_restoration_tier{"S3_RESTORATION_TIER"};          //  either "standard", "bulk", or "expedited"
-const std::string  s3_disable_copyobject{"S3_DISABLE_COPYOBJECT"};      //  if set CopyObject on imv will not used.  Value makes no difference.
+const std::string  s3_enable_copyobject{"S3_ENABLE_COPYOBJECT"};       //  If set to 0 the CopyObject API will not be used.  Default is to use CopyObject.
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const size_t       S3_DEFAULT_RETRY_WAIT_SEC = 2;
@@ -148,8 +149,12 @@ const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SEC = 30;
 const size_t       S3_DEFAULT_RETRY_COUNT = 3;
 const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS = 180;
+
+const std::string  S3_RESTORATION_TIER_STANDARD{"Standard"};
+const std::string  S3_RESTORATION_TIER_BULK{"Bulk"};
+const std::string  S3_RESTORATION_TIER_EXPEDITED{"Expedited"};
 const unsigned int S3_DEFAULT_RESTORATION_DAYS = 7;
-const std::string  S3_DEFAULT_RESTORATION_TIER = "Standard";
+const std::string  S3_DEFAULT_RESTORATION_TIER{S3_RESTORATION_TIER_STANDARD};
 
 thread_local S3ResponseProperties savedProperties;
 
@@ -207,13 +212,11 @@ std::tuple<bool, bool> get_modes_from_properties(irods::plugin_property_map& _pr
 // at the same time (dogpile effect)
 void s3_sleep(
     int _s) {
-    // We're the only user of libc rand(), so if we mutex around calls we can
-    // use the thread-unsafe rand() safely and randomly...if this is changed
-    // in the future, need to use rand_r and init a static seed in this function
-    static boost::mutex randMutex;
-    randMutex.lock();
-    int random = rand();
-    randMutex.unlock();
+
+    std::random_device r;
+    std::default_random_engine e1(r());
+    std::uniform_int_distribution<int> uniform_dist(0, RAND_MAX);
+    int random = uniform_dist(e1);
     int sleep_time = (int)((((double)random / (double)RAND_MAX) + 1) * .5 * _s); // sleep between _s/2 and _s
     std::this_thread::sleep_for (std::chrono::seconds (sleep_time));
 }
@@ -1010,12 +1013,12 @@ std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map)
     if (!ret.ok()) { // Default to original behavior
         return S3_DEFAULT_RESTORATION_TIER;
     }
-    if ( boost::iequals(restoration_tier_str.c_str(), "expedited")) {
-        return "Expedited";
-    } else if ( boost::iequals(restoration_tier_str.c_str(), "standard")) {
-        return "Standard";
-    } else if ( boost::iequals(restoration_tier_str.c_str(), "bulk")) {
-        return "Bulk";
+    if ( boost::iequals(restoration_tier_str.c_str(), S3_RESTORATION_TIER_EXPEDITED)) {
+        return S3_RESTORATION_TIER_EXPEDITED;
+    } else if ( boost::iequals(restoration_tier_str.c_str(), S3_RESTORATION_TIER_STANDARD)) {
+        return S3_RESTORATION_TIER_STANDARD;
+    } else if ( boost::iequals(restoration_tier_str.c_str(), S3_RESTORATION_TIER_BULK)) {
+        return S3_RESTORATION_TIER_BULK;
     } else {
         std::string resource_name = get_resource_name(_prop_map);
         rodsLog(
@@ -1032,9 +1035,9 @@ bool s3_copyobject_disabled(irods::plugin_property_map& _prop_map)
     irods::error ret;
     std::string tmp;
     ret = _prop_map.get< std::string >(
-        s3_disable_copyobject,
+        s3_enable_copyobject,
         tmp );
-    if (!ret.ok() || tmp != "1") { // Default CopyObject enabled
+    if (!ret.ok() || tmp != "0") { // Default CopyObject enabled
         return false;
     }
     return true;
