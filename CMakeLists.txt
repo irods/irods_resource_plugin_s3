@@ -24,45 +24,49 @@ macro(IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIE
   IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH(${DEPENDENCY_NAME} ${DEPENDENCY_SUBDIRECTORY})
   list(APPEND IRODS_PACKAGE_DEPENDENCIES_LIST irods-externals-${DEPENDENCY_SUBDIRECTORY})
 endmacro()
+
 IRODS_MACRO_CHECK_DEPENDENCY_SET_FULLPATH_ADD_TO_IRODS_PACKAGE_DEPENDENCIES_LIST(S3 libs34e684077-0)
 string(REPLACE ";" ", " IRODS_PACKAGE_DEPENDENCIES_STRING "${IRODS_PACKAGE_DEPENDENCIES_LIST}")
 
-set(CMAKE_C_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/clang)
 set(CMAKE_CXX_COMPILER ${IRODS_EXTERNALS_FULLPATH_CLANG}/bin/clang++)
-set(CMAKE_EXE_LINKER_FLAGS_INIT "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
+set(CMAKE_CXX_STANDARD ${IRODS_CXX_STANDARD})
+set(CMAKE_MODULE_LINKER_FLAGS_INIT "-Wl,--enable-new-dtags -Wl,--as-needed -Wl,-z,defs")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "-Wl,--enable-new-dtags -Wl,--as-needed -Wl,-z,defs")
+set(CMAKE_MODULE_LINKER_FLAGS_RELEASE_INIT "-Wl,--gc-sections -Wl,-z,combreloc")
+set(CMAKE_SHARED_LINKER_FLAGS_RELEASE_INIT "-Wl,--gc-sections -Wl,-z,combreloc")
 
 project(irods_resource_plugin-s3
   VERSION "${IRODS_PLUGIN_VERSION}"
-  LANGUAGES C CXX)
+  LANGUAGES CXX)
+
+set(CMAKE_SKIP_BUILD_RPATH OFF)
+set(CMAKE_SKIP_INSTALL_RPATH OFF)
+set(CMAKE_SKIP_RPATH OFF)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH OFF)
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 
 include(${IRODS_TARGETS_PATH})
 
 include(GNUInstallDirs)
-message(STATUS "IRODS_EXTERNALS_FULLPATH_S3 is '${IRODS_EXTERNALS_FULLPATH_S3}'")
+include(UseLibCXX)
 
 if (NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build {Debug, Release}." FORCE)
   message(STATUS "Setting unspecified CMAKE_BUILD_TYPE to '${CMAKE_BUILD_TYPE}'")
 endif()
 
-add_definitions(-DIRODS_QUERY_ENABLE_SERVER_SIDE_API)
-
-set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -Wl,-z,defs")
-add_compile_options(-nostdinc++ -Wall -Wextra -Werror)
+add_compile_options(-Wall -Wextra -Werror -Wno-unused-parameter)
 add_compile_options(-Wno-unused-function) # due to OPENSSL_NO_DEPRECATED_1_1_0
-add_compile_options(-Wno-unused-parameter) # Until fix of irods_re_plugin.hpp
-add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://github.com/irods/irods/issues/3396
-add_compile_options(-Wno-unused-function) # Due to openssl_unused_function
-link_libraries(c++abi curl xml2 crypto pthread rt)
-include_directories(${IRODS_EXTERNALS_FULLPATH_CLANG}/include/c++/v1
-                    ${IRODS_EXTERNALS_FULLPATH_JSON}/include)
+add_compile_options(-Wno-error=deprecated-copy) # due to boost headers
 
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-set(CMAKE_INSTALL_RPATH ${IRODS_EXTERNALS_FULLPATH_CLANG_RUNTIME}/lib)
-set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
-
+if (NOT DEFINED THREADS_PREFER_PTHREAD_FLAG)
+  set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+endif()
+find_package(Threads REQUIRED)
+find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(LibXml2 REQUIRED)
 
 add_library(
   irods_s3_plugin
@@ -70,16 +74,6 @@ add_library(
   ${CMAKE_SOURCE_DIR}/s3/libirods_s3.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3_operations.cpp
   ${CMAKE_SOURCE_DIR}/s3/s3_transport/src/s3_transport.cpp
-  )
-target_include_directories(
-  irods_s3_plugin
-  PRIVATE
-  ${IRODS_INCLUDE_DIRS}
-  ${CMAKE_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
-  ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_S3}/include
-  /usr/include/libxml2
   )
 target_link_libraries(
   irods_s3_plugin
@@ -90,10 +84,31 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so
   ${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
-  ${OPENSSL_CRYPTO_LIBRARY}
+  ${CURL_LIBRARIES}
+  ${LIBXML2_LIBRARIES}
+  OpenSSL::Crypto
+  Threads::Threads
+  rt
   )
-target_compile_definitions(irods_s3_plugin PRIVATE IRODS_QUERY_ENABLE_SERVER_SIDE_API ${IRODS_COMPILE_DEFINITIONS} BOOST_SYSTEM_NO_DEPRECATED)
-set_property(TARGET irods_s3_plugin PROPERTY CXX_STANDARD ${IRODS_CXX_STANDARD})
+target_include_directories(
+  irods_s3_plugin
+  PRIVATE
+  ${IRODS_INCLUDE_DIRS}
+  ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
+  ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  ${IRODS_EXTERNALS_FULLPATH_JSON}/include
+  ${IRODS_EXTERNALS_FULLPATH_S3}/include
+  ${CURL_INCLUDE_DIRS}
+  ${LIBXML2_INCLUDE_DIRS}
+  )
+target_compile_definitions(
+  irods_s3_plugin
+  PRIVATE
+  IRODS_QUERY_ENABLE_SERVER_SIDE_API
+  ${IRODS_COMPILE_DEFINITIONS}
+  ${LIBXML2_DEFINITIONS}
+  BOOST_SYSTEM_NO_DEPRECATED
+  )
 set_property(TARGET irods_s3_plugin PROPERTY OUTPUT_NAME s3)
 install(
   TARGETS
@@ -113,7 +128,6 @@ install(
   DESTINATION ${IRODS_HOME_DIRECTORY}/scripts/irods/test
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
   )
-
 
 if (IRODS_LINUX_DISTRIBUTION_NAME STREQUAL "ubuntu" OR IRODS_LINUX_DISTRIBUTION_NAME STREQUAL "debian")
   if (NOT IRODS_PLUGIN_LINUX_DISTRIBUTION_VERSION_CODENAME)
