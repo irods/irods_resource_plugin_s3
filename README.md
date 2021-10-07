@@ -4,7 +4,7 @@ This iRODS storage resource plugin allows iRODS to use any S3-compatible storage
 
 This plugin can work as a standalone "cacheless" resource or as an archive resource under the iRODS compound resource.  Either configuration provides a POSIX interface to data held on an object storage device or service.
 
-Install the plugin either via your package manager (`yum`, `apt-get`) and [the binary distributions](https://irods.org/download/ "iRODS Download") or use the instructions below to build from source.
+Install the plugin either via your package manager (`yum`/`apt`) and [the binary distributions](https://irods.org/download/ "iRODS Download") or use the instructions below to build from source.
 
 ## Build Prerequisites
 
@@ -30,21 +30,25 @@ $ make package
 
 This will result in a package (deb/rpm) for your platform suitable for installation.
 
-## Example Configuration and Usage
+## Example Cacheless Configuration and Usage
 
-After installation is complete, the new plugin can be configured under a compound resource live on an iRODS Server:
+After installation is complete, the new plugin can be configured in cacheless mode, live on an iRODS Server:
 
 ```
-irods@hostname $ iadmin mkresc compResc compound
-irods@hostname $ iadmin mkresc cacheResc unixfilesystem <hostname>:</full/path/to/Vault>
-irods@hostname $ iadmin mkresc archiveResc s3 <hostname>:/<s3BucketName>/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=</full/path/to/AWS.keypair>;S3_RETRY_COUNT=<num reconn tries>;S3_WAIT_TIME_SEC=<wait between retries>;S3_PROTO=<HTTP|HTTPS>"
-irods@hostname $ iadmin addchildtoresc compResc cacheResc cache
-irods@hostname $ iadmin addchildtoresc compResc archiveResc archive
-irods@hostname $ iput -R compResc foo.txt
-irods@hostname $ ireg -R archiveResc /<s3BucketName>/full/path/in/bucket /full/logical/path/to/dataObject
+irods@hostname $ iadmin mkresc s3resc s3 $(hostname):/<s3BucketName>/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
 ```
 
-The AWS/S3 keypair file `S3_AUTH_FILE` should have exactly two values (Access Key ID and Secret Access Key):
+A local file can be immediately put into the S3 resource:
+```
+irods@hostname $ iput -R s3resc foo.txt
+```
+
+An object already in S3 can be registered into the iRODS Catalog:
+```
+irods@hostname $ ireg -R s3resc /<s3BucketName>/full/path/in/bucket /full/logical/path/to/dataObject
+```
+
+The S3 Keypair file `S3_AUTH_FILE` should have exactly two values (Access Key ID and Secret Access Key), one per line:
 
 ```
 AKDJFH4KJHFCIOBJ5SLK
@@ -138,6 +142,22 @@ When the put_repl_flag is true, the s3_transport has some expectations on the be
 -   The bytes for each thread will be sent sequentially and all bytes will be sent.
 
 This conforms to the way iput breaks up the files when doing parallel writes.  The reason for these is so that the s3_transport object can always determine the part number by the object size and offset.
+
+### Using the S3 plugin in archive mode (under compound)
+
+The S3 plugin may be used in archive mode. In this case the resource requires an associated cache and compound resource and configured as follows:
+
+```
+irods@hostname $ iadmin mkresc compResc compound
+irods@hostname $ iadmin mkresc cacheResc unixfilesystem <hostname>:</full/path/to/Vault>
+irods@hostname $ iadmin mkresc archiveResc s3 <hostname>:/<s3BucketName>/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=</full/path/to/AWS.keypair>;S3_RETRY_COUNT=<num reconn tries>;S3_WAIT_TIME_SEC=<wait between retries>;S3_PROTO=<HTTP|HTTPS>"
+irods@hostname $ iadmin addchildtoresc compResc cacheResc cache
+irods@hostname $ iadmin addchildtoresc compResc archiveResc archive
+irods@hostname $ iput -R compResc foo.txt
+irods@hostname $ ireg -R archiveResc /<s3BucketName>/full/path/in/bucket /full/logical/path/to/dataObject
+```
+
+Note the use of the `cache` and `archive` contextStrings on the `addchildtoresc` commands.  These inform the parent compound resource which child is serving in which role.  The S3 resource is set to `archive` and a POSIX-capable resource must be set to `cache`.
 
 ### Example of a baseline resource configuration
 ```
