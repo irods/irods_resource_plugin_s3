@@ -67,9 +67,16 @@ find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(LibXml2 REQUIRED)
 
+include(CheckCXXCompilerFlag)
+
 add_compile_options(-Wall -Wextra -Werror -Wno-unused-parameter)
 add_compile_options(-Wno-unused-function) # due to OPENSSL_NO_DEPRECATED_1_1_0
-add_compile_options(-Wno-error=deprecated-copy) # due to boost headers
+
+# due to boost headers
+check_cxx_compiler_flag(-Wno-error=deprecated-copy CMAKE_CXX_COMPILER_W_DEPRECATED_COPY)
+if (CMAKE_CXX_COMPILER_W_DEPRECATED_COPY)
+  add_compile_options(-Wno-error=deprecated-copy)
+endif()
 
 find_package(OpenSSL REQUIRED)
 
