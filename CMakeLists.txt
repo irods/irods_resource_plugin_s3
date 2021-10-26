@@ -56,9 +56,16 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fpermissive>)
 endif()
 
+include(CheckCXXCompilerFlag)
+
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 add_compile_options(-Wno-unused-function) # due to OPENSSL_NO_DEPRECATED_1_1_0
-add_compile_options(-Wno-error=deprecated-copy) # due to boost headers
+
+# due to boost headers
+check_cxx_compiler_flag(-Wno-error=deprecated-copy CMAKE_CXX_COMPILER_W_DEPRECATED_COPY)
+if (CMAKE_CXX_COMPILER_W_DEPRECATED_COPY)
+  add_compile_options(-Wno-error=deprecated-copy)
+endif()
 
 if (NOT DEFINED THREADS_PREFER_PTHREAD_FLAG)
   set(THREADS_PREFER_PTHREAD_FLAG TRUE)
