@@ -103,6 +103,7 @@ target_include_directories(
   ${IRODS_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
   ${IRODS_EXTERNALS_FULLPATH_JSON}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
   ${CURL_INCLUDE_DIRS}
