@@ -2463,14 +2463,14 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_file_open_operation ) );
 
-    resc->add_operation<void*,int>(
+    resc->add_operation<void*,const int>(
         irods::RESOURCE_OP_READ,
-        std::function<irods::error(irods::plugin_context&,void*,int)>(
+        std::function<irods::error(irods::plugin_context&,void*,const int)>(
             irods_s3::s3_file_read_operation ) );
 
-    resc->add_operation<void*,int>(
+    resc->add_operation<void*,const int>(
         irods::RESOURCE_OP_WRITE,
-        std::function<irods::error(irods::plugin_context&,void*,int)>(
+        std::function<irods::error(irods::plugin_context&,void*,const int)>(
             irods_s3::s3_file_write_operation ) );
 
     resc->add_operation(
@@ -2513,9 +2513,9 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_get_fs_freespace_operation ) );
 
-    resc->add_operation<long long, int>(
+    resc->add_operation<long long, const int>(
         irods::RESOURCE_OP_LSEEK,
-        std::function<irods::error(irods::plugin_context&, long long, int)>(
+        std::function<irods::error(irods::plugin_context&, long long, const int)>(
             irods_s3::s3_file_lseek_operation ) );
 
     resc->add_operation(

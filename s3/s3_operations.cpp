@@ -787,7 +787,7 @@ namespace irods_s3 {
     // interface for POSIX Read
     irods::error s3_file_read_operation( irods::plugin_context& _ctx,
                                    void*               _buf,
-                                   int                 _len ) {
+                                   const int           _len ) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
@@ -831,7 +831,7 @@ namespace irods_s3 {
     // interface for POSIX Write
     irods::error s3_file_write_operation( irods::plugin_context& _ctx,
                                     void*               _buf,
-                                    int                 _len ) {
+                                    const int           _len ) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
@@ -1248,7 +1248,7 @@ namespace irods_s3 {
     // interface for POSIX lseek
     irods::error s3_file_lseek_operation(  irods::plugin_context& _ctx,
                                      long long              _offset,
-                                     int                    _whence ) {
+                                     const int              _whence ) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
