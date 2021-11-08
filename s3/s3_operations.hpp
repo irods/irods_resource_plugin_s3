@@ -36,13 +36,13 @@ namespace irods_s3 {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Read
-    irods::error s3_file_read_operation( irods::plugin_context& _ctx, void* _buf, int _len );
+    irods::error s3_file_read_operation( irods::plugin_context& _ctx, void* _buf, const int _len );
 
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
     irods::error s3_file_write_operation( irods::plugin_context& _ctx,
                                     void*               _buf,
-                                    int                 _len );
+                                    const int           _len );
     // =-=-=-=-=-=-=-
     // interface for POSIX Close
     irods::error s3_file_close_operation(  irods::plugin_context& _ctx );
@@ -61,7 +61,7 @@ namespace irods_s3 {
 
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
-    irods::error s3_file_lseek_operation(  irods::plugin_context& _ctx, long long _offset, int _whence );
+    irods::error s3_file_lseek_operation(  irods::plugin_context& _ctx, long long _offset, const int _whence );
 
     // =-=-=-=-=-=-=-
     // interface for POSIX mkdir
