@@ -830,7 +830,7 @@ namespace irods_s3 {
     // =-=-=-=-=-=-=-
     // interface for POSIX Write
     irods::error s3_file_write_operation( irods::plugin_context& _ctx,
-                                    void*               _buf,
+                                    const void*         _buf,
                                     const int           _len ) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
@@ -873,7 +873,7 @@ namespace irods_s3 {
 
             s3_transport_ptr->set_bytes_this_thread(bytes_this_thread);
 
-            dstream_ptr->write(static_cast<char*>(_buf), _len);
+            dstream_ptr->write(static_cast<const char*>(_buf), _len);
 
             // note that the upload is occurring in the background so an error will likely not have occurred yet
             result = s3_transport_ptr->get_error();
@@ -1247,7 +1247,7 @@ namespace irods_s3 {
     // =-=-=-=-=-=-=-
     // interface for POSIX lseek
     irods::error s3_file_lseek_operation(  irods::plugin_context& _ctx,
-                                     long long              _offset,
+                                     const long long        _offset,
                                      const int              _whence ) {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
