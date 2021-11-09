@@ -2463,14 +2463,14 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_file_open_operation ) );
 
-    resc->add_operation<void*,const int>(
+    resc->add_operation(
         irods::RESOURCE_OP_READ,
         std::function<irods::error(irods::plugin_context&,void*,const int)>(
             irods_s3::s3_file_read_operation ) );
 
-    resc->add_operation<void*,const int>(
+    resc->add_operation(
         irods::RESOURCE_OP_WRITE,
-        std::function<irods::error(irods::plugin_context&,void*,const int)>(
+        std::function<irods::error(irods::plugin_context&,const void*,const int)>(
             irods_s3::s3_file_write_operation ) );
 
     resc->add_operation(
@@ -2483,7 +2483,7 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_file_unlink_operation ) );
 
-    resc->add_operation<struct stat*>(
+    resc->add_operation(
         irods::RESOURCE_OP_STAT,
         std::function<irods::error(irods::plugin_context&, struct stat*)>(
             irods_s3::s3_file_stat_operation ) );
@@ -2498,12 +2498,12 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_opendir_operation ) );
 
-    resc->add_operation<struct rodsDirent**>(
+    resc->add_operation(
         irods::RESOURCE_OP_READDIR,
         std::function<irods::error(irods::plugin_context&,struct rodsDirent**)>(
             irods_s3::s3_readdir_operation ) );
 
-    resc->add_operation<const char*>(
+    resc->add_operation(
         irods::RESOURCE_OP_RENAME,
         std::function<irods::error(irods::plugin_context&, const char*)>(
             irods_s3::s3_file_rename_operation ) );
@@ -2513,9 +2513,9 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_get_fs_freespace_operation ) );
 
-    resc->add_operation<long long, const int>(
+    resc->add_operation(
         irods::RESOURCE_OP_LSEEK,
-        std::function<irods::error(irods::plugin_context&, long long, const int)>(
+        std::function<irods::error(irods::plugin_context&, const long long, const int)>(
             irods_s3::s3_file_lseek_operation ) );
 
     resc->add_operation(
@@ -2528,12 +2528,12 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_closedir_operation ) );
 
-    resc->add_operation<const char*>(
+    resc->add_operation(
         irods::RESOURCE_OP_STAGETOCACHE,
         std::function<irods::error(irods::plugin_context&, const char*)>(
             irods_s3::s3_stage_to_cache_operation ) );
 
-    resc->add_operation<const char*>(
+    resc->add_operation(
         irods::RESOURCE_OP_SYNCTOARCH,
         std::function<irods::error(irods::plugin_context&, const char*)>(
             irods_s3::s3_sync_to_arch_operation ) );
@@ -2553,7 +2553,7 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_modified_operation ) );
 
-    resc->add_operation<const std::string*, const std::string*, irods::hierarchy_parser*, float*>(
+    resc->add_operation(
         irods::RESOURCE_OP_RESOLVE_RESC_HIER,
         std::function<irods::error(irods::plugin_context&,const std::string*, const std::string*, irods::hierarchy_parser*, float*)>(
             irods_s3::s3_resolve_resc_hier_operation ) );
@@ -2563,7 +2563,7 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         std::function<irods::error(irods::plugin_context&)>(
             irods_s3::s3_rebalance_operation ) );
 
-    resc->add_operation<const std::string*>(
+    resc->add_operation(
         irods::RESOURCE_OP_NOTIFY,
         std::function<irods::error(irods::plugin_context&, const std::string*)>(
             irods_s3::s3_notify_operation ) );
