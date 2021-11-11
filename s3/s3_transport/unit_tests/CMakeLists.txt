@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION ${CMAKE_VERSION})
 project(unit_tests LANGUAGES C CXX)
 
-find_package(IRODS 4.2.10 EXACT REQUIRED)
+find_package(IRODS 4.3.0 EXACT REQUIRED)
 
 set(IRODS_EXTERNALS_FULLPATH_S3 "/opt/irods-externals/libs3e4674774-0/")    # without verbosity
 
