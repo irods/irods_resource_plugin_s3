@@ -71,6 +71,7 @@ if (NOT DEFINED THREADS_PREFER_PTHREAD_FLAG)
   set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 endif()
 find_package(Threads REQUIRED)
+find_package(nlohmann_json "3.6.1" REQUIRED)
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(LibXml2 REQUIRED)
@@ -97,6 +98,7 @@ target_link_libraries(
   ${LIBXML2_LIBRARIES}
   OpenSSL::Crypto
   Threads::Threads
+  nlohmann_json::nlohmann_json
   rt
   )
 target_include_directories(
@@ -106,7 +108,6 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
   ${IRODS_EXTERNALS_FULLPATH_FMT}/include
-  ${IRODS_EXTERNALS_FULLPATH_JSON}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
   ${CURL_INCLUDE_DIRS}
   ${LIBXML2_INCLUDE_DIRS}
