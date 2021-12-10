@@ -8,7 +8,7 @@
 #include <transport/transport.hpp>
 
 // misc includes
-#include "json.hpp"
+#include <nlohmann/json.hpp>
 #include <libs3.h>
 
 // stdlib and misc includes
