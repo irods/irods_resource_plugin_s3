@@ -96,6 +96,7 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
   ${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
   ${CURL_LIBRARIES}
   ${LIBXML2_LIBRARIES}
@@ -109,6 +110,7 @@ target_include_directories(
   ${IRODS_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
+  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
   ${IRODS_EXTERNALS_FULLPATH_JSON}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
   ${CURL_INCLUDE_DIRS}
