@@ -138,7 +138,6 @@ install(
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_minio.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_for_gcp.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_ceph.py
-  ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_gcs.py
   ${CMAKE_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_fujifilm.py
   ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_nocache.py
   ${CMAKE_SOURCE_DIR}/packaging/resource_suite_s3_cache.py
