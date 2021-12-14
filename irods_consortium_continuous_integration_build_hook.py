@@ -62,15 +62,6 @@ def install_os_specific_dependencies():
     except KeyError:
         irods_python_ci_utilities.raise_not_implemented_for_distribution()
 
-def install_irods_dev_and_runtime_packages(irods_packages_root_directory):
-    irods_packages_directory = irods_python_ci_utilities.append_os_specific_directory(irods_packages_root_directory)
-    dev_package_basename = filter(lambda x:'irods-dev' in x, os.listdir(irods_packages_directory))[0]
-    dev_package = os.path.join(irods_packages_directory, dev_package_basename)
-    irods_python_ci_utilities.install_os_packages_from_files([dev_package])
-    runtime_package_basename = filter(lambda x:'irods-runtime' in x, os.listdir(irods_packages_directory))[0]
-    runtime_package = os.path.join(irods_packages_directory, runtime_package_basename)
-    irods_python_ci_utilities.install_os_packages_from_files([runtime_package])
-
 def copy_output_packages(build_directory, output_root_directory):
     irods_python_ci_utilities.gather_files_satisfying_predicate(
         build_directory,
@@ -80,7 +71,7 @@ def copy_output_packages(build_directory, output_root_directory):
 def main(output_root_directory, irods_packages_root_directory, externals_directory):
     install_building_dependencies(externals_directory)
     if irods_packages_root_directory:
-        install_irods_dev_and_runtime_packages(irods_packages_root_directory)
+        irods_python_ci_utilities.install_irods_dev_and_runtime_packages(irods_packages_root_directory)
     build_directory = tempfile.mkdtemp(prefix='irods_s3_plugin_build_directory')
     irods_python_ci_utilities.subprocess_get_output(['cmake', os.path.dirname(os.path.realpath(__file__))], check_rc=True, cwd=build_directory)
     irods_python_ci_utilities.subprocess_get_output(['make', '-j', str(multiprocessing.cpu_count()), 'package'], check_rc=True, cwd=build_directory)
