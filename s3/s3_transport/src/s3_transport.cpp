@@ -181,7 +181,7 @@ namespace irods::experimental::io::s3_transport
     } // end restore_s3_object
 
     int S3_status_is_retryable(S3Status status) {
-        return ::S3_status_is_retryable(status) || libs3_types::status_error_unknown;
+        return ::S3_status_is_retryable(status) || libs3_types::status_error_unknown == status;
     }
 
 
