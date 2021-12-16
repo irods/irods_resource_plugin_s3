@@ -11,11 +11,11 @@ import irods_python_ci_utilities
 
 
 def add_cmake_to_front_of_path():
-    cmake_path = '/opt/irods-externals/cmake3.11.4-0/bin'
+    cmake_path = '/opt/irods-externals/cmake3.21.4-0/bin'
     os.environ['PATH'] = os.pathsep.join([cmake_path, os.environ['PATH']])
 
 def install_building_dependencies(externals_directory):
-    externals_list = ['irods-externals-cmake3.11.4-0',
+    externals_list = ['irods-externals-cmake3.21.4-0',
                       'irods-externals-avro1.9.0-0',
                       'irods-externals-boost1.67.0-0',
                       'irods-externals-clang-runtime6.0-0',
