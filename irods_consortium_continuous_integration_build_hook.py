@@ -21,7 +21,7 @@ def install_building_dependencies(externals_directory):
                       'irods-externals-clang-runtime6.0-0',
                       'irods-externals-clang6.0-0',
                       'irods-externals-cppzmq4.2.3-0',
-                      'irods-externals-json3.7.3-0',
+                      'irods-externals-json3.10.4-0',
                       'irods-externals-libarchive3.3.2-1',
                       'irods-externals-libs3e4674774-0',
                       'irods-externals-zeromq4-14.1.6-0']
