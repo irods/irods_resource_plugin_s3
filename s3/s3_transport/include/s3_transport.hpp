@@ -630,6 +630,7 @@ namespace irods::experimental::io::s3_transport
 
             } else {
 
+                int64_t existing_object_size = config_.object_size;
                 switch (_dir) {
                     case std::ios_base::beg:
                         set_file_offset(_offset);
@@ -640,7 +641,19 @@ namespace irods::experimental::io::s3_transport
                         break;
 
                     case std::ios_base::end:
-                        set_file_offset(config_.object_size + _offset);
+
+                        if (existing_object_size == config::UNKNOWN_OBJECT_SIZE) {
+                            // do a stat to get object size
+                            object_s3_status object_status = object_s3_status::DOES_NOT_EXIST;
+                            irods::error ret = get_object_s3_status(object_key_, bucket_context_, existing_object_size, object_status);
+                            if (!ret.ok() || object_status == object_s3_status::DOES_NOT_EXIST) {
+                                rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] seek failed because object size is unknown and HEAD failed",
+                                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                                return seek_error;
+                            }
+                        }
+                            
+                        set_file_offset(existing_object_size + _offset);
                         break;
 
                     default:
