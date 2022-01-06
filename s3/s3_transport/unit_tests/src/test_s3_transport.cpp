@@ -682,6 +682,54 @@ void do_read_write_thread(const std::string& bucket_name,
     check_read_write_results(bucket_name, filename, object_prefix);
 }
 
+void test_seek_end(const std::string& bucket_name,
+                          const std::string& filename,
+                          const std::string& object_prefix,
+                          const std::string& keyfile)
+{
+    std::string access_key, secret_access_key;
+    read_keys(keyfile, access_key, secret_access_key);
+
+    // stage file to s3
+    std::stringstream ss;
+    ss << "aws --endpoint-url http://" << hostname << " s3 cp " << filename << " s3://" << bucket_name << "/" << object_prefix
+       << filename;
+    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
+    system(ss.str().c_str());
+
+    // get the size of the file
+    std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
+    off_t file_size = in.tellg(); 
+    in.close();
+
+    // open object and seek to end
+    s3_transport_config s3_config;
+    s3_config.hostname = hostname;
+    s3_config.number_of_cache_transfer_threads = 1;
+    s3_config.number_of_client_transfer_threads = 1;
+    s3_config.bucket_name = bucket_name;
+    s3_config.access_key = access_key;
+    s3_config.secret_access_key = secret_access_key;
+    s3_config.shared_memory_timeout_in_seconds = 20;
+    s3_config.put_repl_flag = true;
+    s3_config.developer_messages_log_level = LOG_NOTICE;
+    s3_config.region_name = "us-east-1";
+
+    std::ios_base::openmode open_modes = std::ios_base::in;
+    s3_transport tp{s3_config};
+    dstream ds{tp, std::string(object_prefix)+filename, open_modes};
+
+    ds.seekp(0, std::ios_base::end);
+    off_t offset = ds.tellg();
+    REQUIRE(offset == file_size);
+
+    ds.seekp(-1, std::ios_base::end);
+    offset = ds.tellg();
+    REQUIRE(offset == file_size - 1);
+
+    ds.close();
+    rodsLog(LOG_NOTICE, "CLOSE DONE\n");
+}
 
 TEST_CASE("quick test upload", "[quick_test][quick_test_upload]")
 {
@@ -1036,6 +1084,30 @@ TEST_CASE("s3_transport_readwrite_thread", "[rw][thread]")
 
         std::ios_base::openmode open_modes = std::ios_base::in | std::ios_base::out | std::ios_base::app;
         do_read_write_thread(bucket_name, filename, object_prefix, keyfile, thread_count, open_modes);
+
+    }
+    remove_bucket(bucket_name);
+}
+
+TEST_CASE("test_seek_end_existing_file", "[seek_end]")
+{
+    rodsLogLevel(log_level);
+
+    std::string bucket_name = create_bucket();
+
+    std::string filename = "medium_file";
+    std::string object_prefix = "dir1/dir2/";
+
+    SECTION("seek end small file")
+    {
+        filename = "small_file";
+        test_seek_end(bucket_name, filename, object_prefix, keyfile);
+
+    }
+
+    SECTION("seek end medium file")
+    {
+        test_seek_end(bucket_name, filename, object_prefix, keyfile);
 
     }
     remove_bucket(bucket_name);
