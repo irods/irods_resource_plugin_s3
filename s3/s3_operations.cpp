@@ -545,6 +545,7 @@ namespace irods_s3 {
         s3_config.resource_name = get_resource_name(_ctx.prop_map());
         s3_config.restoration_days = s3_get_restoration_days(_ctx.prop_map());
         s3_config.restoration_tier = s3_get_restoration_tier(_ctx.prop_map());
+        s3_config.max_single_part_upload_size = s3GetMaxUploadSizeMB(_ctx.prop_map()) * 1024 * 1024;
         s3_config.non_data_transfer_timeout_seconds = get_non_data_transfer_timeout_seconds(_ctx.prop_map());
 
         auto sts_date_setting = s3GetSTSDate(_ctx.prop_map());
@@ -874,6 +875,7 @@ namespace irods_s3 {
 
             s3_transport_ptr->set_bytes_this_thread(bytes_this_thread);
 
+            rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] calling dstream_ptr->write of length %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, _len);
             dstream_ptr->write(static_cast<const char*>(_buf), _len);
 
             // note that the upload is occurring in the background so an error will likely not have occurred yet
