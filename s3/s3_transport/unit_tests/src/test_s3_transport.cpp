@@ -36,6 +36,8 @@ std::string hostname = "s3.amazonaws.com";
 
 static int log_level = LOG_NOTICE;
 
+const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
+
 void read_keys(const std::string& keyfile, std::string& access_key, std::string& secret_access_key)
 {
     // open and read keyfile

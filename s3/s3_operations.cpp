@@ -545,6 +545,7 @@ namespace irods_s3 {
         s3_config.resource_name = get_resource_name(_ctx.prop_map());
         s3_config.restoration_days = s3_get_restoration_days(_ctx.prop_map());
         s3_config.restoration_tier = s3_get_restoration_tier(_ctx.prop_map());
+        s3_config.non_data_transfer_timeout_seconds = get_non_data_transfer_timeout_seconds(_ctx.prop_map());
 
         auto sts_date_setting = s3GetSTSDate(_ctx.prop_map());
         s3_config.s3_sts_date_str = sts_date_setting == S3STSAmzOnly ? "amz" : sts_date_setting == S3STSAmzAndDate ? "both" : "date";
@@ -1056,7 +1057,7 @@ namespace irods_s3 {
         S3_delete_object(
             &bucketContext,
             key.c_str(), 0,
-            0,                    //timeout
+            get_non_data_transfer_timeout_seconds(_ctx.prop_map()) * 1000,    // timeout (ms)
             &responseHandler,
             &data);
 
