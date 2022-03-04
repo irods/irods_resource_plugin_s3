@@ -56,6 +56,8 @@ namespace irods::experimental::io::s3_transport
     extern const std::string  S3_DEFAULT_RESTORATION_TIER;
     extern const unsigned int S3_DEFAULT_RESTORATION_DAYS;
 
+    const int64_t DEFAULT_MAX_SINGLE_PART_UPLOAD_SIZE = 5L * 1024 * 1024 * 1024;
+
     enum class object_s3_status { DOES_NOT_EXIST, IN_S3, IN_GLACIER, IN_GLACIER_RESTORE_IN_PROGRESS };
 
     irods::error get_object_s3_status(const std::string& object_key,
@@ -107,6 +109,7 @@ namespace irods::experimental::io::s3_transport
             , resource_name{""}
             , restoration_days{S3_DEFAULT_RESTORATION_DAYS}
             , restoration_tier{S3_DEFAULT_RESTORATION_TIER}
+            , max_single_part_upload_size{DEFAULT_MAX_SINGLE_PART_UPLOAD_SIZE}
             , non_data_transfer_timeout_seconds{S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS}
 
         {}
@@ -137,7 +140,7 @@ namespace irods::experimental::io::s3_transport
         bool         multipart_enabled;
         static const int64_t  UNKNOWN_OBJECT_SIZE = -1;
         static const uint64_t DEFAULT_MINIMUM_PART_SIZE = 5*1024*1024;
-        int          developer_messages_log_level = LOG_NOTICE;
+        int          developer_messages_log_level = LOG_DEBUG;
 
         // If the put_repl_flag is true, this is a promise that all writes will be performed in a
         // manner similar to iput.  This means:
@@ -154,6 +157,8 @@ namespace irods::experimental::io::s3_transport
         std::string  resource_name;
         unsigned int restoration_days;
         std::string  restoration_tier;
+
+        int64_t max_single_part_upload_size;
         unsigned int non_data_transfer_timeout_seconds;
     };
 
@@ -999,6 +1004,20 @@ namespace irods::experimental::io::s3_transport
 
             rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] cache_file_size is %ld\n",
                     __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), cache_file_size);
+            rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] number_of_cache_transfer_threads is %d\n",
+                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.number_of_cache_transfer_threads);
+
+            if (config_.number_of_cache_transfer_threads == 0) {
+                rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] number_of_cache_transfer_threads set to an invalid value (0).\n",
+                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                return error_codes::UPLOAD_FILE_ERROR;
+            }
+
+            if (config_.max_single_part_upload_size == 0) {
+                rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] max_single_part_upload_size set to an invalid value (0).\n",
+                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                return error_codes::UPLOAD_FILE_ERROR;
+            }
 
             // each part must be at least 5MB in size so adjust number_of_cache_transfer_threads accordingly
             int64_t minimum_part_size = config_.minimum_part_size;
@@ -1007,23 +1026,52 @@ namespace irods::experimental::io::s3_transport
                 ? config_.number_of_cache_transfer_threads
                 : cache_file_size / minimum_part_size == 0 ? 1 : cache_file_size / minimum_part_size;
 
-            int64_t part_size = cache_file_size / config_.number_of_cache_transfer_threads;
+            // Calculate the number of parts.  This is usually a one-to-one mapping to number of threads but if
+            // parts per thread > config_.max_single_part_upload_size then need to break it into more parts
+            unsigned int number_of_parts = config_.number_of_cache_transfer_threads;
+            if (cache_file_size > number_of_parts * config_.max_single_part_upload_size) {
+                number_of_parts
+                  = cache_file_size % config_.max_single_part_upload_size == 0
+                  ? cache_file_size / config_.max_single_part_upload_size
+                  : cache_file_size / config_.max_single_part_upload_size + 1;
+            }
 
-            if (config_.multipart_enabled && config_.number_of_cache_transfer_threads > 1) {
+            if (config_.multipart_enabled && number_of_parts > 1) {
 
                 initiate_multipart_upload();
 
                 irods::thread_pool cache_flush_threads{static_cast<int>(config_.number_of_cache_transfer_threads)};
 
-                for (unsigned int thr_id= 0; thr_id < config_.number_of_cache_transfer_threads; ++thr_id) {
+                unsigned int part_number = 1;
 
-                        irods::thread_pool::post(cache_flush_threads, [this, thr_id, part_size] () {
-                                // upload part and read your part from cache file
-                                s3_upload_part_worker_routine(true, thr_id, part_size);
-                    });
+                int64_t part_size_all_but_last_part = cache_file_size / number_of_parts;
+                while (part_number <= number_of_parts) {
+
+                    // run number_of_cache_transfer_threads simultaneously
+                    for (unsigned int i = 0; i < config_.number_of_cache_transfer_threads; ++i) {
+
+                        if (part_number > number_of_parts) {
+                            break;
+                        }
+
+                        int64_t part_size = part_size_all_but_last_part;
+
+                        // give extra bytes to last part
+                        if (part_number == number_of_parts) {
+                            part_size += cache_file_size % number_of_parts;
+                        }
+
+                        off_t offset = (part_number - 1) * part_size_all_but_last_part;
+
+                        irods::thread_pool::post(cache_flush_threads, [this, part_number, part_size, offset] () {
+                                    // upload part and read your part from cache file
+                                    s3_upload_part_worker_routine(true, part_number, part_size, offset);
+                        });
+
+                        ++part_number;
+                    }
+                    cache_flush_threads.join();
                 }
-
-                cache_flush_threads.join();
 
                 return_value = complete_multipart_upload();
 
@@ -1057,12 +1105,14 @@ namespace irods::experimental::io::s3_transport
         }
 
         // This populates the following flags based on the open mode (mode_).
-        //   - use_cache_         - Always set to true in the following circumstances:
-        //                          * the number of transfer threads > 1 and MPU is disabled
-        //                          * the part sizes would be less than the minimum number allowed
-        //                        - Set to false unless one of the following is true:
-        //                          * the object was opened in read only mode
-        //                          * the put_repl_flag is true indicating a predictable full file write
+        //   - use_cache_         - Always set to true in the following circumstances
+        //                          * The object was not opened in read only mode and one of the following are true:
+        //                            * the number of transfer threads > 1 and MPU is disabled
+        //                            * the part sizes would be less than the minimum number allowed
+        //                            * the put_repl_flag is false indicating no predictable full file write
+        //                            * do not know the object size
+        //                         - Otherwise set to false
+        //
         //   - download_to_cache_ - Set to true unless one of the following is true:
         //                             * the object is opened in read only mode
         //                             * the trunc flag is set
@@ -1185,6 +1235,14 @@ namespace irods::experimental::io::s3_transport
                 object_key_.c_str(),
                 use_cache_,
                 download_to_cache_);
+
+            // if using cache and mpu is disabled and object size > maximum part size, then fail as we can't process this file
+            if (!config_.multipart_enabled && config_.object_size > config_.max_single_part_upload_size) {
+                this->set_error(ERROR(UNIX_FILE_OPEN_ERR, "File can't be uploaded because MPU is disabled and "
+                    "file size is greater than maximum part size"));
+                return false;
+            }
+
 
             // each process must intitialize S3
             {
@@ -1767,7 +1825,9 @@ namespace irods::experimental::io::s3_transport
         } // end s3_download_part_worker_routine
 
         void s3_upload_part_worker_routine(bool read_from_cache = false,
+                                           unsigned int part_number = 1,       // one based part number for cache only
                                            int64_t bytes_this_thread = 0,      // set for cache only
+                                           off_t file_offset = 0
                                            )
         {
 
@@ -1844,23 +1904,8 @@ namespace irods::experimental::io::s3_transport
 
                 write_callback_from_cache->set_and_open_cache_file(cache_file_path_);
 
-                // Determine part number.  For cache, there is a one-to-one mapping from
-                // threads to parts.
-
-                offset = bytes_this_thread * thread_number;
-
-                // get the object size from the cache file
-                auto object_size = get_cache_file_size();
-
-                // last thread gets extra bits
-                if (thread_number == config_.number_of_cache_transfer_threads - 1) {
-                    content_length = bytes_this_thread + (object_size -
-                            bytes_this_thread * config_.number_of_cache_transfer_threads);
-                } else {
-                    content_length = bytes_this_thread;
-                }
-
-                start_part_number = end_part_number = thread_number + 1;
+                content_length = bytes_this_thread;
+                start_part_number = end_part_number = part_number;
 
             } else {
 
@@ -1920,7 +1965,7 @@ namespace irods::experimental::io::s3_transport
                 do {
 
                     if (read_from_cache) {
-                        write_callback->offset = offset;
+                        write_callback->offset = file_offset;
                         write_callback->content_length = content_length;
                     } else {
                         write_callback->content_length = part_sizes[part_number - start_part_number];
