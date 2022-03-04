@@ -582,11 +582,35 @@ namespace irods::experimental::io::s3_transport
 
                 // use multipart if we have multiple client transfer threads or if the object size is > 2 * minimum part size
                 if ( use_streaming_multipart() ) {
-                    begin_part_upload_thread_ptr_ = std::make_unique<std::thread>(
-                            &s3_transport::s3_upload_part_worker_routine, this, false, 0, 0, get_file_offset());
+                    try {
+                        begin_part_upload_thread_ptr_ = std::make_unique<std::thread>(
+                                &s3_transport::s3_upload_part_worker_routine, this, false, 0, 0, get_file_offset());
+                    } catch (const std::bad_alloc& ba) {
+                        std::stringstream error_msg;
+                        error_msg << "Allocation error when creating upload part thread. [" << ba.what() << "]";
+                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.str().c_str()));
+                        return 0;
+                    } catch (const std::system_error& se) {
+                        std::stringstream error_msg;
+                        error_msg << "System error when creating upload part thread. [" << se.what() << "]";
+                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.str().c_str()));
+                        return 0;
+                    }
                 } else {
-                    begin_part_upload_thread_ptr_ = std::make_unique<std::thread>(
+                    try {
+                        begin_part_upload_thread_ptr_ = std::make_unique<std::thread>(
                             &s3_transport::s3_upload_file, this, false);
+                    } catch (const std::bad_alloc& ba) {
+                        std::stringstream error_msg;
+                        error_msg << "Allocation error when creating upload file thread. [" << ba.what() << "]";
+                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.str().c_str()));
+                        return 0;
+                    } catch (const std::system_error& se) {
+                        std::stringstream error_msg;
+                        error_msg << "System error when creating upload file thread. [" << se.what() << "]";
+                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.str().c_str()));
+                        return 0;
+                    }
                 }
             }
 
