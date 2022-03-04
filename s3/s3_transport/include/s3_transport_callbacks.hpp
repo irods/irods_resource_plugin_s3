@@ -34,8 +34,6 @@
 #include "managed_shared_memory_object.hpp"
 #include "s3_multipart_shared_data.hpp"
 #include "s3_transport_types.hpp"
-#include "s3_transport.hpp"
-
 
 namespace irods::experimental::io::s3_transport
 {
@@ -619,30 +617,25 @@ namespace irods::experimental::io::s3_transport
                         constants::MAX_S3_SHMEM_SIZE};
 
                     return shm_obj.atomic_exec([properties,
-                            &callback_for_write_to_s3_base_data,
-                            &shm_obj](auto& data) {
+                            &callback_for_write_to_s3_base_data](auto& data) {
 
                         const char *etag = properties->eTag;
 
-                        // Update the etags vector.  It should be sized large enough
-                        // to not require a resize but resize if necessary.
-                        if (callback_for_write_to_s3_base_data->sequence > data.etags.size()) {
-                            try {
-                                data.etags.resize(callback_for_write_to_s3_base_data->sequence,
-                                        types::shm_char_string("", shm_obj.get_allocator()));
-                            } catch (std::bad_alloc& ba) {
-                                return S3StatusOutOfMemory;
+                        // Update the etags vector.  The vector is now set to the maximum of 10000.
+                        try {
+                            if (etag) {
+                                data.etags[callback_for_write_to_s3_base_data->sequence - 1] = etag;
+                            } else {
+                                data.etags[callback_for_write_to_s3_base_data->sequence - 1] = "";
                             }
-                        }
 
-                        if (etag) {
-                            data.etags[callback_for_write_to_s3_base_data->sequence - 1] = etag;
-                        } else {
-                            data.etags[callback_for_write_to_s3_base_data->sequence - 1] = "";
+                        } catch (bi::bad_alloc& ba) {
+                            rodsLog(LOG_ERROR, "%s:%d (%s) Exception caught allocating room for etags string.", __FILE__, __LINE__, __FUNCTION__);
+                            return S3StatusOutOfMemory;
                         }
-
                         return libs3_types::status_ok;
                     });
+
                 }
 
                 static void on_response_completion (libs3_types::status status,

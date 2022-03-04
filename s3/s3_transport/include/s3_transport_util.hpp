@@ -48,10 +48,12 @@ namespace irods::experimental::io::s3_transport
     struct constants
     {
 
-        static const int64_t            ETAG_SIZE{34};
+        static const int64_t            MAXIMUM_NUMBER_ETAGS_PER_UPLOAD{10000};
+        static const int64_t            BYTES_PER_ETAG{112};  // 80 bytes for every string added, 32 bytes for the vector size,
+                                                              // determined by testing
         static const int64_t            UPLOAD_ID_SIZE{128};
         static const int64_t            MAX_S3_SHMEM_SIZE{sizeof(shared_data::multipart_shared_data) +
-                                                          10000 * (ETAG_SIZE + 1) +
+                                                          MAXIMUM_NUMBER_ETAGS_PER_UPLOAD * (BYTES_PER_ETAG + 1) +
                                                           UPLOAD_ID_SIZE + 1};
 
         static const int                DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS{900};

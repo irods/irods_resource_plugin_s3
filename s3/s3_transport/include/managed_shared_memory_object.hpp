@@ -6,6 +6,8 @@
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/container/scoped_allocator.hpp>
 
+#include <rodsLog.h>
+
 #include <string>
 #include <utility>
 
@@ -129,6 +131,10 @@ namespace irods::experimental::interprocess
 
             void_allocator& get_allocator() {
                 return alloc_inst_;
+            }
+
+            auto get_free_memory() {
+                return shm_.get_free_memory();
             }
 
         private:
