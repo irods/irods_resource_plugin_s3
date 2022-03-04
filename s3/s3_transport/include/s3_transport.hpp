@@ -1582,7 +1582,7 @@ namespace irods::experimental::io::s3_transport
 
                     uint64_t i;
                     xml << "<CompleteMultipartUpload>\n";
-                    for ( i = 0; i < data.etags.size(); i++ ) {
+                    for ( i = 0; i < data.etags.size() && !data.etags[i].empty(); i++ ) {
                         xml << "<Part><PartNumber>";
                         xml << (i + 1);
                         xml << "</PartNumber><ETag>";
@@ -1883,12 +1883,38 @@ namespace irods::experimental::io::s3_transport
                 s3_multipart_upload::callback_for_write_to_s3_base<CharT>::invoke_callback
             };
 
-            off_t offset;
-
             unsigned int start_part_number;
             unsigned int end_part_number;
             int64_t content_length;
             std::vector<int64_t> part_sizes;
+
+            // resize the etags vector if necessary
+            int resize_error = shm_obj.atomic_exec([this, &shm_obj](auto& data) {
+
+                if (constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD > data.etags.size()) {
+
+                    rodsLog(config_.developer_messages_log_level,  "%s:%d (%s) [[%lu]] resize etags vector from %lu to %u\n",
+                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), data.etags.size(), constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD);
+
+                    try {
+                        data.etags.resize(constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD, types::shm_char_string("", shm_obj.get_allocator()));
+                    } catch (boost::interprocess::bad_alloc &biba) {
+                        this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags buffer in shared memory."));
+                        data.last_error_code = error_codes::BAD_ALLOC;
+                        return true;
+                    }
+
+                }
+
+                return false;
+
+            });
+
+            if (resize_error) {
+                rodsLog(LOG_ERROR, "Error on reallocation of etags buffer in shared memory.");
+                this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags buffer in shared memory."));
+                return;
+            }
 
             if (read_from_cache) {
 
@@ -1921,32 +1947,6 @@ namespace irods::experimental::io::s3_transport
                 determine_start_and_end_part_from_offset_and_bytes_this_thread(bytes_this_thread, file_offset_,
                         config_.circular_buffer_size, start_part_number, end_part_number, part_sizes);
 
-                // estimate the size and resize the etags vector
-                unsigned int total_number_of_parts = config_.object_size / bytes_this_thread;
-                total_number_of_parts = total_number_of_parts < end_part_number ? end_part_number : total_number_of_parts;
-
-                // resize the etags vector if necessary
-                int resize_error = shm_obj.atomic_exec([this, total_number_of_parts, &shm_obj](auto& data) {
-
-                    if (total_number_of_parts > data.etags.size()) {
-                        try {
-                            data.etags.resize(total_number_of_parts, types::shm_char_string("", shm_obj.get_allocator()));
-                        } catch (std::bad_alloc& ba) {
-                            this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags buffer in shared memory."));
-                            data.last_error_code = error_codes::BAD_ALLOC;
-                            return true;
-                        }
-                    }
-
-                    return false;
-
-                });
-
-                if (resize_error) {
-                    rodsLog(LOG_ERROR, "Error on reallocation of etags buffer in shared memory.");
-                    this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags buffer in shared memory."));
-                    return;
-                }
             }
 
             write_callback->enable_md5 = config_.enable_md5_flag;
