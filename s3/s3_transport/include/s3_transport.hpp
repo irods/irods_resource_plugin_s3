@@ -656,7 +656,7 @@ namespace irods::experimental::io::s3_transport
                                 return seek_error;
                             }
                         }
-                            
+
                         set_file_offset(existing_object_size + _offset);
                         break;
 
@@ -1767,9 +1767,7 @@ namespace irods::experimental::io::s3_transport
         } // end s3_download_part_worker_routine
 
         void s3_upload_part_worker_routine(bool read_from_cache = false,
-                                           unsigned int thread_number = 0,     // zero based part number for cache only
-                                           unsigned int bytes_this_thread = 0, // set for cache only
-                                           off_t file_offset = 0               // only used for streaming
+                                           int64_t bytes_this_thread = 0,      // set for cache only
                                            )
         {
 
@@ -2012,6 +2010,9 @@ namespace irods::experimental::io::s3_transport
                 }
 
             } // for
+
+            rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] Breaking out of circular_buffer_read loop.  End part number = %d",
+                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), end_part_number);
         }
 
         error_codes s3_upload_file(bool read_from_cache = false)
