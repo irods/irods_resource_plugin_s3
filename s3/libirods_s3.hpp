@@ -54,6 +54,7 @@ extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
 extern const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS;
 extern const unsigned int S3_DEFAULT_RESTORATION_DAYS;
 extern const std::string  S3_DEFAULT_RESTORATION_TIER;
+extern const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
 long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
@@ -67,6 +68,7 @@ std::string get_cache_directory(irods::plugin_property_map& _prop_map);
 size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map);
 size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map);
 size_t get_retry_count(irods::plugin_property_map& _prop_map);
+unsigned int get_non_data_transfer_timeout_seconds(irods::plugin_property_map& _prop_map);
 unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map);
 std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map);
 
@@ -170,6 +172,8 @@ irods::error s3InitPerOperation ( irods::plugin_property_map& _prop_map );
 S3Protocol s3GetProto( irods::plugin_property_map& _prop_map);
 
 S3STSDate s3GetSTSDate( irods::plugin_property_map& _prop_map);
+
+long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map);
 
 bool s3_copyobject_disabled(irods::plugin_property_map& _prop_map);
 
