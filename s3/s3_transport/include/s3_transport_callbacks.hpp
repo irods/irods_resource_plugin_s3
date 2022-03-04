@@ -629,8 +629,8 @@ namespace irods::experimental::io::s3_transport
                                 data.etags[callback_for_write_to_s3_base_data->sequence - 1] = "";
                             }
 
-                        } catch (bi::bad_alloc& ba) {
-                            rodsLog(LOG_ERROR, "%s:%d (%s) Exception caught allocating room for etags string.", __FILE__, __LINE__, __FUNCTION__);
+                        } catch (const bi::bad_alloc& ba) {
+                            rodsLog(LOG_ERROR, "%s:%d (%s) Exception caught allocating room for etags string. [%s]", __FILE__, __LINE__, __FUNCTION__, ba.what());
                             return S3StatusOutOfMemory;
                         }
                         return libs3_types::status_ok;
@@ -799,6 +799,11 @@ namespace irods::experimental::io::s3_transport
 
                     try {
                         circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
+                    } catch(const std::system_error& se)  {
+                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                                "System error when peaking into circular buffer.  %s\n",
+                                __FILE__, __LINE__, __FUNCTION__, this->thread_identifier, se.what());
+                        return 0;
                     } catch (timeout_exception& e) {
 
                         // timeout reading from circular buffer
