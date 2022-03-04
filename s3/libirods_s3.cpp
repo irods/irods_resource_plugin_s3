@@ -142,6 +142,7 @@ const std::string  s3_uri_request_style{"S3_URI_REQUEST_STYLE"};        //  eith
 const std::string  s3_restoration_days{"S3_RESTORATION_DAYS"};          //  number of days sent to the RestoreObject operation
 const std::string  s3_restoration_tier{"S3_RESTORATION_TIER"};          //  either "standard", "bulk", or "expedited"
 const std::string  s3_enable_copyobject{"S3_ENABLE_COPYOBJECT"};       //  If set to 0 the CopyObject API will not be used.  Default is to use CopyObject.
+const std::string  s3_non_data_transfer_timeout_seconds{"S3_NON_DATA_TRANSFER_TIMEOUT_SECONDS"};
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const size_t       S3_DEFAULT_RETRY_WAIT_SEC = 2;
@@ -149,6 +150,7 @@ const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SEC = 30;
 const size_t       S3_DEFAULT_RETRY_COUNT = 3;
 const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS = 180;
+const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
 
 const std::string  S3_RESTORATION_TIER_STANDARD{"Standard"};
 const std::string  S3_RESTORATION_TIER_BULK{"Bulk"};
@@ -671,7 +673,7 @@ S3UriStyle s3_get_uri_request_style( irods::plugin_property_map& _prop_map)
 // returns the upper limit of the MPU chunk size parameter, in megabytes
 // used for validating the value of S3_MPU_CHUNK
 // also used for determining the maximum size for CopyObject
-static long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
+long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string max_size_str;   // max size from context string, in MB
@@ -981,6 +983,26 @@ size_t get_retry_count(irods::plugin_property_map& _prop_map) {
     }
 
     return retry_count;
+}
+
+unsigned int get_non_data_transfer_timeout_seconds(irods::plugin_property_map& _prop_map) {
+
+    unsigned int non_data_transfer_timeout_seconds = S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS;
+    std::string non_data_transfer_timeout_seconds_str;
+    irods::error ret = _prop_map.get< std::string >( s3_non_data_transfer_timeout_seconds, non_data_transfer_timeout_seconds_str );
+    if( ret.ok() ) {
+        try {
+            non_data_transfer_timeout_seconds = boost::lexical_cast<unsigned int>( non_data_transfer_timeout_seconds_str );
+        } catch ( const boost::bad_lexical_cast& ) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(
+                LOG_ERROR,
+                "[resource_name=%s] failed to cast %s [%s] to an unsigned int", resource_name.c_str(),
+                s3_non_data_transfer_timeout_seconds.c_str(), non_data_transfer_timeout_seconds_str.c_str() );
+        }
+    }
+
+    return non_data_transfer_timeout_seconds;
 }
 
 unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map) {

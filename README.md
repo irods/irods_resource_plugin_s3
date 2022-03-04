@@ -88,8 +88,9 @@ S3 server-side encryption can be enabled using the parameter `S3_SERVER_ENCRYPT=
 To encrypt during the network transport to S3, use `S3_PROTO=HTTPS` (the default)
 
 The `S3_RETRY_COUNT` defines the number of retries for a request after a retryable failure.  The default is 3 retries.
-The `S3_WAIT_TIME_SEC` defines the initial number of seconds between retries.  The default is 2s.  This wait time will double on each successive failure until the `S3_MAX_WAIT_TIME_SEC` is reached.
-The `S3_MAX_WAIT_TIME_SEC` is the maximum wait value during successive failures.  The default is 30s. 
+The `S3_WAIT_TIME_SEC` defines the initial number of seconds between retries.  The default is 2s.  This wait time will double on each successive failure until the `S3_MAX_WAIT_TIME_SEC` is reached.  If this is set to 0, there will be no wait between retries.
+The `S3_MAX_WAIT_TIME_SEC` is the maximum wait value during successive failures.  The default is 30s.  If this is set to 0, there will be no wait between retries.
+The `S3_NON_DATA_TRANSFER_TIMEOUT_SECONDS` defines the timeout value used for S3_complete_multipart_upload and S3_delete_object.  The default is 300s.  (Note:  This has been added because in some cases with very large files these take a long time to complete and the data transfer thresholds do not apply to these.)
 
 ### Modifying your resource configuration
 

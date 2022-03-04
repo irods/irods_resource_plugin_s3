@@ -48,6 +48,8 @@
 #include "s3_transport_util.hpp"
 #include "s3_transport_callbacks.hpp"
 
+extern const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS;
+
 namespace irods::experimental::io::s3_transport
 {
     extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
@@ -105,6 +107,7 @@ namespace irods::experimental::io::s3_transport
             , resource_name{""}
             , restoration_days{S3_DEFAULT_RESTORATION_DAYS}
             , restoration_tier{S3_DEFAULT_RESTORATION_TIER}
+            , non_data_transfer_timeout_seconds{S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS}
 
         {}
 
@@ -151,6 +154,7 @@ namespace irods::experimental::io::s3_transport
         std::string  resource_name;
         unsigned int restoration_days;
         std::string  restoration_tier;
+        unsigned int non_data_transfer_timeout_seconds;
     };
 
 
@@ -1545,9 +1549,15 @@ namespace irods::experimental::io::s3_transport
                         upload_manager_.xml = xml.str().c_str();
 
                         upload_manager_.offset = 0;
-                        S3_complete_multipart_upload(&bucket_context_, object_key_.c_str(),
-                                &commit_handler, upload_id.c_str(),
-                                upload_manager_.remaining, nullptr, 0, &upload_manager_);
+                        S3_complete_multipart_upload(&bucket_context_,
+                                object_key_.c_str(),
+                                &commit_handler,
+                                upload_id.c_str(),
+                                upload_manager_.remaining,
+                                nullptr,
+                                config_.non_data_transfer_timeout_seconds * 1000,   // timeout (ms)
+                                &upload_manager_);
+
                         rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] [key=%s][manager.status=%s]\n", __FILE__, __LINE__,
                                 __FUNCTION__, get_thread_identifier(), object_key_.c_str(), S3_get_status_name(upload_manager_.status));
 
