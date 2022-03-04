@@ -602,8 +602,9 @@ namespace irods::experimental::io::s3_transport
                     // timeout trying to push onto circular buffer
                     rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
                             "Unexpected timeout when pushing onto circular buffer.  "
-                            "Thread writing to S3 may have died.  Returning 0 bytes processed."
+                            "Thread writing to S3 may have died.  Returning 0 bytes processed.",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                    set_error(ERROR(S3_PUT_ERROR, "Unexpected timeout when pushing onto circular buffer."));
                     return 0;
                 }
 
@@ -616,8 +617,9 @@ namespace irods::experimental::io::s3_transport
                 // timeout trying to push onto circular buffer
                 rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
                         "Unexpected timeout when pushing onto circular buffer.  "
-                        "Thread writing to S3 may have died.  Returning 0 bytes processed."
+                        "Thread writing to S3 may have died.  Returning 0 bytes processed.",
                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                set_error(ERROR(S3_PUT_ERROR, "Unexpected timeout when pushing onto circular buffer."));
                 return 0;
             }
 
