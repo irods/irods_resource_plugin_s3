@@ -496,7 +496,7 @@ namespace irods::experimental::io::s3_transport
                     } catch (timeout_exception& e) {
                         // this should never happen but catch and log just in case
                         rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
-                                "Unexpected timeout when removing entries from circular buffer."
+                                "Unexpected timeout when removing entries from circular buffer.",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     }
                 }
@@ -835,11 +835,12 @@ namespace irods::experimental::io::s3_transport
                 void post_success_cleanup() {
                     // had a success, remove all processed bytes from buffer
                     try {
+
                         circular_buffer.pop_front(this->bytes_written);
                     } catch (timeout_exception& e) {
                         // this should never happen but catch and log just in case
                         rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
-                                "Unexpected timeout when removing entries from circular buffer."
+                                "Unexpected timeout when removing entries from circular buffer.",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     }
                 }
