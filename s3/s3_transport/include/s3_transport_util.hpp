@@ -4,8 +4,8 @@
 #include "circular_buffer.hpp"
 
 // iRODS includes
-#include <rcMisc.h>
-#include <transport/transport.hpp>
+#include <irods/rcMisc.h>
+#include <irods/transport/transport.hpp>
 
 // misc includes
 #include <nlohmann/json.hpp>

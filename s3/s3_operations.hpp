@@ -3,14 +3,14 @@
 
 // =-=-=-=-=-=-=-
 // irods includes
-#include <msParam.h>
-#include <rcConnect.h>
-#include <rodsLog.h>
-#include <rodsErrorTable.h>
-#include <objInfo.h>
-#include <rsRegReplica.hpp>
-#include <dataObjOpr.hpp>
-#include <irods_hierarchy_parser.hpp>
+#include <irods/msParam.h>
+#include <irods/rcConnect.h>
+#include <irods/rodsLog.h>
+#include <irods/rodsErrorTable.h>
+#include <irods/objInfo.h>
+#include <irods/rsRegReplica.hpp>
+#include <irods/dataObjOpr.hpp>
+#include <irods/irods_hierarchy_parser.hpp>
 
 namespace irods_s3 {
 
