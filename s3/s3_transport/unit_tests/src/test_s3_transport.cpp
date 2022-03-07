@@ -3,8 +3,8 @@
 #include "s3_transport.hpp"
 #include "s3_transport_util.hpp"
 #include "s3_multipart_shared_data.hpp"
-#include <filesystem/filesystem.hpp>
-#include <dstream.hpp>
+#include <irods/filesystem/filesystem.hpp>
+#include <irods/dstream.hpp>
 #include <mutex>
 #include <condition_variable>
 #include <fstream>

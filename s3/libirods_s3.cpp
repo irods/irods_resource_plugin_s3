@@ -5,14 +5,14 @@
 
 // =-=-=-=-=-=-=-
 // irods includes
-#include <msParam.h>
-#include <rcConnect.h>
-#include <rodsLog.h>
-#include <rodsErrorTable.h>
-#include <objInfo.h>
-#include <rsRegReplica.hpp>
-#include <dataObjOpr.hpp>
-#include <irods_stacktrace.hpp>
+#include <irods/msParam.h>
+#include <irods/rcConnect.h>
+#include <irods/rodsLog.h>
+#include <irods/rodsErrorTable.h>
+#include <irods/objInfo.h>
+#include <irods/rsRegReplica.hpp>
+#include <irods/dataObjOpr.hpp>
+#include <irods/irods_stacktrace.hpp>
 
 #ifdef USING_JSON
 #include <json/json.h>
@@ -20,17 +20,17 @@
 
 // =-=-=-=-=-=-=-
 // irods includes
-#include "irods_resource_plugin.hpp"
-#include "irods_file_object.hpp"
-#include "irods_physical_object.hpp"
-#include "irods_collection_object.hpp"
-#include "irods_string_tokenize.hpp"
-#include "irods_hierarchy_parser.hpp"
-#include "irods_resource_redirect.hpp"
-#include "irods_kvp_string_parser.hpp"
-#include "irods_virtual_path.hpp"
-#include "irods_resource_backport.hpp"
-#include "irods_query.hpp"
+#include <irods/irods_resource_plugin.hpp>
+#include <irods/irods_file_object.hpp>
+#include <irods/irods_physical_object.hpp>
+#include <irods/irods_collection_object.hpp>
+#include <irods/irods_string_tokenize.hpp>
+#include <irods/irods_hierarchy_parser.hpp>
+#include <irods/irods_resource_redirect.hpp>
+#include <irods/irods_kvp_string_parser.hpp>
+#include <irods/irods_virtual_path.hpp>
+#include <irods/irods_resource_backport.hpp>
+#include <irods/irods_query.hpp>
 
 // =-=-=-=-=-=-=-
 // stl includes

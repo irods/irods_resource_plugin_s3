@@ -4,11 +4,11 @@
 #include "circular_buffer.hpp"
 
 // iRODS includes
-#include <transport/transport.hpp>
-#include <thread_pool.hpp>
-#include <rcMisc.h>
-#include <rodsErrorTable.h>
-#include <irods_error.hpp>
+#include <irods/transport/transport.hpp>
+#include <irods/thread_pool.hpp>
+#include <irods/rcMisc.h>
+#include <irods/rodsErrorTable.h>
+#include <irods/irods_error.hpp>
 
 // misc includes
 #include <nlohmann/json.hpp>

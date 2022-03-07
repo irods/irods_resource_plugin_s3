@@ -6,12 +6,12 @@
 // Needed to support pread with > 2GB offsets
 #define _USE_FILE_OFFSET64
 
-#include <rodsType.h>
-#include <rodsDef.h>
-#include <irods_resource_plugin.hpp>
-#include <irods_lookup_table.hpp>
-#include <irods_file_object.hpp>
-#include <rcConnect.h>
+#include <irods/rodsType.h>
+#include <irods/rodsDef.h>
+#include <irods/irods_resource_plugin.hpp>
+#include <irods/irods_lookup_table.hpp>
+#include <irods/irods_file_object.hpp>
+#include <irods/rcConnect.h>
 #include <libs3.h>
 
 #define S3_AUTH_FILE "s3Auth"
