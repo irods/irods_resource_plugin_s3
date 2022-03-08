@@ -1988,6 +1988,8 @@ namespace irods::experimental::io::s3_transport
 
             for (unsigned int part_number = start_part_number; part_number <= end_part_number; ++part_number) {
 
+                retry_cnt = 0;
+
                 do {
 
                     if (read_from_cache) {
