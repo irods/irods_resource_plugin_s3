@@ -835,7 +835,7 @@ static void mrdWorkerThread (
             break;
         }
         seq = g_mrdNext + 1;
-        g_mrdNext++;
+        g_mrdNext = g_mrdNext + 1;
         g_mrdLock.unlock();
 
         size_t retry_cnt = 0;
@@ -1431,7 +1431,7 @@ static void mpuWorkerThread (
             break;
         }
         seq = g_mpuNext + 1;
-        g_mpuNext++;
+        g_mpuNext = g_mpuNext + 1;
         g_mpuLock.unlock();
 
         multipart_data_t partData;

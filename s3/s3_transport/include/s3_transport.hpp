@@ -806,7 +806,7 @@ namespace irods::experimental::io::s3_transport
             // put the part sizes on the vector, splitting remaining bytes among first few parts
             int64_t part_size = bytes_this_thread / ( end_part_number - start_part_number + 1 );
             int64_t remaining_bytes = bytes_this_thread % ( end_part_number - start_part_number + 1 );
-            int64_t total_bytes = 0;
+            [[maybe_unused]] int64_t total_bytes = 0;
             for (unsigned int part_cntr = 0; part_cntr <= end_part_number - start_part_number; ++part_cntr) {
                 int64_t bytes_this_part = part_size +
                         ( remaining_bytes > part_cntr ? 1 : 0 );
