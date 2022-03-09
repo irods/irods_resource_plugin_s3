@@ -1,6 +1,5 @@
 from __future__ import print_function
 import base64
-import commands
 import copy
 import datetime
 import filecmp
@@ -48,24 +47,25 @@ def make_arbitrary_file(f_name, f_size, buffer_size=32*1024*1024):
     # do not care about true randomness
     random.seed(5)
     bytes_written = 0
-    buffer = buffer_size * ['x']
+    buffer = buffer_size * [0x78]       # 'x' - bytearray() below appears to require int instead
+                                        #       of char which was valid in python2
     with open(f_name, "wb") as out:
 
         while bytes_written < f_size:
 
             if f_size - bytes_written < buffer_size:
                 to_write = f_size - bytes_written
-                buffer = to_write * ['x']
+                buffer = to_write * [0x78]  # 'x'
             else:
                 to_write = buffer_size
 
-            current_char = chr(random.randrange(256))
+            current_char = random.randrange(256)
 
             # just write some random byte each 1024 chars
             for i in range(0, to_write, 1024):
                 buffer[i] = current_char
-                current_char = chr(random.randrange(256))
-            buffer[len(buffer)-1] = chr(random.randrange(256))
+                current_char = random.randrange(256)
+            buffer[len(buffer)-1] = random.randrange(256)
 
             out.write(bytearray(buffer))
 
@@ -113,7 +113,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         else:
             distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','').replace('.', '')
             self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
-            self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
+            self.s3bucketname += ''.join(random.choice(string.ascii_letters) for i in range(10))
             self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
             s3_client.make_bucket(self.s3bucketname, location=self.s3region)
 
@@ -316,7 +316,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])  # should be listed once
 
         # local cleanup
-        commands.getstatusoutput('rm ' + filepath)
+        subprocess.getstatusoutput('rm ' + filepath)
 
     ###################
     # imv

@@ -9,8 +9,8 @@ import string
 import subprocess
 import urllib3
 
-from resource_suite_s3_nocache import Test_S3_NoCache_Base
-from resource_suite_s3_cache import Test_S3_Cache_Base
+from .resource_suite_s3_nocache import Test_S3_NoCache_Base
+from .resource_suite_s3_cache import Test_S3_Cache_Base
 
 import sys
 if sys.version_info >= (2,7):
