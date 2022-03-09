@@ -15,7 +15,6 @@ except ImportError:
         print('Failed to import InvalidResponseError or ResponseError')
         exit()
 
-import commands
 import datetime
 import os
 import platform
@@ -26,7 +25,7 @@ import string
 import subprocess
 import urllib3
 
-from resource_suite_s3_nocache import Test_S3_NoCache_Base
+from .resource_suite_s3_nocache import Test_S3_NoCache_Base
 
 import sys
 if sys.version_info >= (2,7):
@@ -99,7 +98,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             self.s3bucketname = self.static_bucket_name
         else:
             self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
-            self.s3bucketname += ''.join(random.choice(string.letters) for i in xrange(10))
+            self.s3bucketname += ''.join(random.choice(string.ascii_letters) for i in range(10))
             self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
             s3_client.make_bucket(self.s3bucketname, location=self.s3region)
 
@@ -402,7 +401,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         # local setup
         filename = "purgecgetfile.txt"
         filepath = os.path.abspath(filename)
-        f = open(filepath,'wb')
+        f = open(filepath,'w')
         f.write("TESTFILE -- ["+filepath+"]")
         f.close()
 
@@ -415,13 +414,13 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should not be listed
 
         # local cleanup
-        output = commands.getstatusoutput( 'rm '+filepath )
+        output = subprocess.getstatusoutput( 'rm '+filepath )
 
     def test_irepl_with_purgec(self):
         # local setup
         filename = "purgecreplfile.txt"
         filepath = os.path.abspath(filename)
-        f = open(filepath,'wb')
+        f = open(filepath,'w')
         f.write("TESTFILE -- ["+filepath+"]")
         f.close()
 
@@ -434,7 +433,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should be listed twice - 1 of 3
 
         # local cleanup
-        output = commands.getstatusoutput( 'rm '+filepath )
+        output = subprocess.getstatusoutput( 'rm '+filepath )
 
     def test_decoupled_naming_policy(self):
         if self.archive_naming_policy != 'decoupled':
