@@ -14,13 +14,23 @@ import random
 import string
 import io
 import psutil
+import subprocess
 
 try:
-   from minio import Minio
-   from minio.error import ResponseError
+    from minio import Minio
 except ImportError:
-   print('This test requires minio: perhaps try pip install minio')
-   exit()
+    print('This test requires minio: perhaps try pip install minio')
+    exit()
+
+try:
+    from minio.error import InvalidResponseError as ResponseError
+except ImportError:
+    try:
+        from minio.error import ResponseError
+    except ImportError:
+        print('Failed to import InvalidResponseError or ResponseError')
+        exit()
+
 
 if sys.version_info < (2, 7):
     import unittest2 as unittest
@@ -172,7 +182,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region)
         else:
             s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region, secure=False)
-        objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
+        objects = s3_client.list_objects(self.s3bucketname, recursive=True)
 
         if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
