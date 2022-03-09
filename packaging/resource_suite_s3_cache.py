@@ -1,11 +1,19 @@
 from __future__ import print_function
 
 try:
-   from minio import Minio
-   from minio.error import ResponseError
+    from minio import Minio
 except ImportError:
-   print('This test requires minio: perhaps try pip install minio')
-   exit()
+    print('This test requires minio: perhaps try pip install minio')
+    exit()
+
+try:
+    from minio.error import InvalidResponseError as ResponseError
+except ImportError:
+    try:
+        from minio.error import ResponseError
+    except ImportError:
+        print('Failed to import InvalidResponseError or ResponseError')
+        exit()
 
 import commands
 import datetime
@@ -152,7 +160,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
                               region=self.s3region,
                               secure=False)
 
-        objects = s3_client.list_objects_v2(self.s3bucketname, recursive=True)
+        objects = s3_client.list_objects(self.s3bucketname, recursive=True)
 
         if not hasattr(self, 'static_bucket_name'):
             s3_client.remove_bucket(self.s3bucketname)
