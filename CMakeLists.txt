@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.5.0 FATAL_ERROR) #CPACK_DEBIAN_<COMPONENT>_PACKAGE_NAME
+cmake_minimum_required(VERSION 3.12.0 FATAL_ERROR)
+# CURL::libcurl and LibXml2::LibXml2 targets
 
 find_package(IRODS REQUIRED)
 set(IRODS_PLUGIN_REVISION "1")
@@ -94,8 +95,8 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
   ${IRODS_EXTERNALS_FULLPATH_S3}/lib/libs3.so
   ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
-  ${CURL_LIBRARIES}
-  ${LIBXML2_LIBRARIES}
+  CURL::libcurl
+  LibXml2::LibXml2
   OpenSSL::Crypto
   Threads::Threads
   nlohmann_json::nlohmann_json
@@ -109,8 +110,6 @@ target_include_directories(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
   ${IRODS_EXTERNALS_FULLPATH_FMT}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
-  ${CURL_INCLUDE_DIRS}
-  ${LIBXML2_INCLUDE_DIRS}
   )
 target_compile_definitions(
   irods_s3_plugin
@@ -118,7 +117,6 @@ target_compile_definitions(
   IRODS_QUERY_ENABLE_SERVER_SIDE_API
   ${IRODS_COMPILE_DEFINITIONS}
   ${IRODS_COMPILE_DEFINITIONS_PRIVATE}
-  ${LIBXML2_DEFINITIONS}
   BOOST_SYSTEM_NO_DEPRECATED
   )
 set_property(TARGET irods_s3_plugin PROPERTY OUTPUT_NAME s3)
