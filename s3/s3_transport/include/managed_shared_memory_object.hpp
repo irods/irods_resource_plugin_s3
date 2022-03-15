@@ -1,12 +1,11 @@
 #ifndef MANAGED_SHARED_MEMORY_OBJECT_HPP
 #define MANAGED_SHARED_MEMORY_OBJECT_HPP
 
-#include <boost/interprocess/managed_shared_memory.hpp>
+#include <irods/rodsLog.h>
+
+#include <boost/container/scoped_allocator.hpp>
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
-#include <boost/container/scoped_allocator.hpp>
-
-#include <rodsLog.h>
 
 #include <string>
 #include <utility>
