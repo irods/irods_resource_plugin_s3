@@ -105,7 +105,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         # set up resources
 
         hostname = lib.get_hostname()
-        s3params = 'S3_RETRY_COUNT=15;S3_WAIT_TIME_SEC=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
+        s3params = 'S3_RETRY_COUNT=15;S3_WAIT_TIME_SECONDS=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
         s3params += ';S3_STSDATE=' + self.s3stsdate
         s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
@@ -555,13 +555,13 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         minio_bucket_name = 'irods-bucket'
 
         hostname = lib.get_hostname()
-        s3params_aws = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
+        s3params_aws = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
         s3params_aws += ';S3_DEFAULT_HOSTNAME=%s' % self.s3endPoint
         s3params_aws += ';S3_AUTH_FILE=%s' % self.keypairfile
         s3params_aws += ';S3_REGIONNAME=%s' % self.s3region
         s3params_aws += ';ARCHIVE_NAMING_POLICY=%s' % self.archive_naming_policy
 
-        s3params_minio = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
+        s3params_minio = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
         s3params_minio += ';S3_DEFAULT_HOSTNAME=%s:9000' % hostname
         s3params_minio += ';S3_AUTH_FILE=%s' % minio_auth_file
         s3params_minio += ';S3_REGIONNAME=%s' % self.s3region

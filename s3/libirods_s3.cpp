@@ -122,8 +122,10 @@ const std::string  s3_auth_file{"S3_AUTH_FILE"};
 const std::string  s3_key_id{"S3_ACCESS_KEY_ID"};
 const std::string  s3_access_key{"S3_SECRET_ACCESS_KEY"};
 const std::string  s3_retry_count{"S3_RETRY_COUNT"};
-const std::string  s3_wait_time_sec{"S3_WAIT_TIME_SEC"};
-const std::string  s3_max_wait_time_sec{"S3_MAX_WAIT_TIME_SEC"};
+const std::string  s3_wait_time_seconds{"S3_WAIT_TIME_SECONDS"};
+const std::string  s3_wait_time_sec{"S3_WAIT_TIME_SEC"};                 // being deprecated
+const std::string  s3_max_wait_time_seconds{"S3_MAX_WAIT_TIME_SECONDS"};
+const std::string  s3_max_wait_time_sec{"S3_MAX_WAIT_TIME_SEC"};     // being deprecated
 const std::string  s3_proto{"S3_PROTO"};
 const std::string  s3_stsdate{"S3_STSDATE"};
 const std::string  s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
@@ -145,8 +147,8 @@ const std::string  s3_enable_copyobject{"S3_ENABLE_COPYOBJECT"};       //  If se
 const std::string  s3_non_data_transfer_timeout_seconds{"S3_NON_DATA_TRANSFER_TIMEOUT_SECONDS"};
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
-const size_t       S3_DEFAULT_RETRY_WAIT_SEC = 2;
-const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SEC = 30;
+const size_t       S3_DEFAULT_RETRY_WAIT_SECONDS = 2;
+const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SECONDS = 30;
 const size_t       S3_DEFAULT_RETRY_COUNT = 3;
 const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS = 180;
@@ -681,7 +683,7 @@ long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
     ret = _prop_map.get<std::string>(s3_max_upload_size, max_size_str);
     if (ret.ok()) {
         // should be between 5MB and 5TB
-        long max_megs = atol(max_size_str.c_str());
+        int64_t max_megs = std::atol(max_size_str.c_str());
         if ( max_megs >= 5 && max_megs <= 5L * 1024 * 1024 ) {
             return max_megs;
         }
@@ -700,7 +702,7 @@ long s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
     if (ret.ok()) {
         // AWS S3 allows chunk sizes from 5MB to 5GB.
         // Other S3 appliances may have a different upper limit.
-        long megs = atol(chunk_str.c_str());
+        int64_t megs = std::atol(chunk_str.c_str());
         if ( megs >= 5 && megs <= s3GetMaxUploadSizeMB(_prop_map) )
             bytes = megs * 1024 * 1024;
     }
@@ -717,7 +719,7 @@ ssize_t s3GetMPUThreads (
         s3_mpu_threads,
         threads_str );
     if (ret.ok()) {
-        int parse = atol(threads_str.c_str());
+        int parse = std::atol(threads_str.c_str());
         if ( (parse >= 1) && (parse <= 100) )
             threads = parse;
     }
@@ -761,7 +763,7 @@ bool s3GetServerEncrypt (
         enable_str );
     if (ret.ok()) {
         // Only 0 = no, 1 = yes.  Adding in strings would require localization I think
-        int parse = atol(enable_str.c_str());
+        int parse = std::atol(enable_str.c_str());
         if (parse != 0)
             enable = true;
     }
@@ -926,9 +928,9 @@ std::string get_cache_directory(irods::plugin_property_map& _prop_map) {
 
 size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
 
-    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SEC;
+    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SECONDS;
     std::string wait_time_str;
-    irods::error ret = _prop_map.get< std::string >( s3_wait_time_sec, wait_time_str );
+    irods::error ret = _prop_map.get< std::string >( s3_wait_time_seconds, wait_time_str );
     if( ret.ok() ) {
         try {
             retry_wait = boost::lexical_cast<size_t>( wait_time_str );
@@ -937,7 +939,23 @@ size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
             rodsLog(
                 LOG_ERROR,
                 "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
-                s3_wait_time_sec.c_str(), wait_time_str.c_str() );
+                s3_wait_time_seconds.c_str(), wait_time_str.c_str() );
+        }
+    } else {
+        // for backward compatibility, look for S3_WAIT_TIME_SEC
+        irods::error ret = _prop_map.get< std::string >( s3_wait_time_sec, wait_time_str );
+        if( ret.ok() ) {
+            irods::log(LOG_WARNING, fmt::format("[resource_name={} - {} is deprecated.  Use {}",
+                        resource_name, s3_wait_time_sec, s3_wait_time_seconds));
+            try {
+                retry_wait = boost::lexical_cast<size_t>( wait_time_str );
+            } catch ( const boost::bad_lexical_cast& ) {
+                std::string resource_name = get_resource_name(_prop_map);
+                rodsLog(
+                    LOG_ERROR,
+                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                    s3_wait_time_sec.c_str(), wait_time_str.c_str() );
+            }
         }
     }
 
@@ -946,9 +964,9 @@ size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
 
 size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
 
-    size_t max_retry_wait = S3_DEFAULT_MAX_RETRY_WAIT_SEC;
+    size_t max_retry_wait = S3_DEFAULT_MAX_RETRY_WAIT_SECONDS;
     std::string max_retry_wait_str;
-    irods::error ret = _prop_map.get< std::string >( s3_max_wait_time_sec, max_retry_wait_str );
+    irods::error ret = _prop_map.get< std::string >( s3_max_wait_time_seconds, max_retry_wait_str );
     if( ret.ok() ) {
         try {
             max_retry_wait = boost::lexical_cast<size_t>( max_retry_wait_str );
@@ -957,10 +975,25 @@ size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
             rodsLog(
                 LOG_ERROR,
                 "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
-                s3_max_wait_time_sec.c_str(), max_retry_wait_str.c_str() );
+                s3_max_wait_time_seconds.c_str(), max_retry_wait_str.c_str() );
+        }
+    } else {
+        // for backward compatibility, look for S3_MAX_WAIT_TIME_SEC
+        irods::error ret = _prop_map.get< std::string >( s3_max_wait_time_sec, max_retry_wait_str );
+        if( ret.ok() ) {
+            irods::log(LOG_WARNING, fmt::format("[resource_name={} - {} is being deprecated.  Use {}",
+                        resource_name, s3_max_wait_time_sec, s3_max_wait_time_seconds));
+            try {
+                max_retry_wait = boost::lexical_cast<size_t>( max_retry_wait_str );
+            } catch ( const boost::bad_lexical_cast& ) {
+                std::string resource_name = get_resource_name(_prop_map);
+                rodsLog(
+                    LOG_ERROR,
+                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                    s3_max_wait_time_sec.c_str(), max_retry_wait_str.c_str() );
+            }
         }
     }
-
     return max_retry_wait;
 }
 

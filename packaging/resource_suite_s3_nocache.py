@@ -126,7 +126,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.s3_context += ';S3_AUTH_FILE=' + self.keypairfile
         self.s3_context += ';S3_REGIONNAME=' + self.s3region
         self.s3_context += ';S3_RETRY_COUNT=2'
-        self.s3_context += ';S3_WAIT_TIME_SEC=3'
+        self.s3_context += ';S3_WAIT_TIME_SECONDS=3'
         self.s3_context += ';S3_PROTO=' + self.proto
         self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
         self.s3_context += ';HOST_MODE=cacheless_attached'
@@ -1520,7 +1520,7 @@ OUTPUT ruleExecOut
             s3_context += ';S3_AUTH_FILE=' + self.keypairfile
             s3_context += ';S3_REGIONNAME=' + self.s3region
             s3_context += ';S3_RETRY_COUNT=2'
-            s3_context += ';S3_WAIT_TIME_SEC=3'
+            s3_context += ';S3_WAIT_TIME_SECONDS=3'
             s3_context += ';S3_PROTO=' + self.proto
             s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
             s3_context += ';HOST_MODE=cacheless_detached'
@@ -2024,7 +2024,7 @@ OUTPUT ruleExecOut
             s3_context += ';S3_AUTH_FILE=doesnotexit.keypair'
             s3_context += ';S3_REGIONNAME=' + self.s3region
             s3_context += ';S3_RETRY_COUNT=2'
-            s3_context += ';S3_WAIT_TIME_SEC=3'
+            s3_context += ';S3_WAIT_TIME_SECONDS=3'
             s3_context += ';S3_PROTO=' + self.proto
             s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
             s3_context += ';HOST_MODE=cacheless_attached'
