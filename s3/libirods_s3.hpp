@@ -47,8 +47,8 @@ extern const std::string  s3_circular_buffer_size;
 extern const std::string  s3_circular_buffer_timeout_seconds; // timeout for read or write to circular buffer
 extern const std::string  s3_uri_request_style;        //  either "path" or "virtual_hosted" - default "path"
 extern const std::string  s3_number_of_threads;        //  to save number of threads
-extern const size_t       S3_DEFAULT_RETRY_WAIT_SEC;
-extern const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SEC;
+extern const size_t       S3_DEFAULT_RETRY_WAIT_SECONDS;
+extern const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SECONDS;
 extern const size_t       S3_DEFAULT_RETRY_COUNT;
 extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
 extern const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS;

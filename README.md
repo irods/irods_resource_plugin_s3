@@ -35,7 +35,7 @@ This will result in a package (deb/rpm) for your platform suitable for installat
 After installation is complete, the new plugin can be configured in cacheless mode, live on an iRODS Server:
 
 ```
-irods@hostname $ iadmin mkresc s3resc s3 $(hostname):/<s3BucketName>/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
+irods@hostname $ iadmin mkresc s3resc s3 $(hostname):/<s3BucketName>/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
 ```
 
 A local file can be immediately put into the S3 resource:
@@ -88,8 +88,8 @@ S3 server-side encryption can be enabled using the parameter `S3_SERVER_ENCRYPT=
 To encrypt during the network transport to S3, use `S3_PROTO=HTTPS` (the default)
 
 The `S3_RETRY_COUNT` defines the number of retries for a request after a retryable failure.  The default is 3 retries.
-The `S3_WAIT_TIME_SEC` defines the initial number of seconds between retries.  The default is 2s.  This wait time will double on each successive failure until the `S3_MAX_WAIT_TIME_SEC` is reached.  If this is set to 0, there will be no wait between retries.
-The `S3_MAX_WAIT_TIME_SEC` is the maximum wait value during successive failures.  The default is 30s.  If this is set to 0, there will be no wait between retries.
+The `S3_WAIT_TIME_SECONDS` defines the initial number of seconds between retries.  The default is 2s.  This wait time will double on each successive failure until the `S3_MAX_WAIT_TIME_SECONDS` is reached.  If this is set to 0, there will be no wait between retries.  (Note:  For backward compatibility with previous releases, `S3_WAIT_TIME_SEC` is also valid but `S3_WAIT_TIME_SECONDS` will take priority.)
+The `S3_MAX_WAIT_TIME_SECONDS` is the maximum wait value during successive failures.  The default is 30s.  If this is set to 0, there will be no wait between retries.  (Note:  For backward compatibility with previous releases, `S3_MAX_WAIT_TIME_SEC` is also valid but `S3_MAX_WAIT_TIME_SECONDS` will take priority.)
 The `S3_NON_DATA_TRANSFER_TIMEOUT_SECONDS` defines the timeout value used for S3_complete_multipart_upload and S3_delete_object.  The default is 300s.  (Note:  This has been added because in some cases with very large files these take a long time to complete and the data transfer thresholds do not apply to these.)
 
 ### Modifying your resource configuration
@@ -123,7 +123,7 @@ Cacheless mode has a few extra configuration parameters in addition to HOST_MODE
 The following is an example of how to configure a `cacheless_attached` S3 resource:
 
 ```
-iadmin mkresc s3resc s3 $(hostname):/s3-irods-bucket-name/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
+iadmin mkresc s3resc s3 $(hostname):/s3-irods-bucket-name/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
 ```
 
 Some configuration settings have special meaning when the resource is in cacheless mode.
@@ -162,7 +162,7 @@ The S3 plugin may be used in archive mode. In this case the resource requires an
 ```
 irods@hostname $ iadmin mkresc compResc compound
 irods@hostname $ iadmin mkresc cacheResc unixfilesystem <hostname>:</full/path/to/Vault>
-irods@hostname $ iadmin mkresc archiveResc s3 <hostname>:/<s3BucketName>/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=</full/path/to/AWS.keypair>;S3_RETRY_COUNT=<num reconn tries>;S3_WAIT_TIME_SEC=<wait between retries>;S3_PROTO=<HTTP|HTTPS>"
+irods@hostname $ iadmin mkresc archiveResc s3 <hostname>:/<s3BucketName>/irods/Vault "S3_DEFAULT_HOSTNAME=s3.amazonaws.com;S3_AUTH_FILE=</full/path/to/AWS.keypair>;S3_RETRY_COUNT=<num reconn tries>;S3_WAIT_TIME_SECONDS=<wait between retries>;S3_PROTO=<HTTP|HTTPS>"
 irods@hostname $ iadmin addchildtoresc compResc cacheResc cache
 irods@hostname $ iadmin addchildtoresc compResc archiveResc archive
 irods@hostname $ iput -R compResc foo.txt
@@ -188,7 +188,7 @@ info:
 comment:
 create time: 01575329511: 2019-12-02.23:31:51
 modify time: 01576687386: 2019-12-18.16:43:06
-context: S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SEC=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached
+context: S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached
 parent:
 parent context:
 ```
