@@ -53,6 +53,7 @@
 #include <map>
 #include <assert.h>
 #include <curl/curl.h>
+#include <fmt/format.h>
 
 extern size_t g_retry_count;
 extern size_t g_retry_wait;
@@ -333,10 +334,7 @@ namespace irods_s3 {
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
         irods::error ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
         if(!ret.ok()) {
-            std::stringstream msg;
-            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
-                << ret.result();
-            rodsLog(LOG_ERROR, msg.str().c_str());
+            irods::log(LOG_ERROR, fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), ret.result()));
         }
         boost::to_lower(archive_naming_policy);
 
@@ -369,14 +367,13 @@ namespace irods_s3 {
                 std::reverse(obj_id.begin(), obj_id.end());
 
                 // make S3 key name
-                std::ostringstream s3_key_name;
-                s3_key_name << "/" << bucket_name << "/" << obj_id << "/" << object_name;
+                const auto s3_key_name = fmt::format("/{}/{}/{}", bucket_name, obj_id, object_name);
 
                 // update physical path
                 rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] updating physical_path to %s\n",
-                        __FILE__, __LINE__, __FUNCTION__, thread_id, s3_key_name.str().c_str());
-                object->physical_path(s3_key_name.str());
-                strncpy(L1desc[index].dataObjInfo->filePath, s3_key_name.str().c_str(), MAX_NAME_LEN);
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, s3_key_name.c_str());
+                object->physical_path(s3_key_name);
+                strncpy(L1desc[index].dataObjInfo->filePath, s3_key_name.c_str(), MAX_NAME_LEN);
                 L1desc[index].dataObjInfo->filePath[MAX_NAME_LEN - 1] = '\0';
             }
 
@@ -999,9 +996,7 @@ namespace irods_s3 {
                           irods::RESOURCE_PATH,
                           vault_path);
                 if(!ret.ok()) {
-                    std::stringstream msg;
-                    msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] " << ret.result();
-                    return PASSMSG(msg.str(), ret);
+                    return PASSMSG(fmt::format("[resource_name={}] {}", get_resource_name(_ctx.prop_map()), ret.result()), ret);
                 }
 
                 if(!determine_unlink_for_repl_policy(
@@ -1065,17 +1060,14 @@ namespace irods_s3 {
 
         if(data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound && data.status != S3StatusErrorNoSuchKey) {
 
-            std::stringstream msg;
-            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
-            msg << " - Error unlinking the S3 object: \"";
-            msg << file_obj->physical_path();
-            msg << "\"";
+            auto msg = fmt::format("[resource_name={}]  - Error unlinking the S3 object: \"{}\"",
+                        get_resource_name(_ctx.prop_map()),
+                        file_obj->physical_path());
+
             if(data.status >= 0) {
-                msg << " - \"";
-                msg << S3_get_status_name((S3Status)data.status);
-                msg << "\"";
+                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
             }
-            return ERROR(S3_FILE_UNLINK_ERR, msg.str());
+            return ERROR(S3_FILE_UNLINK_ERR, msg);
         }
 
         return SUCCESS();
@@ -1184,14 +1176,15 @@ namespace irods_s3 {
 
                             // This is likely a case where read after write consistency has not been reached.
                             // Provide a detailed error message and return
+                            auto msg = fmt::format("[resource_name={}]  - Error stat'ing the S3 object: \"{}\"",
+                                        get_resource_name(_ctx.prop_map()),
+                                        object->physical_path());
 
-                            std::stringstream msg;
-                            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
-                            if (data.status >= 0) {
-                                msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+                            if(data.status >= 0) {
+                                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
                             }
-                            msg << " - Error stat'ing the S3 object: \"" << object->physical_path() << "\":  ";
-                            result = ERROR(S3_FILE_STAT_ERR, msg.str());
+
+                            result = ERROR(S3_FILE_STAT_ERR, msg);
 
                         } else if (data.status == S3StatusHttpErrorNotFound) {
 
@@ -1200,13 +1193,14 @@ namespace irods_s3 {
 
                         } else {
 
-                            std::stringstream msg;
-                            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
-                            msg << " - Error stat'ing the S3 object: \"" << object->physical_path() << "\"";
-                            if (data.status >= 0) {
-                                msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+                            auto msg = fmt::format("[resource_name={}]  - Error stat'ing the S3 object: \"{}\"",
+                                        get_resource_name(_ctx.prop_map()),
+                                        object->physical_path());
+
+                            if(data.status >= 0) {
+                                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
                             }
-                            result = ERROR(S3_FILE_STAT_ERR, msg.str());
+                            result = ERROR(S3_FILE_STAT_ERR, msg);
                         }
                     }
                 }
@@ -1214,10 +1208,7 @@ namespace irods_s3 {
         }
 
         if( !result.ok() ) {
-            std::stringstream msg;
-            msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
-                << result.result();
-            rodsLog(LOG_ERROR, msg.str().c_str());
+            irods::log(LOG_ERROR, fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), result.result()));
         }
 
         return result;
@@ -1518,13 +1509,16 @@ namespace irods_s3 {
                         (++retry_cnt < retry_count_limit ) );
 
                 if (data.status != S3StatusOK) {
-                    std::stringstream msg;
-                    msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] ";
-                    msg << " - Error in S3 listing: \"" << search_key.c_str() << "\"";
-                    if (data.status >= 0) {
-                        msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+
+                    auto msg = fmt::format("[resource_name={}] - Error in S3 listing:  \"{}\"",
+                                get_resource_name(_ctx.prop_map()),
+                                search_key.c_str());
+
+                    if(data.status >= 0) {
+                        msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
                     }
-                    return ERROR(S3_FILE_STAT_ERR, msg.str());
+
+                    return ERROR(S3_FILE_STAT_ERR, msg);
                 }
             }
 
@@ -1820,10 +1814,7 @@ namespace irods_s3 {
                             std::string archive_naming_policy = CONSISTENT_NAMING; // default
                             ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
                             if(!ret.ok()) {
-                                std::stringstream msg;
-                                msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
-                                    << ret.result();
-                                rodsLog(LOG_ERROR, msg.str().c_str());
+                                irods::log(LOG_ERROR, fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), ret.result()));
                             }
                             boost::to_lower(archive_naming_policy);
 
@@ -1841,11 +1832,10 @@ namespace irods_s3 {
                                 std::reverse(obj_id.begin(), obj_id.end());
 
                                 // make S3 key name
-                                std::ostringstream s3_key_name;
-                                s3_key_name << "/" << bucket_name << "/" << obj_id << "/" << object_name;
+                                const auto s3_key_name = fmt::format("/{}/{}/{}", bucket_name, obj_id, object_name);
 
                                 // update physical path
-                                object->physical_path(s3_key_name.str());
+                                object->physical_path(s3_key_name);
                             }
 
                             ret = s3PutCopyFile(S3_PUTFILE, _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
@@ -1857,10 +1847,7 @@ namespace irods_s3 {
                 }
             }
             if( !result.ok() ) {
-                std::stringstream msg;
-                msg << "[resource_name=" << get_resource_name(_ctx.prop_map()) << "] "
-                    << result.result();
-                rodsLog(LOG_ERROR, msg.str().c_str());
+                irods::log(LOG_ERROR, fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), result.result()));
             }
             return result;
         }

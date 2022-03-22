@@ -2,10 +2,12 @@
 
 // iRODS includes
 #include <irods/transport/transport.hpp>
+#include <irods/rodsLog.h>
 
 // misc includes
 #include <nlohmann/json.hpp>
 #include <libs3.h>
+#include <fmt/format.h>
 
 // stdlib and misc includes
 #include <string>
@@ -133,27 +135,24 @@ namespace irods::experimental::io::s3_transport
 
         uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        std::stringstream xml("");
-        xml << "<RestoreRequest>\n"
-            << "  <Days>" << restoration_days << "</Days>\n"
-            << "  <GlacierJobParameters>\n"
-            << "    <Tier>" << restoration_tier << "</Tier>\n"
-            << "  </GlacierJobParameters>\n"
-            << "</RestoreRequest>\n";
+        const auto xml = fmt::format("<RestoreRequest>\n  "
+                                     "<Days>{}</Days>\n"
+                                     "  <GlacierJobParameters>\n"
+                                     "    <Tier>{}</Tier>\n"
+                                     "  </GlacierJobParameters>\n"
+                                     "</RestoreRequest>\n",
+                                     restoration_days,
+                                     restoration_tier);
 
         irods::experimental::io::s3_transport::upload_manager upload_manager(bucket_context);
-        upload_manager.remaining = xml.str().size();
-        upload_manager.xml = const_cast<char*>(xml.str().c_str());
+        upload_manager.remaining = xml.size();
+        upload_manager.xml = const_cast<char*>(xml.c_str());
         upload_manager.offset = 0;
 
-        std::stringstream msg;
-        msg.str( std::string() ); // Clear
-        msg << "Multipart:  Restoring object " << object_key.c_str();
-        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id,
-                msg.str().c_str() );
+        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] Multipart:  Restoring object %s", __FILE__, __LINE__, __FUNCTION__, thread_id, object_key.c_str());
 
         rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] [key=%s] Request: %s\n", __FILE__, __LINE__, __FUNCTION__,
-                thread_id, object_key.c_str(), xml.str().c_str() );
+                thread_id, object_key.c_str(), xml.c_str() );
 
         S3RestoreObjectHandler commit_handler
             = { {restore_object_callback::on_response_properties,

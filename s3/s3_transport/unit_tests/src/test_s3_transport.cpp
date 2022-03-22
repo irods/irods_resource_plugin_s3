@@ -16,8 +16,9 @@
 #include <chrono>
 #include <string>
 #include <sstream>
-
 #include <string_view>
+#include <fmt/format.h>
+#include <irods/miscServerFunct.hpp>
 
 // to run the following unit tests, the aws command line utility needs to be available in
 // the path and "aws configure" needs to be run to set up the keys
@@ -59,101 +60,83 @@ void read_keys(const std::string& keyfile, std::string& access_key, std::string&
 std::string create_bucket() {
 
     using namespace std::chrono;
-    std::stringstream bucket_name_ss;
     int64_t ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-    bucket_name_ss << "irods-s3-unit-test-" << ms;
+    const auto bucket_name = fmt::format("irods-s3-unit-test-{}", ms);
 
     // create the bucket
-    std::stringstream ss;
-    ss << "aws --endpoint-url http://" << hostname << " s3 mb s3://" << bucket_name_ss.str();
+    const auto aws_mb_command = fmt::format("aws --endpoint-url http://{} s3 mb s3://{}", hostname, bucket_name);
 
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    system(ss.str().c_str());
+    irods::log(LOG_NOTICE, aws_mb_command);
+    system(aws_mb_command.c_str());
 
-    return bucket_name_ss.str();
+    return bucket_name;
 }
 
 void remove_bucket(const std::string& bucket_name) {
 
     // remove the bucket
-    std::stringstream ss;
-    ss << "aws --endpoint-url http://" << hostname << " s3 rb --force s3://" << bucket_name;
-
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    system(ss.str().c_str());
+    const auto aws_rb_command = fmt::format("aws --endpoint-url http://{} s3 rb --force s3://{}", hostname, bucket_name);
+    irods::log(LOG_NOTICE, aws_rb_command);
+    system(aws_rb_command.c_str());
 }
+
 void upload_stage_and_cleanup(const std::string& bucket_name, const std::string& filename,
         const std::string& object_prefix)
 {
     // clean up from a previous test, ignore errors
-    std::stringstream ss;
-    ss << "aws --endpoint-url http://" << hostname << " s3 rm s3://" << bucket_name
-        << "/" << object_prefix << filename;
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    system(ss.str().c_str());
+    const auto aws_rm_command = fmt::format("aws --endpoint-url http://{} s3 rm s3://{}/{}{}", hostname, bucket_name, object_prefix, filename);
+    irods::log(LOG_NOTICE, aws_rm_command);
+    system(aws_rm_command.c_str());
 
-    ss.str("");
-    ss << filename << ".downloaded";
-    rodsLog(LOG_NOTICE, "rm %s\n", ss.str().c_str());
-    remove(ss.str().c_str());
+    const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
+    irods::log(LOG_NOTICE, std::string("rm ") + downloaded_file_name);
+    remove(downloaded_file_name.c_str());
 }
 
 void download_stage_and_cleanup(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
     // stage file to s3 and cleanup from previous tests
-    std::stringstream ss;
-    ss << "aws --endpoint-url http://" << hostname << " s3 cp " << filename << " s3://" << bucket_name << "/" << object_prefix
-       << filename;
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    system(ss.str().c_str());
+    const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
+    irods::log(LOG_NOTICE, aws_cp_command);
+    system(aws_cp_command.c_str());
 
-    ss.str("");
-    ss << filename << ".downloaded";
-    remove(ss.str().c_str());
+    const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
+    irods::log(LOG_NOTICE, std::string("rm ") + downloaded_file_name);
+    remove(downloaded_file_name.c_str());
 }
 
 void read_write_stage_and_cleanup(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
 
     // stage the file to s3 and cleanup
-    std::stringstream ss;
-    ss << "aws --endpoint-url http://" << hostname << " s3 cp " << filename << " s3://" << bucket_name << "/" << object_prefix
-       << filename;
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    system(ss.str().c_str());
+    const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
+    irods::log(LOG_NOTICE, aws_cp_command);
+    system(aws_cp_command.c_str());
 
-    std::stringstream filename_ss;
-    filename_ss << filename << ".downloaded";
-    std::string downloaded_filename = filename_ss.str();
-    filename_ss.str("");;
-    filename_ss << filename << ".comparison";
-    std::string comparison_filename = filename_ss.str();
+    const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
+    const auto comparison_file_name = fmt::format("{}.comparison", filename);
 
-    remove(downloaded_filename.c_str());
+    remove(downloaded_file_name.c_str());
 
-    ss.str("");
-    ss << "cp " << filename << " " << comparison_filename;
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    system(ss.str().c_str());
+    const auto cp_command = fmt::format("cp {} {}", filename, comparison_file_name);
+    irods::log(LOG_NOTICE, cp_command);
+    system(cp_command.c_str());
 }
 
 void check_upload_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
     // download the file and compare (using s3 client with system calls for now)
-    std::stringstream ss;
-    ss << "aws --endpoint-url http://" << hostname << " s3 cp s3://" << bucket_name << "/" << object_prefix
-       << filename << " " << filename << ".downloaded";
+    const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp s3://{}/{}{} {}.downloaded", hostname, bucket_name, object_prefix, filename, filename);
 
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    int download_return_val = system(ss.str().c_str());
+    irods::log(LOG_NOTICE, aws_cp_command);
+    int download_return_val = system(aws_cp_command.c_str());
 
     REQUIRE(0 == download_return_val);
 
-    ss.str("");
-    ss << "cmp -s " << filename << " " << filename << ".downloaded";
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    int cmp_return_val = system(ss.str().c_str());
+    const auto cmp_command = fmt::format("cmp -s {} {}.downloaded", filename, filename);
+    irods::log(LOG_NOTICE, cmp_command);
+    int cmp_return_val = system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
 }
@@ -161,36 +144,28 @@ void check_upload_results(const std::string& bucket_name, const std::string& fil
 void check_download_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
     // compare the downloaded file
-    std::stringstream ss;
-    ss << "cmp -s " << filename << " " << filename << ".downloaded";
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    int cmp_return_val = system(ss.str().c_str());
+    const auto cmp_command = fmt::format("cmp -s {} {}.downloaded", filename, filename);
+    irods::log(LOG_NOTICE, cmp_command);
+    int cmp_return_val = system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
 }
 
 void check_read_write_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
-    std::stringstream filename_ss;
-    filename_ss << filename << ".downloaded";
-    std::string downloaded_filename = filename_ss.str();
-    filename_ss.str("");;
-    filename_ss << filename << ".comparison";
-    std::string comparison_filename = filename_ss.str();
+    const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
+    const auto comparison_file_name = fmt::format("{}.comparison", filename);
 
     // download the file and compare (using s3 client with system calls for now)
-    std::stringstream ss;
-    ss << "aws --endpoint-url http://" << hostname << " s3 cp s3://" << bucket_name << "/" << object_prefix
-       << filename << " " << downloaded_filename;
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    int download_return_val = system(ss.str().c_str());
+    const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp s3://{}/{}{} {}", hostname, bucket_name, object_prefix, filename, downloaded_file_name);
+    irods::log(LOG_NOTICE, aws_cp_command);
+    int download_return_val = system(aws_cp_command.c_str());
 
     REQUIRE(0 == download_return_val);
 
-    ss.str("");
-    ss << "cmp -s " << downloaded_filename << " " << comparison_filename;
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    int cmp_return_val = system(ss.str().c_str());
+    const auto cmp_command = fmt::format("cmp -s {} {}", downloaded_file_name, comparison_file_name);
+    irods::log(LOG_NOTICE, cmp_command);
+    int cmp_return_val = system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
 }
@@ -693,15 +668,13 @@ void test_seek_end(const std::string& bucket_name,
     read_keys(keyfile, access_key, secret_access_key);
 
     // stage file to s3
-    std::stringstream ss;
-    ss << "aws --endpoint-url http://" << hostname << " s3 cp " << filename << " s3://" << bucket_name << "/" << object_prefix
-       << filename;
-    rodsLog(LOG_NOTICE, "%s\n", ss.str().c_str());
-    system(ss.str().c_str());
+    const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
+    irods::log(LOG_NOTICE, aws_cp_command);
+    system(aws_cp_command.c_str());
 
     // get the size of the file
     std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
-    off_t file_size = in.tellg(); 
+    off_t file_size = in.tellg();
     in.close();
 
     // open object and seek to end
