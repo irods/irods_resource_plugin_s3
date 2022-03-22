@@ -67,7 +67,7 @@ namespace irods::experimental::io::s3_transport
                                const std::string& function,
                                const libs3_types::bucket_context& saved_bucket_context,
                                libs3_types::status& pStatus,
-                               unsigned long thread_id = 0);
+                               uint64_t thread_id = 0);
     // Sleep between _s / 2 and _s seconds.
     // The random addition ensures that threads don't all cluster up and retry
     // at the same time (dogpile effect)

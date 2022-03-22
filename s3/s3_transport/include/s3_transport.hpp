@@ -1786,10 +1786,10 @@ namespace irods::experimental::io::s3_transport
                     read_callback->bytes_read_from_s3 = 0;
                 }
 
-                msg.str( std::string() ); // Clear
-                msg << "Multirange:  Start range key \"" << object_key_ << "\", offset "
-                    << static_cast<long>(offset) << ", len "
-                    << static_cast<int>(read_callback->content_length);
+                auto msg = fmt::format("Multirange:  Start range key \"{}\", offset {}, len {}",
+                        object_key_,
+                        offset,
+                        read_callback->content_length);
                 rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                         msg.str().c_str());
 
@@ -2019,7 +2019,7 @@ namespace irods::experimental::io::s3_transport
                     rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] S3_upload_part (ctx, %s, props, handler, %u, "
                            "uploadId, %lu, 0, partData) bytes_this_thread=%lld\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                            object_key_.c_str(), part_number,
-                           write_callback->content_length, (long long)bytes_this_thread);
+                           write_callback->content_length, (int64_t)bytes_this_thread);
 
                     S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props,
                             &put_object_handler, part_number, upload_id.c_str(),

@@ -101,12 +101,12 @@
 // Pairing this with LIBS3 error injection will exercise the error recovery
 // and retry code paths.
 static boost::mutex g_error_mutex;
-static long g_werr{0}; // counter
-static long g_rerr{0}; // counter
-static long g_merr{0}; // counter
-static const long g_werr_idx{4}; // Which # pwrite to fail
-static const long g_rerr_idx{4}; // Which # pread to fail
-static const long g_merr_idx{4}; // Which part of Multipart Finish XML to fail
+static int64_t g_werr{0}; // counter
+static int64_t g_rerr{0}; // counter
+static int64_t g_merr{0}; // counter
+static const int64_t g_werr_idx{4}; // Which # pwrite to fail
+static const int64_t g_rerr_idx{4}; // Which # pread to fail
+static const int64_t g_merr_idx{4}; // Which part of Multipart Finish XML to fail
 #endif
 
 //////////////////////////////////////////////////////////////////////
@@ -226,10 +226,10 @@ void s3_sleep(
 }
 
 // Returns timestamp in usec for delta-t comparisons
-static unsigned long long usNow() {
+static uint64_t usNow() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    unsigned long long us = (tv.tv_sec) * 1000000LL + tv.tv_usec;
+    uint64_t us = (tv.tv_sec) * 1000000LL + tv.tv_usec;
     return us;
 }
 
@@ -359,7 +359,7 @@ static int putObjectDataCallback(
     void *callbackData)
 {
     callback_data_t *data = (callback_data_t *) callbackData;
-    long ret = 0;
+    int64_t ret = 0;
 
     if (data->contentLength) {
         int length = ((data->contentLength > (unsigned) bufferSize) ?
@@ -379,7 +379,7 @@ static int putObjectDataCallback(
     g_error_mutex.unlock();
 #endif
 
-    return (long)ret;
+    return (int64_t)ret;
 }
 
 S3Status listBucketCallback(
@@ -675,7 +675,7 @@ S3UriStyle s3_get_uri_request_style( irods::plugin_property_map& _prop_map)
 // returns the upper limit of the MPU chunk size parameter, in megabytes
 // used for validating the value of S3_MPU_CHUNK
 // also used for determining the maximum size for CopyObject
-long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
+int64_t s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string max_size_str;   // max size from context string, in MB
@@ -692,11 +692,11 @@ long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
 }
 
 // returns the chunk size for multipart upload, in bytes
-long s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
+int64_t s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string chunk_str;
-    long bytes = 5L * 1024 * 1024; // default to amazon value
+    int64_t bytes = 5L * 1024 * 1024; // default to amazon value
     ret = _prop_map.get< std::string >(s3_mpu_chunk, chunk_str );
 
     if (ret.ok()) {
@@ -852,15 +852,15 @@ static void mrdWorkerThread (
 
             msg.str( std::string() ); // Clear
             msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset "
-                << (long)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength;
+                << (int64_t)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength;
             rodsLog( LOG_DEBUG, msg.str().c_str() );
 
-            unsigned long long usStart = usNow();
+            uint64_t usStart = usNow();
             std::string&& hostname = s3GetHostname(_prop_map);
             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset,
                            rangeData.get_object_data.contentLength, 0, 0, &getObjectHandler, &rangeData );
-            unsigned long long usEnd = usNow();
+            uint64_t usEnd = usNow();
             double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
             msg << " -- END -- BW=" << bw << " MB/s";
             rodsLog( LOG_DEBUG, msg.str().c_str() );
@@ -1142,7 +1142,7 @@ irods::error s3GetFile(
                 std::string authRegionStr = get_region_name(_prop_map);
                 bucketContext.authRegion = authRegionStr.c_str();
 
-                long chunksize = s3GetMPUChunksize( _prop_map );
+                int64_t chunksize = s3GetMPUChunksize( _prop_map );
 
                 if ( _fileSize < chunksize ) {
                     S3GetObjectHandler getObjectHandler = {
@@ -1156,12 +1156,12 @@ irods::error s3GetFile(
                         data.prop_map_ptr = &_prop_map;
                         data.fd = cache_fd;
                         data.contentLength = data.originalContentLength = _fileSize;
-                        unsigned long long usStart = usNow();
+                        uint64_t usStart = usNow();
                         std::string&& hostname = s3GetHostname(_prop_map);
                         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                         data.pCtx = &bucketContext;
                         S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, 0, &getObjectHandler, &data);
-                        unsigned long long usEnd = usNow();
+                        uint64_t usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "GETBW=%lf", bw);
                         if (data.status != S3StatusOK) {
@@ -1192,8 +1192,8 @@ irods::error s3GetFile(
                     // Multirange get
                     g_mrdResult = SUCCESS();
 
-                    long seq;
-                    long totalSeq = (data.contentLength + chunksize - 1) / chunksize;
+                    int64_t seq;
+                    int64_t totalSeq = (data.contentLength + chunksize - 1) / chunksize;
 
                     multirange_data_t rangeData;
                     int rangeLength = 0;
@@ -1224,7 +1224,7 @@ irods::error s3GetFile(
                     // Make the worker threads and start
                     int nThreads = s3GetMPUThreads(_prop_map);
 
-                    unsigned long long usStart = usNow();
+                    uint64_t usStart = usNow();
                     std::list<boost::thread*> threads;
                     for (int thr_id=0; thr_id<nThreads; thr_id++) {
                         boost::thread *thisThread = new boost::thread(mrdWorkerThread, &bucketContext, &_prop_map);
@@ -1238,7 +1238,7 @@ irods::error s3GetFile(
                         delete thisThread;
                         threads.pop_front();
                     }
-                    unsigned long long usEnd = usNow();
+                    uint64_t usEnd = usNow();
                     double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                     rodsLog( LOG_DEBUG, "MultirangeBW=%lf", bw);
 
@@ -1342,7 +1342,7 @@ static int mpuCommitXmlCB (
     void *callbackData )
 {
     upload_manager_t *manager = (upload_manager_t *)callbackData;
-    long ret = 0;
+    int64_t ret = 0;
     if (manager->remaining) {
         int toRead = ((manager->remaining > bufferSize) ?
                       bufferSize : manager->remaining);
@@ -1478,20 +1478,20 @@ static void mpuWorkerThread (
 
             msg.str( std::string() ); // Clear
             msg << "Multipart:  Start part " << (int)seq << ", key \"" << g_mpuKey << "\", uploadid \"" << g_mpuUploadId << "\", offset "
-                << (long)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength;
+                << (int64_t)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength;
             rodsLog( LOG_DEBUG, msg.str().c_str() );
 
             S3PutProperties *putProps = NULL;
             putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
             putProps->expires = -1;
-            unsigned long long usStart = usNow();
+            uint64_t usStart = usNow();
             std::string&& hostname = s3GetHostname(_prop_map);
             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             if (partData.mode == S3_COPYOBJECT) {
-                unsigned long long startOffset = partData.put_object_data.offset;
+                uint64_t startOffset = partData.put_object_data.offset;
 
                 // TODO -1 below to fix a bug in libs3 code
-                unsigned long long count = partData.put_object_data.contentLength;
+                uint64_t count = partData.put_object_data.contentLength;
                 S3ResponseHandler copyResponseHandler = {mpuInitRespPropCB /*Do nothing*/, mpuPartRespCompCB};
                 int64_t lastModified;
                 // The default copy callback tries to set this for us, need to allocate here
@@ -1506,7 +1506,7 @@ static void mpuWorkerThread (
                 S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId,
                         partData.put_object_data.contentLength, 0, 0, &partData);
             }
-            unsigned long long usEnd = usNow();
+            uint64_t usEnd = usNow();
             double bw = (g_mpuData[seq-1].put_object_data.contentLength / (1024.0 * 1024.0)) / ( (usEnd - usStart) / 1000000.0 );
             // Clear up the S3PutProperties, if it exists
             if (putProps) {
@@ -1554,7 +1554,7 @@ irods::error s3PutCopyFile(
     std::string srcBucket;
     std::string srcKey;
     int err_status = 0;
-    long chunksize = s3GetMPUChunksize( _prop_map );
+    int64_t chunksize = s3GetMPUChunksize( _prop_map );
     size_t retry_cnt    = 0;
     bool server_encrypt = s3GetServerEncrypt ( _prop_map );
     std::stringstream msg;
@@ -1622,11 +1622,11 @@ irods::error s3PutCopyFile(
                         data.contentLength = data.originalContentLength = _fileSize;
                         data.pCtx = &bucketContext;
 
-                        unsigned long long usStart = usNow();
+                        uint64_t usStart = usNow();
                         std::string&& hostname = s3GetHostname(_prop_map);
                         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                         S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, 0, &putObjectHandler, &data);
-                        unsigned long long usEnd = usNow();
+                        uint64_t usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "BW=%lf", bw);
                         if (data.status != S3StatusOK) {
@@ -1665,8 +1665,8 @@ irods::error s3PutCopyFile(
 
                     msg.str( std::string() ); // Clear
 
-                    long seq;
-                    long totalSeq = (_fileSize + chunksize - 1) / chunksize;
+                    int64_t seq;
+                    int64_t totalSeq = (_fileSize + chunksize - 1) / chunksize;
 
                     multipart_data_t partData;
                     int partContentLength = 0;
@@ -1791,7 +1791,7 @@ irods::error s3PutCopyFile(
                         data.contentLength -= partContentLength;
                     }
 
-                    unsigned long long usStart = usNow();
+                    uint64_t usStart = usNow();
 
                     // Make the worker threads and start
                     int nThreads = s3GetMPUThreads(_prop_map);
@@ -1810,7 +1810,7 @@ irods::error s3PutCopyFile(
                         threads.pop_front();
                     }
 
-                    unsigned long long usEnd = usNow();
+                    uint64_t usEnd = usNow();
                     double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                     rodsLog( LOG_DEBUG, "MultipartBW=%lf", bw);
 

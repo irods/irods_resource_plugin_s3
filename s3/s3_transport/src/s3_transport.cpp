@@ -131,7 +131,7 @@ namespace irods::experimental::io::s3_transport
             const unsigned int restoration_days,
             const std::string& restoration_tier) {
 
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         std::stringstream xml("");
         xml << "<RestoreRequest>\n"
@@ -206,7 +206,7 @@ namespace irods::experimental::io::s3_transport
                                const std::string& function,
                                const libs3_types::bucket_context& saved_bucket_context,
                                libs3_types::status& pStatus,
-                               unsigned long thread_id )
+                               uint64_t thread_id )
     {
 
         int log_level = LOG_DEBUG;
@@ -371,7 +371,7 @@ namespace irods::experimental::io::s3_transport
                           void *callback_data)
             {
                 upload_manager *manager = (upload_manager *)callback_data;
-                long ret = 0;
+                int64_t ret = 0;
                 if (manager->remaining) {
                     int to_read_count = ((manager->remaining > static_cast<int64_t>(buffer_size)) ?
                                   static_cast<int64_t>(buffer_size) : manager->remaining);
@@ -494,7 +494,7 @@ namespace irods::experimental::io::s3_transport
                           void *callback_data)
             {
                 upload_manager *manager = (upload_manager *)callback_data;
-                long ret = 0;
+                int64_t ret = 0;
                 if (manager->remaining) {
                     int to_read_count = ((manager->remaining > static_cast<int64_t>(buffer_size)) ?
                                   static_cast<int64_t>(buffer_size) : manager->remaining);
