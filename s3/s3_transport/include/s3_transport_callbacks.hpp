@@ -667,7 +667,7 @@ namespace irods::experimental::io::s3_transport
                 std::string                  object_key;
                 std::string                  shmem_key;
 
-                unsigned long                sequence;
+                uint64_t                     sequence;
                 int64_t                      content_length;
                 libs3_types::bucket_context& saved_bucket_context; // To enable more detailed error messages
 

@@ -57,7 +57,7 @@ extern const std::string  S3_DEFAULT_RESTORATION_TIER;
 extern const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
-long s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
+int64_t s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map);
 S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
@@ -92,7 +92,7 @@ typedef struct s3Stat
 typedef struct callback_data
 {
     int fd;
-    long offset;       /* For multiple upload */
+    int64_t offset;       /* For multiple upload */
     rodsLong_t contentLength, originalContentLength;
     S3Status status;
     int keyCount;
@@ -109,8 +109,8 @@ typedef struct upload_manager
 
     /* Below used for the upload completion command, need to send in XML */
     char *xml;
-    long remaining;
-    long offset;
+    int64_t remaining;
+    int64_t offset;
 
     S3BucketContext *pCtx; /* To enable more detailed error messages */
 
@@ -173,7 +173,7 @@ S3Protocol s3GetProto( irods::plugin_property_map& _prop_map);
 
 S3STSDate s3GetSTSDate( irods::plugin_property_map& _prop_map);
 
-long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map);
+int64_t s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map);
 
 bool s3_copyobject_disabled(irods::plugin_property_map& _prop_map);
 

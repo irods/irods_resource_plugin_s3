@@ -164,7 +164,7 @@ namespace irods_s3 {
     void get_number_of_threads_data_size_and_opr_type(irods::plugin_context& _ctx,
         int& number_of_threads, int64_t& data_size, int& oprType, bool query_metadata = true) {
 
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         // ********* DEBUG - print L1desc for all
         if (getRodsLogLevel() >= developer_messages_log_level) {
@@ -327,7 +327,7 @@ namespace irods_s3 {
     // returns true if path updated, else false
     void update_physical_path_for_decoupled_naming(irods::plugin_context& _ctx)
     {
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
         // retrieve archive naming policy from resource plugin context
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
@@ -387,7 +387,7 @@ namespace irods_s3 {
     {
         using std::ios_base;
 
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         rodsLog(developer_messages_log_level, "%s:%d (%s)  [[%lu]] call_from=%s O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, call_from.c_str(),
@@ -443,7 +443,7 @@ namespace irods_s3 {
             const std::string& call_from)
     {
 
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         // get the file descriptor
@@ -629,7 +629,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -679,7 +679,7 @@ namespace irods_s3 {
 
             irods::error result = SUCCESS();
 
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -837,7 +837,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::error result = SUCCESS();
@@ -900,7 +900,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
@@ -1090,7 +1090,7 @@ namespace irods_s3 {
         struct stat* _statbuf,
         bool retry_on_not_found )
     {
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         irods::error result = SUCCESS();
@@ -1227,7 +1227,7 @@ namespace irods_s3 {
         irods::plugin_context& _ctx,
         struct stat* _statbuf )
     {
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         return s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, _statbuf, false);
     }
@@ -1255,7 +1255,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::error result = SUCCESS();
@@ -1891,7 +1891,7 @@ namespace irods_s3 {
                 }
             }
 
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 

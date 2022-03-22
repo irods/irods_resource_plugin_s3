@@ -69,14 +69,14 @@ namespace experimental {
             }
 
             template <typename iter>
-            long push_back(iter begin, iter end)
+            int64_t push_back(iter begin, iter end)
             {
                 // push what you can, return the number pushed
-                long insertion_count = 0;
+                int64_t insertion_count = 0;
                 (*lws_)([this] { return cb_.size() < cb_.capacity(); },
                         [this, begin, end, &insertion_count] {
 
-                           auto distance = static_cast<unsigned long>(std::distance(begin, end));
+                           auto distance = static_cast<uint64_t>(std::distance(begin, end));
                            auto empty_space = cb_.capacity() - cb_.size();
                            insertion_count = ( empty_space < distance ? empty_space : distance );
                            cb_.insert(cb_.end(), begin, begin + insertion_count );
