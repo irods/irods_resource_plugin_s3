@@ -92,6 +92,7 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 #include <libxml/tree.h>
+#include <fmt/format.h>
 
 #ifdef ERROR_INJECT
 // Callback error injection
@@ -591,15 +592,14 @@ irods::error s3InitPerOperation (
         const char* host_name = hostname.c_str(); // Iterate through on each try
         status = S3_initialize( "s3", flags, host_name );
 
-        std::stringstream msg;
-        if( status >= 0 ) {
-            msg << " - \"";
-            msg << S3_get_status_name((S3Status)status);
-            msg << "\"";
+        auto msg = fmt::format("[resource_name={}]  - Error initializing the S3 library. Status = {}.",
+                resource_name, status);
+
+        if(status >= 0) {
+            msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)status));
         }
 
-        result = ASSERT_ERROR(status == S3StatusOK, status, "[resource_name=%s] Error initializing the S3 library. Status = %d.", resource_name.c_str(),
-                              status, msg.str().c_str());
+        result = ASSERT_ERROR(status == S3StatusOK, status, msg);
         if( result.ok() ) {
 
             // If using V4 we also need to set the S3 region name
@@ -815,7 +815,6 @@ static void mrdWorkerThread (
     std::string resource_name = get_resource_name(_prop_map);
 
     irods::error result;
-    std::stringstream msg;
     S3GetObjectHandler getObjectHandler = { {mrdRangeRespPropCB, mrdRangeRespCompCB }, mrdRangeGetDataCB };
 
     size_t retry_count_limit = get_retry_count(_prop_map);
@@ -850,10 +849,12 @@ static void mrdWorkerThread (
             rangeData.pCtx = &bucketContext;
             rangeData.prop_map_ptr = &_prop_map;
 
-            msg.str( std::string() ); // Clear
-            msg << "Multirange:  Start range " << (int)seq << ", key \"" << g_mrdKey << "\", offset "
-                << (int64_t)rangeData.get_object_data.offset << ", len " << (int)rangeData.get_object_data.contentLength;
-            rodsLog( LOG_DEBUG, msg.str().c_str() );
+            irods::log(LOG_DEBUG,
+                    fmt::format("Multirange:  Start range {}  \"{}\", offset {}, len {}",
+                    seq,
+                    g_mrdKey,
+                    rangeData.get_object_data.offset,
+                    rangeData.get_object_data.contentLength));
 
             uint64_t usStart = usNow();
             std::string&& hostname = s3GetHostname(_prop_map);
@@ -862,8 +863,8 @@ static void mrdWorkerThread (
                            rangeData.get_object_data.contentLength, 0, 0, &getObjectHandler, &rangeData );
             uint64_t usEnd = usNow();
             double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
-            msg << " -- END -- BW=" << bw << " MB/s";
-            rodsLog( LOG_DEBUG, msg.str().c_str() );
+
+            irods::log(LOG_DEBUG, fmt::format(" -- END -- BW={} MB/s", bw));
             if (rangeData.status != S3StatusOK) {
                 s3_sleep( retry_wait );
                 retry_wait *= 2;
@@ -873,14 +874,18 @@ static void mrdWorkerThread (
             }
         } while ((rangeData.status != S3StatusOK) && S3_status_is_retryable(rangeData.status) && (++retry_cnt <= retry_count_limit));
         if (rangeData.status != S3StatusOK) {
-            msg.str( std::string() ); // Clear
-            msg << "[resource_name=" << resource_name << "] " << __FUNCTION__
-                << " - Error getting the S3 object: \"" << g_mrdKey << "\" range " << seq;
-            if (rangeData.status >= 0) {
-                msg << " - \"" << S3_get_status_name( rangeData.status ) << "\"";
+
+            auto msg = fmt::format("[resource_name={}] {} - Error getting the S3 object: \"{}\" range {}",
+                    resource_name,
+                    __FUNCTION__,
+                    g_mrdKey,
+                    seq);
+
+            if(rangeData.status >= 0) {
+                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)rangeData.status));
             }
-            result = ERROR( S3_GET_ERROR, msg.str() );
-            rodsLog( LOG_ERROR, msg.str().c_str() );
+            result = ERROR( S3_GET_ERROR, msg );
+            irods::log( LOG_ERROR, msg );
             g_mrdLock.lock();
             g_mrdResult = result;
             g_mrdLock.unlock();
@@ -944,13 +949,13 @@ size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
     } else {
         // for backward compatibility, look for S3_WAIT_TIME_SEC
         irods::error ret = _prop_map.get< std::string >( s3_wait_time_sec, wait_time_str );
+        std::string resource_name = get_resource_name(_prop_map);
         if( ret.ok() ) {
             irods::log(LOG_WARNING, fmt::format("[resource_name={} - {} is deprecated.  Use {}",
                         resource_name, s3_wait_time_sec, s3_wait_time_seconds));
             try {
                 retry_wait = boost::lexical_cast<size_t>( wait_time_str );
             } catch ( const boost::bad_lexical_cast& ) {
-                std::string resource_name = get_resource_name(_prop_map);
                 rodsLog(
                     LOG_ERROR,
                     "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
@@ -980,13 +985,13 @@ size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
     } else {
         // for backward compatibility, look for S3_MAX_WAIT_TIME_SEC
         irods::error ret = _prop_map.get< std::string >( s3_max_wait_time_sec, max_retry_wait_str );
+        std::string resource_name = get_resource_name(_prop_map);
         if( ret.ok() ) {
             irods::log(LOG_WARNING, fmt::format("[resource_name={} - {} is being deprecated.  Use {}",
                         resource_name, s3_max_wait_time_sec, s3_max_wait_time_seconds));
             try {
                 max_retry_wait = boost::lexical_cast<size_t>( max_retry_wait_str );
             } catch ( const boost::bad_lexical_cast& ) {
-                std::string resource_name = get_resource_name(_prop_map);
                 rodsLog(
                     LOG_ERROR,
                     "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
@@ -1173,15 +1178,19 @@ irods::error s3GetFile(
                         }
                     } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                     if (data.status != S3StatusOK) {
-                        std::stringstream msg;
-                        msg << "[resource_name=" << resource_name << "] " << __FUNCTION__ << " - Error fetching the S3 object: \"" << _s3ObjName << "\"";
-                        if (data.status >= 0) {
-                            msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+
+                        auto msg = fmt::format("[resource_name={}]  {} - Error fetching the S3 object: \"{}\"",
+                                resource_name,
+                                __FUNCTION__,
+                                _s3ObjName);
+
+                        if(data.status >= 0) {
+                            msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
                         }
-                        result = ERROR(S3_GET_ERROR, msg.str());
+
+                        result = ERROR(S3_GET_ERROR, msg);
                     }
                 } else {
-                    std::stringstream msg;
 
                     // Only the FD part of this will be constant
                     bzero (&data, sizeof (data));
@@ -1410,24 +1419,25 @@ static void mpuCancel( S3BucketContext *bucketContext, const char *key, const ch
     irods::plugin_property_map& _prop_map )
 {
     S3AbortMultipartUploadHandler abortHandler = { { mpuCancelRespPropCB, mpuCancelRespCompCB } };
-    std::stringstream msg;
     S3Status status;
 
     std::string resource_name = get_resource_name(_prop_map);
 
-    msg << "[resource_name=" << resource_name << "] " << "Cancelling multipart upload: key=\"" << key << "\", upload_id=\"" << upload_id << "\"";
-    rodsLog( LOG_ERROR, msg.str().c_str() );
+    irods::log( LOG_ERROR, fmt::format("[resource_name={}] Cancelling multipart upload: key=\"{}\", upload_id = \"{}\"", resource_name, key, upload_id) );
     g_mpuCancelRespCompCB_status = S3StatusOK;
     g_mpuCancelRespCompCB_pCtx = bucketContext;
     S3_abort_multipart_upload(bucketContext, key, upload_id, 0, &abortHandler);
     status = g_mpuCancelRespCompCB_status;
     if (status != S3StatusOK) {
-        msg.str( std::string() ); // Clear
-        msg << "[resource_name=" << resource_name << "] " << __FUNCTION__ << " - Error cancelling the multipart upload of S3 object: \"" << key << "\"";
-        if (status >= 0) {
-            msg << " - \"" << S3_get_status_name(status) << "\"";
+
+        auto msg = fmt::format("[resource_name={}] {}  - Error cancelling the mulipart upload of S3 object: \"{}\"",
+                resource_name,
+                __FUNCTION__,
+                key);
+        if(status >= 0) {
+            msg += fmt::format(" - \"{}\"", S3_get_status_name(status));
         }
-        rodsLog( LOG_ERROR, msg.str().c_str() );
+        irods::log( LOG_ERROR, msg );
     }
 }
 
@@ -1442,7 +1452,6 @@ static void mpuWorkerThread (
     std::string resource_name = get_resource_name(_prop_map);
 
     irods::error result;
-    std::stringstream msg;
     S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
 
     size_t retry_count_limit = get_retry_count(_prop_map);
@@ -1476,10 +1485,12 @@ static void mpuWorkerThread (
             partData = g_mpuData[seq-1];
             partData.put_object_data.pCtx = &bucketContext;
 
-            msg.str( std::string() ); // Clear
-            msg << "Multipart:  Start part " << (int)seq << ", key \"" << g_mpuKey << "\", uploadid \"" << g_mpuUploadId << "\", offset "
-                << (int64_t)partData.put_object_data.offset << ", len " << (int)partData.put_object_data.contentLength;
-            rodsLog( LOG_DEBUG, msg.str().c_str() );
+            irods::log( LOG_DEBUG, fmt::format("Multipart:  Start part {}, key \"{}\", uploadid \"{}\", offset {}, len {}",
+                        (int)seq,
+                        g_mpuKey,
+                        g_mpuUploadId,
+                        (int64_t)partData.put_object_data.offset,
+                        (int)partData.put_object_data.contentLength) );
 
             S3PutProperties *putProps = NULL;
             putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
@@ -1513,8 +1524,7 @@ static void mpuWorkerThread (
                 if (putProps->md5) free( (char*)putProps->md5 );
                 free( putProps );
             }
-            msg << " -- END -- BW=" << bw << " MB/s";
-            rodsLog( LOG_DEBUG, msg.str().c_str() );
+            irods::log( LOG_DEBUG, fmt::format(" -- END -- BW={} MB/s", bw) );
             if (partData.status != S3StatusOK) {
                 s3_sleep( retry_wait );
                 retry_wait *= 2;
@@ -1524,14 +1534,19 @@ static void mpuWorkerThread (
             }
         } while ((partData.status != S3StatusOK) && S3_status_is_retryable(partData.status) && (++retry_cnt <= retry_count_limit));
         if (partData.status != S3StatusOK) {
-            msg.str( std::string() ); // Clear
-            msg << "[resource_name=" << resource_name << "] " << __FUNCTION__ << " - Error putting the S3 object: \"" << g_mpuKey << "\"" << " part " << seq;
+
+            auto msg = fmt::format("[resource_name={}] {} - Error putting the S3 object: \"{}\" part {}",
+                    resource_name,
+                    __FUNCTION__,
+                    g_mpuKey,
+                    seq);
+
             if(partData.status >= 0) {
-                msg << " - \"" << S3_get_status_name(partData.status) << "\"";
+                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)partData.status));
             }
-            result = ERROR( S3_PUT_ERROR, msg.str() );
-            rodsLog( LOG_ERROR, msg.str().c_str() );
-            g_mpuResult = result;
+
+            g_mpuResult = ERROR( S3_PUT_ERROR, msg );
+            irods::log( LOG_ERROR, msg );
         }
     }
 }
@@ -1557,7 +1572,6 @@ irods::error s3PutCopyFile(
     int64_t chunksize = s3GetMPUChunksize( _prop_map );
     size_t retry_cnt    = 0;
     bool server_encrypt = s3GetServerEncrypt ( _prop_map );
-    std::stringstream msg;
 
     std::string resource_name = get_resource_name(_prop_map);
 
@@ -1638,12 +1652,13 @@ irods::error s3PutCopyFile(
                         }
                     } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                     if (data.status != S3StatusOK) {
-                        std::stringstream msg;
-                        msg << "[resource_name=" << resource_name << "] " << " - Error putting the S3 object: \"" << _s3ObjName << "\"";
-                        if ( data.status >= 0 ) {
-                            msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+                        auto msg = fmt::format("[resource_name={}]  - Error putting the S3 object: \"{}\"",
+                                resource_name,
+                                _s3ObjName);
+                        if(data.status >= 0) {
+                            msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
                         }
-                        result = ERROR(S3_PUT_ERROR, msg.str());
+                        result = ERROR(S3_PUT_ERROR, msg);
                     }
 
                     // Clear up the S3PutProperties, if it exists
@@ -1662,8 +1677,6 @@ irods::error s3PutCopyFile(
                     manager.xml = NULL;
 
                     g_mpuResult = SUCCESS();
-
-                    msg.str( std::string() ); // Clear
 
                     int64_t seq;
                     int64_t totalSeq = (_fileSize + chunksize - 1) / chunksize;
@@ -1684,9 +1697,9 @@ irods::error s3PutCopyFile(
                             if (putProps->md5) free( (char*)putProps->md5 );
                             free( putProps );
                         }
-                        std::string msg =  boost::str(boost::format("[resource_name=%s] Out of memory error in S3 multipart ETags allocation.") % resource_name.c_str());
-                        rodsLog( LOG_ERROR, msg.c_str() );
-                        result = ERROR( SYS_MALLOC_ERR, msg.c_str() );
+                        const auto msg = fmt::format("[resource_name={}] Out of memory error in S3 multipart ETags allocation.", resource_name);
+                        irods::log( LOG_ERROR, msg );
+                        result = ERROR( SYS_MALLOC_ERR, msg );
                         return result;
                     }
                     g_mpuData = (multipart_data_t*)calloc(totalSeq, sizeof(multipart_data_t));
@@ -1697,9 +1710,9 @@ irods::error s3PutCopyFile(
                             free( putProps );
                         }
                         free(manager.etags);
-                        std::string msg =  boost::str(boost::format("[resource_name=%s] Out of memory error in S3 multipart g_mupData allocation.") % resource_name.c_str());
-                        rodsLog( LOG_ERROR, msg.c_str() );
-                        result = ERROR( SYS_MALLOC_ERR, msg.c_str() );
+                        const auto msg = fmt::format("[resource_name={}] Out of memory error in S3 multipart g_mpuData allocation.", resource_name);
+                        irods::log( LOG_ERROR, msg );
+                        result = ERROR( SYS_MALLOC_ERR, msg );
                         return result;
                     }
                     // Maximum XML completion length with extra space for the <complete...></complete...> tag
@@ -1712,9 +1725,9 @@ irods::error s3PutCopyFile(
                         }
                         free(g_mpuData);
                         free(manager.etags);
-                        std::string msg =  boost::str(boost::format("[resource_name=%s] Out of memory error in S3 multiparts XML allocation.") % resource_name.c_str());
-                        rodsLog( LOG_ERROR, msg.c_str() );
-                        result = ERROR( SYS_MALLOC_ERR, msg.c_str() );
+                        const auto msg = fmt::format("[resource_name={}] Out of memory error in S3 multipart XML allocation.", resource_name);
+                        irods::log( LOG_ERROR, msg );
+                        result = ERROR( SYS_MALLOC_ERR, msg );
                         return result;
                     }
 
@@ -1740,13 +1753,16 @@ irods::error s3PutCopyFile(
                             if (putProps->md5) free( (char*)putProps->md5 );
                             free( putProps );
                         }
-                        msg.str( std::string() ); // Clear
-                        msg << "[resource_name=" << resource_name << "] " << __FUNCTION__ << " - Error initiating multipart upload of the S3 object: \"" << _s3ObjName << "\"";
+                        auto msg = fmt::format("[resource_name={}] {} - Error initiating multipart upload of the S3 object: \"{}\"",
+                                resource_name,
+                                __FUNCTION__,
+                                _s3ObjName);
+
                         if(manager.status >= 0) {
-                            msg << " - \"" << S3_get_status_name(manager.status) << "\"";
+                            msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)manager.status));
                         }
-                        rodsLog( LOG_ERROR, msg.str().c_str() );
-                        result = ERROR( S3_PUT_ERROR, msg.str() );
+                        irods::log( LOG_ERROR, msg );
+                        result = ERROR( S3_PUT_ERROR, msg );
                         return result; // Abort early
                     }
 
@@ -1818,9 +1834,7 @@ irods::error s3PutCopyFile(
                     manager.offset  = 0;
 
                     if (g_mpuResult.ok()) { // If someone aborted, don't complete...
-                        msg.str( std::string() ); // Clear
-                        msg << "Multipart:  Completing key \"" << key.c_str() << "\"";
-                        rodsLog( LOG_DEBUG, msg.str().c_str() );
+                        irods::log( LOG_DEBUG, fmt::format("Multipart:  Completing key \"{}\"", key) );
 
                         int i;
                         strcpy(manager.xml, "<CompleteMultipartUpload>\n");
@@ -1855,13 +1869,15 @@ irods::error s3PutCopyFile(
                             }
                         } while ((manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt <= retry_count_limit));
                         if (manager.status != S3StatusOK) {
-                            msg.str( std::string() ); // Clear
-                            msg << "[resource_name=" << resource_name << "] ";
-                            msg << __FUNCTION__ << " - Error putting the S3 object: \"" << _s3ObjName << "\"";
+                            auto msg = fmt::format("[resource_name={}] {} - Error putting the S3 object: \"{}\"",
+                                    resource_name,
+                                    __FUNCTION__,
+                                    _s3ObjName);
+
                             if(manager.status >= 0) {
-                                msg << " - \"" << S3_get_status_name( manager.status ) << "\"";
+                                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)manager.status));
                             }
-                            g_mpuResult = ERROR( S3_PUT_ERROR, msg.str() );
+                            g_mpuResult = ERROR( S3_PUT_ERROR, msg );
                         }
                     }
                     if ( !g_mpuResult.ok() && manager.upload_id ) {
@@ -1991,14 +2007,16 @@ irods::error s3CopyFile(
                     }
                 } while ( (data.status != S3StatusOK) && S3_status_is_retryable(data.status) && (++retry_cnt <= retry_count_limit) );
                 if (data.status != S3StatusOK) {
-                    std::stringstream msg;
-                    msg << __FUNCTION__;
-                    msg << "[resource_name=" << resource_name << "] ";
-                    msg << " - Error copying the S3 object: \"" << _src_file << "\" to S3 object: \"" << _dest_file << "\"";
-                    if (data.status >= 0) {
-                        msg << " - \"" << S3_get_status_name((S3Status)data.status) << "\"";
+                    auto msg = fmt::format("[resource_name={}] {} - Error copying the S3 object: \"{}\" to S3 object \"{}\"",
+                            resource_name,
+                            __FUNCTION__,
+                            _src_file,
+                            _dest_file);
+
+                    if(data.status >= 0) {
+                        msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
                     }
-                    result = ERROR(S3_FILE_COPY_ERR, msg.str());
+                    result = ERROR(S3_FILE_COPY_ERR, msg);
                 }
             }
         }
@@ -2246,9 +2264,7 @@ irods::error register_archive_object(
               irods::RESOURCE_NAME,
               resc_name );
     if( !ret.ok() ) {
-        std::stringstream msg;
-        msg << "[resource_name=" << get_resource_name(_prop_map) << "] " << ret.result();
-        return PASSMSG(msg.str(), ret);
+        return PASSMSG( fmt::format("[{}] {}", get_resource_name(_prop_map), ret.result()), ret );
     }
 
     // scan for a repl with this resource in the
@@ -2300,17 +2316,13 @@ irods::error register_archive_object(
     rodsLong_t resc_id = 0;
     ret = _prop_map.get<rodsLong_t>( irods::RESOURCE_ID, resc_id );
     if( !ret.ok() ) {
-        std::stringstream msg;
-        msg << "[resource_name=" << resc_name << "] " << ret.result();
-        return PASSMSG(msg.str(), ret);
+        return PASSMSG( fmt::format("[{}] {}", get_resource_name(_prop_map), ret.result()), ret );
     }
 
     std::string resc_hier;
     ret = resc_mgr.leaf_id_to_hier(resc_id, resc_hier);
     if( !ret.ok() ) {
-        std::stringstream msg;
-        msg << "[resource_name=" << resc_name << "] " << ret.result();
-        return PASSMSG(msg.str(), ret);
+        return PASSMSG( fmt::format("[{}] {}", get_resource_name(_prop_map), ret.result()), ret );
     }
 
     // =-=-=-=-=-=-=-
@@ -2445,9 +2457,7 @@ irods::error s3RedirectOpen(
                                            _file_obj);
                 if(!get_ret.ok()) {
                     irods::log(get_ret);
-                    std::stringstream msg;
-                    msg << "[resource_name=" << resource_name << "] " << get_ret.result();
-                    return PASSMSG(msg.str(), get_ret);
+                    return PASSMSG( fmt::format("[{}] {}", resource_name, get_ret.result()), get_ret );
                 }
 
                 _out_vote = 1.0;

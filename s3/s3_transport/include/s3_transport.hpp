@@ -26,6 +26,7 @@
 #include <ctime>
 #include <chrono>
 #include <utility>
+#include <fmt/format.h>
 
 // boost includes
 #include <boost/algorithm/string/predicate.hpp>
@@ -535,9 +536,8 @@ namespace irods::experimental::io::s3_transport
                     // calculate the new size of the file
                     auto current_position = this->cache_fstream_.tellp();
 
-                    std::stringstream msg;
-                    msg << "send() position=" << position_before_write << " size=" << _buffer_size << " position_after_write=" << current_position;
-                    rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), msg.str().c_str());
+                    const auto msg = fmt::format("send() position={} size={} position_after_write=", position_before_write, _buffer_size, current_position);
+                    rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), msg.c_str());
 
                     // return bytes written
                     std::streamsize bytes_written = current_position - position_before_write;
@@ -586,14 +586,12 @@ namespace irods::experimental::io::s3_transport
                         begin_part_upload_thread_ptr_ = std::make_unique<std::thread>(
                                 &s3_transport::s3_upload_part_worker_routine, this, false, 0, 0, get_file_offset());
                     } catch (const std::bad_alloc& ba) {
-                        std::stringstream error_msg;
-                        error_msg << "Allocation error when creating upload part thread. [" << ba.what() << "]";
-                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.str().c_str()));
+                        const auto error_msg = fmt::format("Allocation error when creating upload part thread. [{}]", ba.what());
+                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.c_str()));
                         return 0;
                     } catch (const std::system_error& se) {
-                        std::stringstream error_msg;
-                        error_msg << "System error when creating upload part thread. [" << se.what() << "]";
-                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.str().c_str()));
+                        const auto error_msg = fmt::format("System error when creating upload part thread. [{}]", se.what());
+                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.c_str()));
                         return 0;
                     }
                 } else {
@@ -601,14 +599,12 @@ namespace irods::experimental::io::s3_transport
                         begin_part_upload_thread_ptr_ = std::make_unique<std::thread>(
                             &s3_transport::s3_upload_file, this, false);
                     } catch (const std::bad_alloc& ba) {
-                        std::stringstream error_msg;
-                        error_msg << "Allocation error when creating upload file thread. [" << ba.what() << "]";
-                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.str().c_str()));
+                        const auto error_msg = fmt::format("Allocation error when creating upload file thread. [{}]", ba.what());
+                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.c_str()));
                         return 0;
                     } catch (const std::system_error& se) {
-                        std::stringstream error_msg;
-                        error_msg << "System error when creating upload file thread. [" << se.what() << "]";
-                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.str().c_str()));
+                        const auto error_msg = fmt::format("System error when creating upload filethread. [{}]", se.what());
+                        this->set_error(ERROR(S3_PUT_ERROR, error_msg.c_str()));
                         return 0;
                     }
                 }
@@ -1453,7 +1449,6 @@ namespace irods::experimental::io::s3_transport
 
             S3PutProperties put_props{};
             put_props.useServerSideEncryption = config_.server_encrypt_flag;
-            std::stringstream msg;
 
             put_props.md5 = nullptr;
             put_props.expires = -1;
@@ -1461,8 +1456,6 @@ namespace irods::experimental::io::s3_transport
             upload_manager_.remaining = 0;
             upload_manager_.offset  = 0;
             upload_manager_.xml = "";
-
-            msg.str( std::string() ); // Clear
 
             data_for_write_callback data{bucket_context_, circular_buffer_};
             data.thread_identifier = get_thread_identifier();
@@ -1547,12 +1540,10 @@ namespace irods::experimental::io::s3_transport
                 = { { s3_multipart_upload::cancel_callback::on_response_properties,
                       s3_multipart_upload::cancel_callback::on_response_completion } };
 
-            std::stringstream msg;
             libs3_types::status status;
 
-            msg << "Cancelling multipart upload: key=\""
-                << object_key_ << "\", upload_id=\"" << upload_id << "\"";
-            rodsLog(config_.developer_messages_log_level,  "%s\n", msg.str().c_str() );
+            const auto msg = fmt::format("Cancelling multipart upload: key=\"{}\", upload_id=\"{}\"", object_key_, upload_id);
+            rodsLog(config_.developer_messages_log_level,  "%s\n", msg.c_str() );
 
             s3_multipart_upload::cancel_callback::g_response_completion_status = libs3_types::status_ok;
             s3_multipart_upload::cancel_callback::g_response_completion_saved_bucket_context = &bucket_context_;
@@ -1560,15 +1551,14 @@ namespace irods::experimental::io::s3_transport
                     upload_id.c_str(), 0, &abort_handler);
             status = s3_multipart_upload::cancel_callback::g_response_completion_status;
             if (status != libs3_types::status_ok) {
-                msg.str( std::string() ); // Clear
-                msg << "] " << __FUNCTION__
-                    << " - Error cancelling the multipart upload of S3 object: \""
-                    << object_key_ << "\"";
+                auto msg = fmt::format("{} - Error cancelling the multipart upload of S3 object: \"{}\"",
+                        __FUNCTION__,
+                        object_key_);
                 if (status >= 0) {
-                    msg << " - \"" << S3_get_status_name(status) << "\"";
+                    msg += fmt::format(" - \"{}\"", S3_get_status_name(status));
                 }
                 rodsLog(config_.developer_messages_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                        msg.str().c_str() );
+                        msg.c_str() );
             }
         } // end mpu_cancel
 
@@ -1587,10 +1577,6 @@ namespace irods::experimental::io::s3_transport
 
                 int retry_wait_seconds = this->config_.retry_wait_seconds;
 
-                std::stringstream msg;
-
-                std::stringstream xml("");
-
                 std::string upload_id  = data.upload_id.c_str();
 
                 if ("" == upload_id) {
@@ -1600,27 +1586,21 @@ namespace irods::experimental::io::s3_transport
 
                 if (error_codes::SUCCESS == data.last_error_code) { // If someone aborted, don't complete...
 
-                    msg.str( std::string() ); // Clear
-                    msg << "Multipart:  Completing key \"" << object_key_.c_str() << "\" Upload ID \""
-                        << upload_id << "\"";
+                    const auto msg = fmt::format("Multipart:  Completing key \"{}\" Upload ID \"{}\"", object_key_, upload_id);
                     rodsLog(config_.developer_messages_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                            msg.str().c_str() );
+                            msg.c_str() );
 
                     uint64_t i;
-                    xml << "<CompleteMultipartUpload>\n";
+                    auto xml = fmt::format("<CompleteMultipartUpload>\n");
                     for ( i = 0; i < data.etags.size() && !data.etags[i].empty(); i++ ) {
-                        xml << "<Part><PartNumber>";
-                        xml << (i + 1);
-                        xml << "</PartNumber><ETag>";
-                        xml << data.etags[i];
-                        xml << "</ETag></Part>";
+                        xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>\n", i + 1, data.etags[i]);
                     }
-                    xml << "</CompleteMultipartUpload>\n";
+                    xml += fmt::format("</CompleteMultipartUpload>\n");
 
                     rodsLog(config_.developer_messages_log_level,  "%s:%d (%s) [[%lu]] [key=%s] Request: %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                            object_key_.c_str(), xml.str().c_str() );
+                            object_key_.c_str(), xml.c_str() );
 
-                    int manager_remaining = xml.str().size();
+                    int manager_remaining = xml.size();
                     upload_manager_.offset = 0;
                     unsigned int retry_cnt = 0;
                     S3MultipartCommitHandler commit_handler
@@ -1630,7 +1610,7 @@ namespace irods::experimental::io::s3_transport
                     do {
                         // On partial error, need to restart XML send from the beginning
                         upload_manager_.remaining = manager_remaining;
-                        upload_manager_.xml = xml.str().c_str();
+                        upload_manager_.xml = xml.c_str();
 
                         upload_manager_.offset = 0;
                         S3_complete_multipart_upload(&bucket_context_,
@@ -1669,12 +1649,13 @@ namespace irods::experimental::io::s3_transport
                             ( retry_cnt <= config_.retry_count_limit ));
 
                     if (upload_manager_.status != libs3_types::status_ok && upload_manager_.status != libs3_types::status_request_timeout) {
-                        msg.str( std::string() ); // Clear
-                        msg << __FUNCTION__ << " - Error putting the S3 object: \""
-                            << object_key_ << "\"";
+                        auto msg  = fmt::format("{}  - Error putting the S3 object: \"{}\"",
+                                __FUNCTION__,
+                                object_key_);
                         if(upload_manager_.status >= 0) {
-                            msg << " - \"" << S3_get_status_name( upload_manager_.status ) << "\"";
+                            msg += fmt::format(" - \"{}\"", S3_get_status_name( upload_manager_.status ));
                         }
+                        this->set_error(ERROR(S3_PUT_ERROR, msg.c_str()));
                         return error_codes::COMPLETE_MULTIPART_UPLOAD_ERROR;
                     }
                 }
@@ -1717,8 +1698,6 @@ namespace irods::experimental::io::s3_transport
         {
             namespace bi = boost::interprocess;
             namespace types = shared_data::interprocess_types;
-
-            std::stringstream msg;
 
             unsigned int retry_cnt = 0;
 
@@ -1788,10 +1767,10 @@ namespace irods::experimental::io::s3_transport
 
                 auto msg = fmt::format("Multirange:  Start range key \"{}\", offset {}, len {}",
                         object_key_,
-                        offset,
-                        read_callback->content_length);
+                        static_cast<int64_t>(offset),
+                        static_cast<int>(read_callback->content_length));
                 rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                        msg.str().c_str());
+                        msg.c_str());
 
                 uint64_t start_microseconds = get_time_in_microseconds();
 
@@ -1802,9 +1781,9 @@ namespace irods::experimental::io::s3_transport
                 uint64_t end_microseconds = get_time_in_microseconds();
                 double bw = (read_callback->content_length / (1024.0*1024.0)) /
                     ( (end_microseconds - start_microseconds) / 1000000.0 );
-                msg << " -- END -- BW=" << bw << " MB/s";
+                msg = fmt::format(" -- END -- BW={} MB/s", bw);
                 rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__,
-                        get_thread_identifier(), msg.str().c_str());
+                        get_thread_identifier(), msg.c_str());
 
                 if (read_callback->status != libs3_types::status_ok) {
                     s3_sleep( retry_wait_seconds );
@@ -1819,15 +1798,14 @@ namespace irods::experimental::io::s3_transport
                     && (++retry_cnt <= config_.retry_count_limit));
 
             if (read_callback->status != libs3_types::status_ok) {
-                msg.str( std::string() ); // Clear
-                msg << " - Error getting the S3 object: \"" << object_key_ << " ";
+                auto msg = fmt::format(" - Error getting the S3 object: \"{}\"", object_key_);
                 if (read_callback->status >= 0) {
-                    msg << " - \"" << S3_get_status_name( read_callback->status ) << "\"";
+                    msg += fmt::format(" - \"{}\"", S3_get_status_name( read_callback->status));
                 }
                 rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__,
-                        get_thread_identifier(), msg.str().c_str());
+                        get_thread_identifier(), msg.c_str());
 
-                this->set_error(ERROR(S3_GET_ERROR, msg.str().c_str()));
+                this->set_error(ERROR(S3_GET_ERROR, msg.c_str()));
 
                 // update the last error in shmem
 
@@ -2001,13 +1979,14 @@ namespace irods::experimental::io::s3_transport
 
                     write_callback->sequence = part_number;
 
-                    std::stringstream msg;
+                    auto msg = fmt::format("Multipart:  Start part {}, key \"{}\", uploadid \"{}\", len {}",
+                            static_cast<int>(part_number),
+                            object_key_,
+                            upload_id,
+                            static_cast<int>(write_callback->content_length));
 
-                    msg << "Multipart:  Start part " << static_cast<int>(part_number) << ", key \""
-                        << object_key_ << "\", uploadid \"" << upload_id
-                        << "\", len " << static_cast<int>(write_callback->content_length);
                     rodsLog(config_.developer_messages_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                            msg.str().c_str() );
+                            msg.c_str() );
 
                     S3PutProperties put_props{};
                     put_props.md5 = nullptr;
@@ -2032,11 +2011,9 @@ namespace irods::experimental::io::s3_transport
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), part_number,
                             S3_get_status_name(write_callback->status));
 
-                    msg.str(std::string());
-                    msg.clear();
-                    msg << "Multipart:  -- END -- BW=";// << bw << " MB/s";
+                    msg = fmt::format("Multipart:  -- END --");
                     rodsLog(config_.developer_messages_log_level,  "%s:%d (%s) [[%lu]] %s\n", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                            msg.str().c_str() );
+                            msg.c_str() );
 
                     retry_cnt += 1;
                     if (write_callback->status != libs3_types::status_ok && retry_cnt <= config_.retry_count_limit) {
@@ -2148,8 +2125,6 @@ namespace irods::experimental::io::s3_transport
                 write_callback->shmem_key = shmem_key_;
                 write_callback->shared_memory_timeout_in_seconds = config_.shared_memory_timeout_in_seconds;
                 write_callback->transport_object_ptr = this;
-
-                std::stringstream msg;
 
                 S3PutProperties put_props{};
                 put_props.md5 = nullptr;
