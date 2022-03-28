@@ -1108,7 +1108,7 @@ namespace irods_s3 {
             // get ref to fco
             irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
 
-            bzero (_statbuf, sizeof (struct stat));
+            std::memset(_statbuf, 0, sizeof(struct stat));
 
             boost::filesystem::path p(object->physical_path());
 
@@ -1131,8 +1131,7 @@ namespace irods_s3 {
                         std::string region_name = get_region_name(_ctx.prop_map());
 
                         callback_data_t data;
-                        S3BucketContext bucketContext;
-                        bzero(&bucketContext, sizeof(bucketContext));
+                        S3BucketContext bucketContext{};
 
                         bucketContext.bucketName = bucket.c_str();
                         bucketContext.protocol = s3GetProto(_ctx.prop_map());
@@ -1145,7 +1144,7 @@ namespace irods_s3 {
                         S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLoggingNotFound};
                         size_t retry_cnt = 0;
                         do {
-                            bzero (&data, sizeof (data));
+                            std::memset(&data, 0, sizeof(data));
                             std::string&& hostname = s3GetHostname(_ctx.prop_map());
                             bucketContext.hostName = hostname.c_str();
                             data.pCtx = &bucketContext;
