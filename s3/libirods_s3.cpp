@@ -1135,9 +1135,7 @@ irods::error s3GetFile(
                                       _filename.c_str())).ok()) {
 
                 callback_data_t data;
-                S3BucketContext bucketContext;
-
-                bzero (&bucketContext, sizeof (bucketContext));
+                S3BucketContext bucketContext{};
                 bucketContext.bucketName = bucket.c_str();
                 bucketContext.protocol = s3GetProto(_prop_map);
                 bucketContext.stsDate = s3GetSTSDate(_prop_map);
@@ -1157,7 +1155,7 @@ irods::error s3GetFile(
 
                     std::size_t retry_cnt = 0;
                     do {
-                        bzero (&data, sizeof (data));
+                        std::memset(&data, 0, sizeof(data));
                         data.prop_map_ptr = &_prop_map;
                         data.fd = cache_fd;
                         data.contentLength = data.originalContentLength = _fileSize;
@@ -1193,7 +1191,7 @@ irods::error s3GetFile(
                 } else {
 
                     // Only the FD part of this will be constant
-                    bzero (&data, sizeof (data));
+                    std::memset(&data, 0, sizeof(data));
                     data.prop_map_ptr = &_prop_map;
                     data.fd = cache_fd;
                     data.contentLength = data.originalContentLength = _fileSize;
@@ -1602,9 +1600,7 @@ irods::error s3PutCopyFile(
                                       _filename.c_str())).ok()) {
 
                 callback_data_t data;
-                S3BucketContext bucketContext;
-
-                bzero (&bucketContext, sizeof (bucketContext));
+                S3BucketContext bucketContext{};
                 bucketContext.bucketName = bucket.c_str();
                 bucketContext.protocol = s3GetProto(_prop_map);
                 bucketContext.stsDate = s3GetSTSDate(_prop_map);
@@ -1630,7 +1626,7 @@ irods::error s3PutCopyFile(
                     };
 
                     do {
-                        bzero (&data, sizeof (data));
+                        std::memset(&data, 0, sizeof(data));
                         data.prop_map_ptr = &_prop_map;
                         data.fd = cache_fd;
                         data.contentLength = data.originalContentLength = _fileSize;
@@ -1684,7 +1680,7 @@ irods::error s3PutCopyFile(
                     multipart_data_t partData;
                     int partContentLength = 0;
 
-                    bzero (&data, sizeof (data));
+                    std::memset(&data, 0, sizeof(data));
                     data.prop_map_ptr = &_prop_map;
                     data.fd = cache_fd;
                     data.contentLength = data.originalContentLength = _fileSize;
@@ -1775,7 +1771,7 @@ irods::error s3PutCopyFile(
                                                   _filename.c_str())).ok()) {
                             return result;  // Abort early
                         }
-                        bzero (&srcBucketContext, sizeof (srcBucketContext));
+                        std::memset(&srcBucketContext, 0, sizeof(srcBucketContext));
                         srcBucketContext.bucketName = srcBucket.c_str();
                         srcBucketContext.protocol = s3GetProto(_prop_map);
                         srcBucketContext.stsDate = s3GetSTSDate(_prop_map);
@@ -1968,7 +1964,7 @@ irods::error s3CopyFile(
                 std::int64_t lastModified;
                 char eTag[256];
 
-                bzero (&bucketContext, sizeof (bucketContext));
+                std::memset(&bucketContext, 0, sizeof(bucketContext));
                 bucketContext.bucketName = src_bucket.c_str();
                 bucketContext.protocol = _proto;
                 bucketContext.stsDate = _stsDate;
@@ -1991,7 +1987,7 @@ irods::error s3CopyFile(
 
                 std::size_t retry_cnt = 0;
                 do {
-                    bzero (&data, sizeof (data));
+                    std::memset(&data, 0, sizeof(data));
                     data.prop_map_ptr = &_src_ctx.prop_map();
                     std::string&& hostname = s3GetHostname(_src_ctx.prop_map());
                     bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
@@ -2350,8 +2346,7 @@ irods::error register_archive_object(
     // =-=-=-=-=-=-=-
     // build out a dataObjInfo_t struct for use in the call
     // to rsRegDataObj
-    dataObjInfo_t dst_data_obj;
-    bzero( &dst_data_obj, sizeof( dst_data_obj ) );
+    dataObjInfo_t dst_data_obj{};
 
     resc_mgr.hier_to_leaf_id(resc_hier.c_str(), dst_data_obj.rescId);
     strncpy( dst_data_obj.objPath,       obj.name().c_str(),       MAX_NAME_LEN );
@@ -2387,8 +2382,7 @@ irods::error register_archive_object(
 
     // =-=-=-=-=-=-=-
     // repl to an existing copy
-    regReplica_t reg_inp;
-    bzero( &reg_inp, sizeof( reg_inp ) );
+    regReplica_t reg_inp{};
     reg_inp.srcDataObjInfo  = &src_data_obj;
     reg_inp.destDataObjInfo = &dst_data_obj;
     int reg_status = rsRegReplica( _comm, &reg_inp );
