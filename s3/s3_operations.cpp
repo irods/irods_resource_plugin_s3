@@ -55,8 +55,8 @@
 #include <curl/curl.h>
 #include <fmt/format.h>
 
-extern size_t g_retry_count;
-extern size_t g_retry_wait;
+extern std::size_t g_retry_count;
+extern std::size_t g_retry_wait;
 
 extern thread_local S3ResponseProperties savedProperties;
 
@@ -69,7 +69,7 @@ using s3_transport_config = irods::experimental::io::s3_transport::config;
 namespace irods_s3 {
 
     std::mutex global_mutex;
-    int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
+    std::int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
     int number_of_threads = 0;
     int oprType = -1;
 
@@ -163,9 +163,9 @@ namespace irods_s3 {
 
     // determines the data size and number of threads, stores them, and returns them
     void get_number_of_threads_data_size_and_opr_type(irods::plugin_context& _ctx,
-        int& number_of_threads, int64_t& data_size, int& oprType, bool query_metadata = true) {
+        int& number_of_threads, std::int64_t& data_size, int& oprType, bool query_metadata = true) {
 
-        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         // ********* DEBUG - print L1desc for all
         if (getRodsLogLevel() >= developer_messages_log_level) {
@@ -175,7 +175,7 @@ namespace irods_s3 {
                 if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {
                    int thread_count = L1desc[i].dataObjInp->numThreads;
                    int oprType = L1desc[i].dataObjInp->oprType;
-                   int64_t data_size = L1desc[i].dataSize;
+                   std::int64_t data_size = L1desc[i].dataSize;
                    rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] [%d][objPath=%s][filePath=%s][oprType=%d]"
                            "[requested_number_of_threads=%d][dataSize=%zd][dataObjInfo->dataSize=%zd][srcL1descInx=%d]\n",
                            __FILE__, __LINE__, __FUNCTION__, thread_id, i, L1desc[i].dataObjInp->objPath,
@@ -211,10 +211,10 @@ namespace irods_s3 {
                        __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
 
                 try {
-                    data_size = boost::lexical_cast<uint64_t>(data_size_str);
+                    data_size = boost::lexical_cast<std::uint64_t>(data_size_str);
                 } catch (boost::bad_lexical_cast const& e) {
                     data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
-                    rodsLog(LOG_WARNING, "%s:%d (%s) [[%lu]] DATA_SIZE_KW (%s) could not be parsed as size_t\n",
+                    rodsLog(LOG_WARNING, "%s:%d (%s) [[%lu]] DATA_SIZE_KW (%s) could not be parsed as std::size_t\n",
                             __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
                 }
             }
@@ -328,7 +328,7 @@ namespace irods_s3 {
     // returns true if path updated, else false
     void update_physical_path_for_decoupled_naming(irods::plugin_context& _ctx)
     {
-        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
         // retrieve archive naming policy from resource plugin context
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
@@ -384,7 +384,7 @@ namespace irods_s3 {
     {
         using std::ios_base;
 
-        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         rodsLog(developer_messages_log_level, "%s:%d (%s)  [[%lu]] call_from=%s O_WRONLY=%d, O_RDWR=%d, O_RDONLY=%d, O_TRUNC=%d, O_CREAT=%d, O_APPEND=%d\n",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, call_from.c_str(),
@@ -440,14 +440,14 @@ namespace irods_s3 {
             const std::string& call_from)
     {
 
-        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         // get the file descriptor
         int fd = file_obj->file_descriptor();
 
         irods::error ret;
-        int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
+        std::int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
         int oprType = -1;
         int number_of_threads = 0;
         std::string bucket_name;
@@ -626,7 +626,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -676,7 +676,7 @@ namespace irods_s3 {
 
             irods::error result = SUCCESS();
 
-            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
@@ -749,7 +749,7 @@ namespace irods_s3 {
 
                 // determine if the object exists
                 object_s3_status object_status;
-                int64_t object_size = 0;
+                std::int64_t object_size = 0;
                 result = get_object_s3_status(object_key, bucket_context, object_size, object_status);
                 if (!result.ok()) {
                     addRErrorMsg( &_ctx.comm()->rError, 0, result.result().c_str());
@@ -834,7 +834,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::error result = SUCCESS();
@@ -850,7 +850,7 @@ namespace irods_s3 {
                 return PASS(result);
             }
 
-            uint64_t data_size = 0;
+            std::uint64_t data_size = 0;
             int number_of_threads;
             {
                 std::lock_guard<std::mutex> lock(global_mutex);
@@ -865,8 +865,8 @@ namespace irods_s3 {
 
             // determine the part size based on the offset
             off_t offset = s3_transport_ptr->get_offset();
-            int64_t bytes_this_thread = data_size / number_of_threads;
-            if (static_cast<int64_t>(offset) >= bytes_this_thread * (number_of_threads-1)) {
+            std::int64_t bytes_this_thread = data_size / number_of_threads;
+            if (static_cast<std::int64_t>(offset) >= bytes_this_thread * (number_of_threads-1)) {
                 bytes_this_thread += data_size % number_of_threads;
             }
 
@@ -897,7 +897,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
             irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] physical_path = %s\n", __FILE__, __LINE__, __FUNCTION__, thread_id, file_obj->physical_path().c_str());
@@ -1082,14 +1082,14 @@ namespace irods_s3 {
         struct stat* _statbuf,
         bool retry_on_not_found )
     {
-        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
         irods::error result = SUCCESS();
 
-        size_t retry_count_limit = get_retry_count(_ctx.prop_map());
-        size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
-        size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
+        std::size_t retry_count_limit = get_retry_count(_ctx.prop_map());
+        std::size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
+        std::size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
 
         // =-=-=-=-=-=-=-
         // check incoming parameters
@@ -1135,7 +1135,7 @@ namespace irods_s3 {
                         bucketContext.authRegion = region_name.c_str();
 
                         S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLoggingNotFound};
-                        size_t retry_cnt = 0;
+                        std::size_t retry_cnt = 0;
                         do {
                             bzero (&data, sizeof (data));
                             std::string&& hostname = s3GetHostname(_ctx.prop_map());
@@ -1218,7 +1218,7 @@ namespace irods_s3 {
         irods::plugin_context& _ctx,
         struct stat* _statbuf )
     {
-        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
         return s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, _statbuf, false);
     }
@@ -1246,7 +1246,7 @@ namespace irods_s3 {
 
         if (is_cacheless_mode(_ctx.prop_map())) {
 
-            uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+            std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
             irods::error result = SUCCESS();
@@ -1451,9 +1451,9 @@ namespace irods_s3 {
             // see if we need to get more data
             if (data.returned_objects.size() == 0 && data.returned_collections.size() == 0 && data.is_truncated) {
 
-                size_t retry_count_limit = get_retry_count(_ctx.prop_map());
-                size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
-                size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
+                std::size_t retry_count_limit = get_retry_count(_ctx.prop_map());
+                std::size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
+                std::size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
 
                 result = s3InitPerOperation( _ctx.prop_map() );
                 if(!result.ok()) {
@@ -1478,7 +1478,7 @@ namespace irods_s3 {
                 bucketContext.secretAccessKey = access_key.c_str();
                 bucketContext.authRegion = region_name.c_str();
 
-                size_t retry_cnt = 0;
+                std::size_t retry_cnt = 0;
                 do {
 
                     std::string&& hostname = s3GetHostname(_ctx.prop_map());
@@ -1754,7 +1754,7 @@ namespace irods_s3 {
                     if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, S3_FILE_STAT_ERR, "[resource_name=%s] Error stating the file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
                                               object->physical_path().c_str())).ok()) {
 
-                        if((result = ASSERT_ERROR(object->size() <= 0 || object->size() == static_cast<size_t>(statbuf.st_size), SYS_COPY_LEN_ERR,
+                        if((result = ASSERT_ERROR(object->size() <= 0 || object->size() == static_cast<std::size_t>(statbuf.st_size), SYS_COPY_LEN_ERR,
                                                   "[resource_name=%s] Error for file: \"%s\" inp data size: %ld does not match stat size: %ld.", get_resource_name(_ctx.prop_map()).c_str(),
                                                   object->physical_path().c_str(), object->size(), statbuf.st_size)).ok()) {
 
@@ -1878,17 +1878,17 @@ namespace irods_s3 {
                 }
             }
 
-        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
         // read the data size from DATA_SIZE_KW save it
-        uint64_t data_size = 0;
+        std::uint64_t data_size = 0;
         char *data_size_str = getValByKey(&file_obj->cond_input(), DATA_SIZE_KW);
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] data_size_str = %p\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
         if (data_size_str) {
             try {
-                data_size = boost::lexical_cast<uint64_t>(data_size_str);
+                data_size = boost::lexical_cast<std::uint64_t>(data_size_str);
 
                 // save the data size
                 std::lock_guard<std::mutex> lock(global_mutex);
@@ -1896,7 +1896,7 @@ namespace irods_s3 {
 
             } catch (boost::bad_lexical_cast const& e) {
                 data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
-                rodsLog(LOG_WARNING, "%s:%d (%s) [[%lu]] DATA_SIZE_KW (%s) could not be parsed as size_t\n",
+                rodsLog(LOG_WARNING, "%s:%d (%s) [[%lu]] DATA_SIZE_KW (%s) could not be parsed as std::size_t\n",
                         __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
             }
 

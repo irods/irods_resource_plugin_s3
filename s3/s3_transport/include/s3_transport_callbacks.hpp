@@ -102,10 +102,10 @@ namespace irods::experimental::io::s3_transport
             virtual ~callback_for_read_from_s3_base() {};
 
             libs3_types::bucket_context& saved_bucket_context; /* To enable more detailed error messages */
-            int64_t                      offset;       /* For multiple upload */
-            int64_t                      content_length;
-            uint64_t                     thread_identifier;
-            int64_t                      bytes_read_from_s3;
+            std::int64_t                 offset;       /* For multiple upload */
+            std::int64_t                 content_length;
+            std::uint64_t                thread_identifier;
+            std::int64_t                 bytes_read_from_s3;
             std::string                  shmem_key;
             time_t                       shared_memory_timeout_in_seconds;
 
@@ -144,7 +144,7 @@ namespace irods::experimental::io::s3_transport
                 cache_fstream.seekp(this->offset);
                 cache_fstream.write(libs3_buffer, libs3_buffer_size);
 
-                auto wrote = static_cast<int64_t>(cache_fstream.tellp()) - this->offset;
+                auto wrote = static_cast<std::int64_t>(cache_fstream.tellp()) - this->offset;
                 if (wrote>0) {
                     this->offset += wrote;
                     this->bytes_read_from_s3 += wrote;
@@ -196,7 +196,7 @@ namespace irods::experimental::io::s3_transport
 
                 // writing to buffer
 
-                int64_t bytes_to_write = this->offset + libs3_buffer_size > output_buffer_size
+                std::int64_t bytes_to_write = this->offset + libs3_buffer_size > output_buffer_size
                     ? output_buffer_size - this->offset
                     : libs3_buffer_size;
 
@@ -205,14 +205,14 @@ namespace irods::experimental::io::s3_transport
                 this->offset += bytes_to_write;
                 this->bytes_read_from_s3 += bytes_to_write;
 
-                return ((bytes_to_write < static_cast<int64_t>(libs3_buffer_size)) ?
+                return ((bytes_to_write < static_cast<std::int64_t>(libs3_buffer_size)) ?
                         S3StatusAbortedByCallback : libs3_types::status_ok);
 
             }
 
             ~callback_for_read_from_s3_to_buffer() {};
 
-            void set_output_buffer_size(int64_t size)
+            void set_output_buffer_size(std::int64_t size)
             {
                 output_buffer_size = size;
             }
@@ -225,7 +225,7 @@ namespace irods::experimental::io::s3_transport
         private:
 
             libs3_types::char_type *output_buffer;
-            int64_t                output_buffer_size;
+            std::int64_t           output_buffer_size;
 
     };
 
@@ -323,20 +323,20 @@ namespace irods::experimental::io::s3_transport
 
                 libs3_types::status          status;
                 bool                         enable_md5;
-                uint64_t                     thread_identifier;
+                std::uint64_t                thread_identifier;
                 std::string                  object_key;
                 std::string                  shmem_key;
                 time_t                       shared_memory_timeout_in_seconds;
 
-                int64_t                      content_length;
+                std::int64_t                 content_length;
                 libs3_types::bucket_context& saved_bucket_context; // To enable more detailed error messages
                 upload_manager&              manager;
-                int64_t                      bytes_written;
+                std::int64_t                 bytes_written;
 
                 // Counter incremented each data callback.  Every Nth iteration touch shared memory
                 // so that we know the process didn't die and leave shared memory corrupted
                 int                          callback_counter;
-                int64_t                      offset;       /* For multiple upload */
+                std::int64_t                 offset;       /* For multiple upload */
                 s3_transport<CharT>*         transport_object_ptr;
 
         };
@@ -369,15 +369,15 @@ namespace irods::experimental::io::s3_transport
                     }
 
                     // writing cache file to s3 buffer
-                    int64_t length_to_read_from_cache = this->content_length - this->bytes_written
-                        > static_cast<int64_t>(libs3_buffer_size)
-                        ? static_cast<int64_t>(libs3_buffer_size)
+                    std::int64_t length_to_read_from_cache = this->content_length - this->bytes_written
+                        > static_cast<std::int64_t>(libs3_buffer_size)
+                        ? static_cast<std::int64_t>(libs3_buffer_size)
                         : this->content_length - this->bytes_written;
 
                     cache_fstream.seekg(this->offset);
                     cache_fstream.read(libs3_buffer, length_to_read_from_cache);
 
-                    auto bytes_read_from_cache = static_cast<int64_t>(cache_fstream.tellg()) - this->offset;
+                    auto bytes_read_from_cache = static_cast<std::int64_t>(cache_fstream.tellg()) - this->offset;
                     if (bytes_read_from_cache > 0) {
                         this->offset += bytes_read_from_cache;
                         this->bytes_written += bytes_read_from_cache;
@@ -662,24 +662,24 @@ namespace irods::experimental::io::s3_transport
 
                 libs3_types::status          status;
                 bool                         enable_md5;
-                uint64_t                     thread_identifier;
+                std::uint64_t                thread_identifier;
                 time_t                       shared_memory_timeout_in_seconds;
                 std::string                  object_key;
                 std::string                  shmem_key;
 
-                uint64_t                     sequence;
-                int64_t                      content_length;
+                std::uint64_t                sequence;
+                std::int64_t                 content_length;
                 libs3_types::bucket_context& saved_bucket_context; // To enable more detailed error messages
 
                 upload_manager&              manager;
 
-                int64_t                      bytes_written;
+                std::int64_t                 bytes_written;
 
 
                 // Counter incremented each data callback.  Every Nth iteration touch shared memory
                 // so that we know the process didn't die and leave shared memory corrupted
                 int                          callback_counter;
-                int64_t                      offset;
+                std::int64_t                 offset;
                 s3_transport<CharT>*         transport_object_ptr;
 
         };
@@ -712,15 +712,15 @@ namespace irods::experimental::io::s3_transport
                     }
 
                     // writing cache file to s3 buffer
-                    int64_t length_to_read_from_cache = this->content_length - this->bytes_written
-                        > static_cast<int64_t>(libs3_buffer_size)
-                        ? static_cast<int64_t>(libs3_buffer_size)
+                    std::int64_t length_to_read_from_cache = this->content_length - this->bytes_written
+                        > static_cast<std::int64_t>(libs3_buffer_size)
+                        ? static_cast<std::int64_t>(libs3_buffer_size)
                         : this->content_length - this->bytes_written;
 
                     cache_fstream.seekg(this->offset);
                     cache_fstream.read(libs3_buffer, length_to_read_from_cache);
 
-                    auto bytes_read_from_cache = static_cast<int64_t>(cache_fstream.tellg()) - this->offset;
+                    auto bytes_read_from_cache = static_cast<std::int64_t>(cache_fstream.tellg()) - this->offset;
                     if (bytes_read_from_cache > 0) {
                         this->offset += bytes_read_from_cache;
                         this->bytes_written += bytes_read_from_cache;

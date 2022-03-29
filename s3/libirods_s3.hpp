@@ -47,9 +47,9 @@ extern const std::string  s3_circular_buffer_size;
 extern const std::string  s3_circular_buffer_timeout_seconds; // timeout for read or write to circular buffer
 extern const std::string  s3_uri_request_style;        //  either "path" or "virtual_hosted" - default "path"
 extern const std::string  s3_number_of_threads;        //  to save number of threads
-extern const size_t       S3_DEFAULT_RETRY_WAIT_SECONDS;
-extern const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SECONDS;
-extern const size_t       S3_DEFAULT_RETRY_COUNT;
+extern const std::size_t  S3_DEFAULT_RETRY_WAIT_SECONDS;
+extern const std::size_t  S3_DEFAULT_MAX_RETRY_WAIT_SECONDS;
+extern const std::size_t  S3_DEFAULT_RETRY_COUNT;
 extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
 extern const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS;
 extern const unsigned int S3_DEFAULT_RESTORATION_DAYS;
@@ -57,7 +57,7 @@ extern const std::string  S3_DEFAULT_RESTORATION_TIER;
 extern const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
-int64_t s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
+std::int64_t s3GetMPUChunksize(irods::plugin_property_map& _prop_map);
 ssize_t s3GetMPUThreads(irods::plugin_property_map& _prop_map);
 bool s3GetEnableMultiPartUpload (irods::plugin_property_map& _prop_map);
 S3UriStyle s3_get_uri_request_style(irods::plugin_property_map& _prop_map);
@@ -65,9 +65,9 @@ std::string get_region_name(irods::plugin_property_map& _prop_map);
 bool s3GetServerEncrypt (irods::plugin_property_map& _prop_map);
 std::string get_cache_directory(irods::plugin_property_map& _prop_map);
 
-size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map);
-size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map);
-size_t get_retry_count(irods::plugin_property_map& _prop_map);
+std::size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map);
+std::size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map);
+std::size_t get_retry_count(irods::plugin_property_map& _prop_map);
 unsigned int get_non_data_transfer_timeout_seconds(irods::plugin_property_map& _prop_map);
 unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map);
 std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map);
@@ -92,7 +92,7 @@ typedef struct s3Stat
 typedef struct callback_data
 {
     int fd;
-    int64_t offset;       /* For multiple upload */
+    std::int64_t offset;       /* For multiple upload */
     rodsLong_t contentLength, originalContentLength;
     S3Status status;
     int keyCount;
@@ -109,8 +109,8 @@ typedef struct upload_manager
 
     /* Below used for the upload completion command, need to send in XML */
     char *xml;
-    int64_t remaining;
-    int64_t offset;
+    std::int64_t remaining;
+    std::int64_t offset;
 
     S3BucketContext *pCtx; /* To enable more detailed error messages */
 
@@ -173,7 +173,7 @@ S3Protocol s3GetProto( irods::plugin_property_map& _prop_map);
 
 S3STSDate s3GetSTSDate( irods::plugin_property_map& _prop_map);
 
-int64_t s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map);
+std::int64_t s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map);
 
 bool s3_copyobject_disabled(irods::plugin_property_map& _prop_map);
 

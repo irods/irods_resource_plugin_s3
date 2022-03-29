@@ -48,11 +48,11 @@ namespace irods::experimental::io::s3_transport
     struct constants
     {
 
-        static const int64_t            MAXIMUM_NUMBER_ETAGS_PER_UPLOAD{10000};
-        static const int64_t            BYTES_PER_ETAG{112};  // 80 bytes for every string added, 32 bytes for the vector size,
+        static const std::int64_t            MAXIMUM_NUMBER_ETAGS_PER_UPLOAD{10000};
+        static const std::int64_t            BYTES_PER_ETAG{112};  // 80 bytes for every string added, 32 bytes for the vector size,
                                                               // determined by testing
-        static const int64_t            UPLOAD_ID_SIZE{128};
-        static const int64_t            MAX_S3_SHMEM_SIZE{sizeof(shared_data::multipart_shared_data) +
+        static const std::int64_t            UPLOAD_ID_SIZE{128};
+        static const std::int64_t            MAX_S3_SHMEM_SIZE{sizeof(shared_data::multipart_shared_data) +
                                                           MAXIMUM_NUMBER_ETAGS_PER_UPLOAD * (BYTES_PER_ETAG + 1) +
                                                           UPLOAD_ID_SIZE + 1};
 
@@ -67,14 +67,14 @@ namespace irods::experimental::io::s3_transport
                                const std::string& function,
                                const libs3_types::bucket_context& saved_bucket_context,
                                libs3_types::status& pStatus,
-                               uint64_t thread_id = 0);
+                               std::uint64_t thread_id = 0);
     // Sleep between _s / 2 and _s seconds.
     // The random addition ensures that threads don't all cluster up and retry
     // at the same time (dogpile effect)
     void s3_sleep( int _s );
 
     // Returns timestamp in usec for delta-t comparisons
-    auto get_time_in_microseconds() -> uint64_t;
+    auto get_time_in_microseconds() -> std::uint64_t;
 
     struct upload_manager
     {
@@ -92,8 +92,8 @@ namespace irods::experimental::io::s3_transport
         /* Below used for the upload completion command, need to send in XML */
         std::string              xml;
 
-        int64_t                  remaining;
-        int64_t                  offset;
+        std::int64_t                  remaining;
+        std::int64_t                  offset;
         libs3_types::status      status;            /* status returned by libs3 */
         std::string              object_key;
         std::string              shmem_key;
@@ -113,18 +113,18 @@ namespace irods::experimental::io::s3_transport
         {}
 
         libs3_types::char_type *buffer;
-        int64_t                offset;
+        std::int64_t                offset;
 
         irods::experimental::circular_buffer<libs3_types::char_type>&
                                circular_buffer;
 
-        int64_t                content_length;
-        int64_t                bytes_written;
+        std::int64_t                content_length;
+        std::int64_t                bytes_written;
         libs3_types::status    status;
 
         libs3_types::bucket_context&
                                saved_bucket_context;   // To enable more detailed error messages
-        uint64_t               thread_identifier;
+        std::uint64_t               thread_identifier;
     };
 
     struct data_for_head_callback
@@ -139,7 +139,7 @@ namespace irods::experimental::io::s3_transport
         {}
 
         time_t                             last_modified;
-        int64_t                            content_length;
+        std::int64_t                            content_length;
         std::string                        x_amz_storage_class;
         std::string                        x_amz_restore;
         libs3_types::status                status;

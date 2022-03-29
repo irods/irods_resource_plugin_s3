@@ -60,7 +60,7 @@ void read_keys(const std::string& keyfile, std::string& access_key, std::string&
 std::string create_bucket() {
 
     using namespace std::chrono;
-    int64_t ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    std::int64_t ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     const auto bucket_name = fmt::format("irods-s3-unit-test-{}", ms);
 
@@ -68,7 +68,7 @@ std::string create_bucket() {
     const auto aws_mb_command = fmt::format("aws --endpoint-url http://{} s3 mb s3://{}", hostname, bucket_name);
 
     irods::log(LOG_NOTICE, aws_mb_command);
-    system(aws_mb_command.c_str());
+    std::system(aws_mb_command.c_str());
 
     return bucket_name;
 }
@@ -78,7 +78,7 @@ void remove_bucket(const std::string& bucket_name) {
     // remove the bucket
     const auto aws_rb_command = fmt::format("aws --endpoint-url http://{} s3 rb --force s3://{}", hostname, bucket_name);
     irods::log(LOG_NOTICE, aws_rb_command);
-    system(aws_rb_command.c_str());
+    std::system(aws_rb_command.c_str());
 }
 
 void upload_stage_and_cleanup(const std::string& bucket_name, const std::string& filename,
@@ -87,7 +87,7 @@ void upload_stage_and_cleanup(const std::string& bucket_name, const std::string&
     // clean up from a previous test, ignore errors
     const auto aws_rm_command = fmt::format("aws --endpoint-url http://{} s3 rm s3://{}/{}{}", hostname, bucket_name, object_prefix, filename);
     irods::log(LOG_NOTICE, aws_rm_command);
-    system(aws_rm_command.c_str());
+    std::system(aws_rm_command.c_str());
 
     const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
     irods::log(LOG_NOTICE, std::string("rm ") + downloaded_file_name);
@@ -99,7 +99,7 @@ void download_stage_and_cleanup(const std::string& bucket_name, const std::strin
     // stage file to s3 and cleanup from previous tests
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
     irods::log(LOG_NOTICE, aws_cp_command);
-    system(aws_cp_command.c_str());
+    std::system(aws_cp_command.c_str());
 
     const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
     irods::log(LOG_NOTICE, std::string("rm ") + downloaded_file_name);
@@ -112,7 +112,7 @@ void read_write_stage_and_cleanup(const std::string& bucket_name, const std::str
     // stage the file to s3 and cleanup
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
     irods::log(LOG_NOTICE, aws_cp_command);
-    system(aws_cp_command.c_str());
+    std::system(aws_cp_command.c_str());
 
     const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
     const auto comparison_file_name = fmt::format("{}.comparison", filename);
@@ -121,7 +121,7 @@ void read_write_stage_and_cleanup(const std::string& bucket_name, const std::str
 
     const auto cp_command = fmt::format("cp {} {}", filename, comparison_file_name);
     irods::log(LOG_NOTICE, cp_command);
-    system(cp_command.c_str());
+    std::system(cp_command.c_str());
 }
 
 void check_upload_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
@@ -130,13 +130,13 @@ void check_upload_results(const std::string& bucket_name, const std::string& fil
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp s3://{}/{}{} {}.downloaded", hostname, bucket_name, object_prefix, filename, filename);
 
     irods::log(LOG_NOTICE, aws_cp_command);
-    int download_return_val = system(aws_cp_command.c_str());
+    int download_return_val = std::system(aws_cp_command.c_str());
 
     REQUIRE(0 == download_return_val);
 
     const auto cmp_command = fmt::format("cmp -s {} {}.downloaded", filename, filename);
     irods::log(LOG_NOTICE, cmp_command);
-    int cmp_return_val = system(cmp_command.c_str());
+    int cmp_return_val = std::system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
 }
@@ -146,7 +146,7 @@ void check_download_results(const std::string& bucket_name, const std::string& f
     // compare the downloaded file
     const auto cmp_command = fmt::format("cmp -s {} {}.downloaded", filename, filename);
     irods::log(LOG_NOTICE, cmp_command);
-    int cmp_return_val = system(cmp_command.c_str());
+    int cmp_return_val = std::system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
 }
@@ -159,13 +159,13 @@ void check_read_write_results(const std::string& bucket_name, const std::string&
     // download the file and compare (using s3 client with system calls for now)
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp s3://{}/{}{} {}", hostname, bucket_name, object_prefix, filename, downloaded_file_name);
     irods::log(LOG_NOTICE, aws_cp_command);
-    int download_return_val = system(aws_cp_command.c_str());
+    int download_return_val = std::system(aws_cp_command.c_str());
 
     REQUIRE(0 == download_return_val);
 
     const auto cmp_command = fmt::format("cmp -s {} {}", downloaded_file_name, comparison_file_name);
     irods::log(LOG_NOTICE, cmp_command);
-    int cmp_return_val = system(cmp_command.c_str());
+    int cmp_return_val = std::system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
 }
@@ -193,11 +193,11 @@ void upload_part(const char* const hostname,
         throw std::runtime_error("failed to open input file");
     }
 
-    uint64_t file_size = ifs.tellg();
-    uint64_t start = thread_number * (file_size / thread_count);
+    std::uint64_t file_size = ifs.tellg();
+    std::uint64_t start = thread_number * (file_size / thread_count);
 
     // figure out my part
-    uint64_t end = 0;
+    std::uint64_t end = 0;
     if (thread_number == thread_count - 1) {
         end = file_size;
     } else {
@@ -206,7 +206,7 @@ void upload_part(const char* const hostname,
 
     ifs.seekg(start, std::ios::beg);
 
-    uint64_t current_buffer_size = end - start;
+    std::uint64_t current_buffer_size = end - start;
 
     rodsLog(LOG_NOTICE, "%s:%d (%s) [[%d]] [file_size=%lu][start=%lu][end=%lu][current_buffer_size=%lu]\n",
             __FILE__, __LINE__, __FUNCTION__,
@@ -249,10 +249,10 @@ void upload_part(const char* const hostname,
     ds1.seekp(start);
 
     // doing multiple writes of 10MiB here just to test that that works
-    const uint64_t max_write_size = 10*1024*1024;
-    uint64_t write_offset = 0;
+    const std::uint64_t max_write_size = 10*1024*1024;
+    std::uint64_t write_offset = 0;
     while (write_offset < current_buffer_size) {
-        uint64_t write_size = std::min(max_write_size, current_buffer_size - write_offset);
+        std::uint64_t write_size = std::min(max_write_size, current_buffer_size - write_offset);
         ds1.write(current_buffer + write_offset, write_size);
         write_offset += write_size;
     }
@@ -282,12 +282,12 @@ void download_part(const char* const hostname,
         throw std::runtime_error("failed to open input file");
     }
 
-    uint64_t file_size = ifs.tellg();
+    std::uint64_t file_size = ifs.tellg();
 
     // thread in irods only deal with sequential bytes.  figure out what bytes this
     // thread deals with
-    size_t start = thread_number * (file_size / thread_count);
-    size_t end = 0;
+    std::size_t start = thread_number * (file_size / thread_count);
+    std::size_t end = 0;
     if (thread_number == thread_count - 1) {
         end = file_size;
     } else {
@@ -304,7 +304,7 @@ void download_part(const char* const hostname,
         return;
     }
 
-    size_t current_buffer_size = end - start;
+    std::size_t current_buffer_size = end - start;
     char *current_buffer = static_cast<char*>(malloc(current_buffer_size * sizeof(char)));
 
     s3_transport_config s3_config;
@@ -330,12 +330,12 @@ void download_part(const char* const hostname,
     ds1.seekg(start);
     ofs.seekp(start, std::ios::beg);
 
-    size_t offset = 0;
-    size_t max_read_length = 1024*1024;
+    std::size_t offset = 0;
+    std::size_t max_read_length = 1024*1024;
 
     // break read up into parts like iRODS
     while (offset < current_buffer_size) {
-        size_t read_size = offset + max_read_length < current_buffer_size
+        std::size_t read_size = offset + max_read_length < current_buffer_size
             ? max_read_length
             : current_buffer_size - offset;
         ds1.read(current_buffer, read_size);
@@ -670,7 +670,7 @@ void test_seek_end(const std::string& bucket_name,
     // stage file to s3
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
     irods::log(LOG_NOTICE, aws_cp_command);
-    system(aws_cp_command.c_str());
+    std::system(aws_cp_command.c_str());
 
     // get the size of the file
     std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
@@ -1096,7 +1096,7 @@ TEST_CASE("test_part_splits", "[part_splits]")
     {
         using s3_transport        = irods::experimental::io::s3_transport::s3_transport<char>;
 
-        int64_t circular_buffer_size = 10*1024*1024;
+        std::int64_t circular_buffer_size = 10*1024*1024;
 
         for (int64_t bytes_this_thread = 5*1024*1024; bytes_this_thread <= 1024*1024*1024; ++bytes_this_thread) {
 
@@ -1105,7 +1105,7 @@ TEST_CASE("test_part_splits", "[part_splits]")
             }
 
             std::vector<int64_t> part_sizes;
-            int64_t file_offset = 0;
+            std::int64_t file_offset = 0;
             unsigned int start_part_number, end_part_number;
             s3_transport::determine_start_and_end_part_from_offset_and_bytes_this_thread(
                     bytes_this_thread,

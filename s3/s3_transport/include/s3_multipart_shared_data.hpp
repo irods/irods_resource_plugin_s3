@@ -83,7 +83,7 @@ namespace irods::experimental::io::s3_transport::shared_data
         error_codes                           last_error_code;
         cache_file_download_status            cache_file_download_progress;
         int                                   ref_count;
-        int64_t                               existing_object_size;
+        std::int64_t                          existing_object_size;
         bool                                  circular_buffer_read_timeout;
         int                                   file_open_counter;
         bool                                  cache_file_flushed;
