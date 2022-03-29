@@ -54,7 +54,7 @@ namespace irods::experimental::interprocess
             template <typename... Args>
             named_shared_memory_object(const std::string& shm_name,
                     time_t shared_memory_timeout_in_seconds,
-                    uint64_t shm_size,
+                    std::uint64_t shm_size,
                     Args&& ...args)
 
                 : shm_name_{shm_name}
@@ -140,7 +140,7 @@ namespace irods::experimental::interprocess
         private:
 
             const std::string shm_name_;
-            const uint64_t shm_size_;
+            const std::uint64_t shm_size_;
             bi::managed_shared_memory shm_;
             void_allocator alloc_inst_;
 

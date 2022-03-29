@@ -102,12 +102,12 @@
 // Pairing this with LIBS3 error injection will exercise the error recovery
 // and retry code paths.
 static boost::mutex g_error_mutex;
-static int64_t g_werr{0}; // counter
-static int64_t g_rerr{0}; // counter
-static int64_t g_merr{0}; // counter
-static const int64_t g_werr_idx{4}; // Which # pwrite to fail
-static const int64_t g_rerr_idx{4}; // Which # pread to fail
-static const int64_t g_merr_idx{4}; // Which part of Multipart Finish XML to fail
+static std::int64_t g_werr{0}; // counter
+static std::int64_t g_rerr{0}; // counter
+static std::int64_t g_merr{0}; // counter
+static const std::int64_t g_werr_idx{4}; // Which # pwrite to fail
+static const std::int64_t g_rerr_idx{4}; // Which # pread to fail
+static const std::int64_t g_merr_idx{4}; // Which part of Multipart Finish XML to fail
 #endif
 
 //////////////////////////////////////////////////////////////////////
@@ -148,9 +148,9 @@ const std::string  s3_enable_copyobject{"S3_ENABLE_COPYOBJECT"};       //  If se
 const std::string  s3_non_data_transfer_timeout_seconds{"S3_NON_DATA_TRANSFER_TIMEOUT_SECONDS"};
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
-const size_t       S3_DEFAULT_RETRY_WAIT_SECONDS = 2;
-const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SECONDS = 30;
-const size_t       S3_DEFAULT_RETRY_COUNT = 3;
+const std::size_t  S3_DEFAULT_RETRY_WAIT_SECONDS = 2;
+const std::size_t  S3_DEFAULT_MAX_RETRY_WAIT_SECONDS = 30;
+const std::size_t  S3_DEFAULT_RETRY_COUNT = 3;
 const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS = 180;
 const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
@@ -227,10 +227,10 @@ void s3_sleep(
 }
 
 // Returns timestamp in usec for delta-t comparisons
-static uint64_t usNow() {
+static std::uint64_t usNow() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    uint64_t us = (tv.tv_sec) * 1000000LL + tv.tv_usec;
+    std::uint64_t us = (tv.tv_sec) * 1000000LL + tv.tv_usec;
     return us;
 }
 
@@ -239,17 +239,17 @@ static uint64_t usNow() {
 std::string s3GetHostname(irods::plugin_property_map& _prop_map)
 {
     std::vector<std::string> hostname_vector;
-    size_t hostname_index = 0;
+    std::size_t hostname_index = 0;
     g_hostnameIdxLock.lock();
     _prop_map.get<std::vector<std::string> >(s3_default_hostname_vector, hostname_vector);
-    _prop_map.get<size_t>(s3_hostname_index, hostname_index);
+    _prop_map.get<std::size_t>(s3_hostname_index, hostname_index);
     if (hostname_vector.empty()) {
         return {}; // Short-circuit default case
     }
 
     std::string ret = hostname_vector[hostname_index];
     hostname_index = (hostname_index+ 1) % hostname_vector.size();
-    _prop_map.set<size_t>(s3_hostname_index, hostname_index);
+    _prop_map.set<std::size_t>(s3_hostname_index, hostname_index);
     g_hostnameIdxLock.unlock();
     return ret;
 }
@@ -360,7 +360,7 @@ static int putObjectDataCallback(
     void *callbackData)
 {
     callback_data_t *data = (callback_data_t *) callbackData;
-    int64_t ret = 0;
+    std::int64_t ret = 0;
 
     if (data->contentLength) {
         int length = ((data->contentLength > (unsigned) bufferSize) ?
@@ -380,7 +380,7 @@ static int putObjectDataCallback(
     g_error_mutex.unlock();
 #endif
 
-    return (int64_t)ret;
+    return (std::int64_t)ret;
 }
 
 S3Status listBucketCallback(
@@ -422,8 +422,8 @@ irods::error parseS3Path (
     irods::plugin_property_map& _prop_map ) {
 
     irods::error result = SUCCESS();
-    size_t start_pos = 0;
-    size_t slash_pos = 0;
+    std::size_t start_pos = 0;
+    std::size_t slash_pos = 0;
     slash_pos = _s3ObjName.find_first_of("/");
     // skip a leading slash
     if(slash_pos == 0) {
@@ -532,7 +532,7 @@ irods::error s3Init (
     irods::error result = SUCCESS();
 
     std::vector<std::string> hostname_vector;
-    size_t hostname_index = 0;
+    std::size_t hostname_index = 0;
 
     g_hostnameIdxLock.lock();
 
@@ -560,7 +560,7 @@ irods::error s3Init (
     }
 
     _prop_map.set<std::vector<std::string> >(s3_default_hostname_vector, hostname_vector);
-    _prop_map.set<size_t>(s3_hostname_index, hostname_index);
+    _prop_map.set<std::size_t>(s3_hostname_index, hostname_index);
 
     g_hostnameIdxLock.unlock();
 
@@ -575,15 +575,15 @@ irods::error s3InitPerOperation (
 
     std::string resource_name = get_resource_name(_prop_map);
 
-    size_t retry_count = 10;
+    std::size_t retry_count = 10;
     std::string retry_count_str;
-    result = _prop_map.get< size_t >(
+    result = _prop_map.get< std::size_t >(
         s3_retry_count,
         retry_count );
 
-    size_t wait_time = get_retry_wait_time_sec(_prop_map);
+    std::size_t wait_time = get_retry_wait_time_sec(_prop_map);
 
-    size_t ctr = 0;
+    std::size_t ctr = 0;
     while( ctr < retry_count ) {
         S3Status status;
         int flags = S3_INIT_ALL;
@@ -675,7 +675,7 @@ S3UriStyle s3_get_uri_request_style( irods::plugin_property_map& _prop_map)
 // returns the upper limit of the MPU chunk size parameter, in megabytes
 // used for validating the value of S3_MPU_CHUNK
 // also used for determining the maximum size for CopyObject
-int64_t s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
+std::int64_t s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string max_size_str;   // max size from context string, in MB
@@ -683,7 +683,7 @@ int64_t s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
     ret = _prop_map.get<std::string>(s3_max_upload_size, max_size_str);
     if (ret.ok()) {
         // should be between 5MB and 5TB
-        int64_t max_megs = std::atol(max_size_str.c_str());
+        std::int64_t max_megs = std::atol(max_size_str.c_str());
         if ( max_megs >= 5 && max_megs <= 5L * 1024 * 1024 ) {
             return max_megs;
         }
@@ -692,17 +692,17 @@ int64_t s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
 }
 
 // returns the chunk size for multipart upload, in bytes
-int64_t s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
+std::int64_t s3GetMPUChunksize (irods::plugin_property_map& _prop_map)
 {
     irods::error ret;
     std::string chunk_str;
-    int64_t bytes = 5L * 1024 * 1024; // default to amazon value
+    std::int64_t bytes = 5L * 1024 * 1024; // default to amazon value
     ret = _prop_map.get< std::string >(s3_mpu_chunk, chunk_str );
 
     if (ret.ok()) {
         // AWS S3 allows chunk sizes from 5MB to 5GB.
         // Other S3 appliances may have a different upper limit.
-        int64_t megs = std::atol(chunk_str.c_str());
+        std::int64_t megs = std::atol(chunk_str.c_str());
         if ( megs >= 5 && megs <= s3GetMaxUploadSizeMB(_prop_map) )
             bytes = megs * 1024 * 1024;
     }
@@ -817,9 +817,9 @@ static void mrdWorkerThread (
     irods::error result;
     S3GetObjectHandler getObjectHandler = { {mrdRangeRespPropCB, mrdRangeRespCompCB }, mrdRangeGetDataCB };
 
-    size_t retry_count_limit = get_retry_count(_prop_map);
-    size_t retry_wait = get_retry_wait_time_sec(_prop_map);
-    size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
+    std::size_t retry_count_limit = get_retry_count(_prop_map);
+    std::size_t retry_wait = get_retry_wait_time_sec(_prop_map);
+    std::size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
 
     /* Will break out when no work detected */
     while (1) {
@@ -839,7 +839,7 @@ static void mrdWorkerThread (
         g_mrdNext = g_mrdNext + 1;
         g_mrdLock.unlock();
 
-        size_t retry_cnt = 0;
+        std::size_t retry_cnt = 0;
         multirange_data_t rangeData;
         do {
             // Work on a local copy of the structure in case an error occurs in the middle
@@ -856,12 +856,12 @@ static void mrdWorkerThread (
                     rangeData.get_object_data.offset,
                     rangeData.get_object_data.contentLength));
 
-            uint64_t usStart = usNow();
+            std::uint64_t usStart = usNow();
             std::string&& hostname = s3GetHostname(_prop_map);
             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             S3_get_object( &bucketContext, g_mrdKey, NULL, rangeData.get_object_data.offset,
                            rangeData.get_object_data.contentLength, 0, 0, &getObjectHandler, &rangeData );
-            uint64_t usEnd = usNow();
+            std::uint64_t usEnd = usNow();
             double bw = (g_mrdData[seq-1].get_object_data.contentLength / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
 
             irods::log(LOG_DEBUG, fmt::format(" -- END -- BW={} MB/s", bw));
@@ -931,19 +931,19 @@ std::string get_cache_directory(irods::plugin_property_map& _prop_map) {
         return s3_cache_dir_str;
 }
 
-size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
+std::size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
 
-    size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SECONDS;
+    std::size_t retry_wait = S3_DEFAULT_RETRY_WAIT_SECONDS;
     std::string wait_time_str;
     irods::error ret = _prop_map.get< std::string >( s3_wait_time_seconds, wait_time_str );
     if( ret.ok() ) {
         try {
-            retry_wait = boost::lexical_cast<size_t>( wait_time_str );
+            retry_wait = boost::lexical_cast<std::size_t>( wait_time_str );
         } catch ( const boost::bad_lexical_cast& ) {
             std::string resource_name = get_resource_name(_prop_map);
             rodsLog(
                 LOG_ERROR,
-                "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                "[resource_name=%s] failed to cast %s [%s] to a std::size_t", resource_name.c_str(),
                 s3_wait_time_seconds.c_str(), wait_time_str.c_str() );
         }
     } else {
@@ -954,11 +954,11 @@ size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
             irods::log(LOG_WARNING, fmt::format("[resource_name={} - {} is deprecated.  Use {}",
                         resource_name, s3_wait_time_sec, s3_wait_time_seconds));
             try {
-                retry_wait = boost::lexical_cast<size_t>( wait_time_str );
+                retry_wait = boost::lexical_cast<std::size_t>( wait_time_str );
             } catch ( const boost::bad_lexical_cast& ) {
                 rodsLog(
                     LOG_ERROR,
-                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                    "[resource_name=%s] failed to cast %s [%s] to a std::size_t", resource_name.c_str(),
                     s3_wait_time_sec.c_str(), wait_time_str.c_str() );
             }
         }
@@ -967,19 +967,19 @@ size_t get_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
     return retry_wait;
 }
 
-size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
+std::size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
 
-    size_t max_retry_wait = S3_DEFAULT_MAX_RETRY_WAIT_SECONDS;
+    std::size_t max_retry_wait = S3_DEFAULT_MAX_RETRY_WAIT_SECONDS;
     std::string max_retry_wait_str;
     irods::error ret = _prop_map.get< std::string >( s3_max_wait_time_seconds, max_retry_wait_str );
     if( ret.ok() ) {
         try {
-            max_retry_wait = boost::lexical_cast<size_t>( max_retry_wait_str );
+            max_retry_wait = boost::lexical_cast<std::size_t>( max_retry_wait_str );
         } catch ( const boost::bad_lexical_cast& ) {
             std::string resource_name = get_resource_name(_prop_map);
             rodsLog(
                 LOG_ERROR,
-                "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                "[resource_name=%s] failed to cast %s [%s] to a std::size_t", resource_name.c_str(),
                 s3_max_wait_time_seconds.c_str(), max_retry_wait_str.c_str() );
         }
     } else {
@@ -990,11 +990,11 @@ size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
             irods::log(LOG_WARNING, fmt::format("[resource_name={} - {} is being deprecated.  Use {}",
                         resource_name, s3_max_wait_time_sec, s3_max_wait_time_seconds));
             try {
-                max_retry_wait = boost::lexical_cast<size_t>( max_retry_wait_str );
+                max_retry_wait = boost::lexical_cast<std::size_t>( max_retry_wait_str );
             } catch ( const boost::bad_lexical_cast& ) {
                 rodsLog(
                     LOG_ERROR,
-                    "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                    "[resource_name=%s] failed to cast %s [%s] to a std::size_t", resource_name.c_str(),
                     s3_max_wait_time_sec.c_str(), max_retry_wait_str.c_str() );
             }
         }
@@ -1002,20 +1002,20 @@ size_t get_max_retry_wait_time_sec(irods::plugin_property_map& _prop_map) {
     return max_retry_wait;
 }
 
-size_t get_retry_count(irods::plugin_property_map& _prop_map) {
+std::size_t get_retry_count(irods::plugin_property_map& _prop_map) {
 
-    size_t retry_count = S3_DEFAULT_RETRY_COUNT;
+    std::size_t retry_count = S3_DEFAULT_RETRY_COUNT;
 
     std::string retry_count_str;
     irods::error ret = _prop_map.get< std::string >( s3_retry_count, retry_count_str );
     if( ret.ok() ) {
         try {
-            retry_count = boost::lexical_cast<size_t>( retry_count_str );
+            retry_count = boost::lexical_cast<std::size_t>( retry_count_str );
         } catch ( const boost::bad_lexical_cast& ) {
             std::string resource_name = get_resource_name(_prop_map);
             rodsLog(
                 LOG_ERROR,
-                "[resource_name=%s] failed to cast %s [%s] to a size_t", resource_name.c_str(),
+                "[resource_name=%s] failed to cast %s [%s] to a std::size_t", resource_name.c_str(),
                 s3_retry_count.c_str(), retry_count_str.c_str() );
         }
     }
@@ -1055,7 +1055,7 @@ unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map) {
             std::string resource_name = get_resource_name(_prop_map);
             rodsLog(
                 LOG_ERROR,
-                "[resource_name=%s] failed to cast %s [%s] to a size_t.  Using default of %u.", resource_name.c_str(),
+                "[resource_name=%s] failed to cast %s [%s] to a std::size_t.  Using default of %u.", resource_name.c_str(),
                 s3_restoration_days.c_str(), restoration_days_str.c_str(), S3_DEFAULT_RESTORATION_DAYS);
         }
     }
@@ -1116,9 +1116,9 @@ irods::error s3GetFile(
 
     std::string resource_name = get_resource_name(_prop_map);
 
-    size_t retry_count_limit = get_retry_count(_prop_map);
-    size_t retry_wait = get_retry_wait_time_sec(_prop_map);
-    size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
+    std::size_t retry_count_limit = get_retry_count(_prop_map);
+    std::size_t retry_wait = get_retry_wait_time_sec(_prop_map);
+    std::size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
 
     int cache_fd = -1;
     std::string bucket;
@@ -1147,7 +1147,7 @@ irods::error s3GetFile(
                 std::string authRegionStr = get_region_name(_prop_map);
                 bucketContext.authRegion = authRegionStr.c_str();
 
-                int64_t chunksize = s3GetMPUChunksize( _prop_map );
+                std::int64_t chunksize = s3GetMPUChunksize( _prop_map );
 
                 if ( _fileSize < chunksize ) {
                     S3GetObjectHandler getObjectHandler = {
@@ -1155,18 +1155,18 @@ irods::error s3GetFile(
                         &getObjectDataCallback
                     };
 
-                    size_t retry_cnt = 0;
+                    std::size_t retry_cnt = 0;
                     do {
                         bzero (&data, sizeof (data));
                         data.prop_map_ptr = &_prop_map;
                         data.fd = cache_fd;
                         data.contentLength = data.originalContentLength = _fileSize;
-                        uint64_t usStart = usNow();
+                        std::uint64_t usStart = usNow();
                         std::string&& hostname = s3GetHostname(_prop_map);
                         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                         data.pCtx = &bucketContext;
                         S3_get_object (&bucketContext, key.c_str(), NULL, 0, _fileSize, 0, 0, &getObjectHandler, &data);
-                        uint64_t usEnd = usNow();
+                        std::uint64_t usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "GETBW=%lf", bw);
                         if (data.status != S3StatusOK) {
@@ -1201,8 +1201,8 @@ irods::error s3GetFile(
                     // Multirange get
                     g_mrdResult = SUCCESS();
 
-                    int64_t seq;
-                    int64_t totalSeq = (data.contentLength + chunksize - 1) / chunksize;
+                    std::int64_t seq;
+                    std::int64_t totalSeq = (data.contentLength + chunksize - 1) / chunksize;
 
                     multirange_data_t rangeData;
                     int rangeLength = 0;
@@ -1233,7 +1233,7 @@ irods::error s3GetFile(
                     // Make the worker threads and start
                     int nThreads = s3GetMPUThreads(_prop_map);
 
-                    uint64_t usStart = usNow();
+                    std::uint64_t usStart = usNow();
                     std::list<boost::thread*> threads;
                     for (int thr_id=0; thr_id<nThreads; thr_id++) {
                         boost::thread *thisThread = new boost::thread(mrdWorkerThread, &bucketContext, &_prop_map);
@@ -1247,7 +1247,7 @@ irods::error s3GetFile(
                         delete thisThread;
                         threads.pop_front();
                     }
-                    uint64_t usEnd = usNow();
+                    std::uint64_t usEnd = usNow();
                     double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                     rodsLog( LOG_DEBUG, "MultirangeBW=%lf", bw);
 
@@ -1351,7 +1351,7 @@ static int mpuCommitXmlCB (
     void *callbackData )
 {
     upload_manager_t *manager = (upload_manager_t *)callbackData;
-    int64_t ret = 0;
+    std::int64_t ret = 0;
     if (manager->remaining) {
         int toRead = ((manager->remaining > bufferSize) ?
                       bufferSize : manager->remaining);
@@ -1454,9 +1454,9 @@ static void mpuWorkerThread (
     irods::error result;
     S3PutObjectHandler putObjectHandler = { {mpuPartRespPropCB, mpuPartRespCompCB }, &mpuPartPutDataCB };
 
-    size_t retry_count_limit = get_retry_count(_prop_map);
-    size_t retry_wait = get_retry_wait_time_sec(_prop_map);
-    size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
+    std::size_t retry_count_limit = get_retry_count(_prop_map);
+    std::size_t retry_wait = get_retry_wait_time_sec(_prop_map);
+    std::size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
 
     /* Will break out when no work detected */
     while (1) {
@@ -1477,7 +1477,7 @@ static void mpuWorkerThread (
         g_mpuLock.unlock();
 
         multipart_data_t partData;
-        size_t retry_cnt = 0;
+        std::size_t retry_cnt = 0;
         do {
             // Work on a local copy of the structure in case an error occurs in the middle
             // of an upload.  If we updated in-place, on a retry the part would start
@@ -1489,22 +1489,22 @@ static void mpuWorkerThread (
                         (int)seq,
                         g_mpuKey,
                         g_mpuUploadId,
-                        (int64_t)partData.put_object_data.offset,
+                        (std::int64_t)partData.put_object_data.offset,
                         (int)partData.put_object_data.contentLength) );
 
             S3PutProperties *putProps = NULL;
             putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
             putProps->expires = -1;
-            uint64_t usStart = usNow();
+            std::uint64_t usStart = usNow();
             std::string&& hostname = s3GetHostname(_prop_map);
             bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
             if (partData.mode == S3_COPYOBJECT) {
-                uint64_t startOffset = partData.put_object_data.offset;
+                std::uint64_t startOffset = partData.put_object_data.offset;
 
                 // TODO -1 below to fix a bug in libs3 code
-                uint64_t count = partData.put_object_data.contentLength;
+                std::uint64_t count = partData.put_object_data.contentLength;
                 S3ResponseHandler copyResponseHandler = {mpuInitRespPropCB /*Do nothing*/, mpuPartRespCompCB};
-                int64_t lastModified;
+                std::int64_t lastModified;
                 // The default copy callback tries to set this for us, need to allocate here
                 partData.manager->etags[seq-1] = (char *)malloc(512); // TBD - magic #!  Is there a max etag defined?
                 S3_copy_object_range(partData.pSrcCtx, partData.srcKey, bucketContext.bucketName, g_mpuKey,
@@ -1517,7 +1517,7 @@ static void mpuWorkerThread (
                 S3_upload_part(&bucketContext, g_mpuKey, putProps, &putObjectHandler, seq, g_mpuUploadId,
                         partData.put_object_data.contentLength, 0, 0, &partData);
             }
-            uint64_t usEnd = usNow();
+            std::uint64_t usEnd = usNow();
             double bw = (g_mpuData[seq-1].put_object_data.contentLength / (1024.0 * 1024.0)) / ( (usEnd - usStart) / 1000000.0 );
             // Clear up the S3PutProperties, if it exists
             if (putProps) {
@@ -1569,15 +1569,15 @@ irods::error s3PutCopyFile(
     std::string srcBucket;
     std::string srcKey;
     int err_status = 0;
-    int64_t chunksize = s3GetMPUChunksize( _prop_map );
-    size_t retry_cnt    = 0;
+    std::int64_t chunksize = s3GetMPUChunksize( _prop_map );
+    std::size_t retry_cnt    = 0;
     bool server_encrypt = s3GetServerEncrypt ( _prop_map );
 
     std::string resource_name = get_resource_name(_prop_map);
 
-    size_t retry_count_limit = get_retry_count(_prop_map);
-    size_t retry_wait = get_retry_wait_time_sec(_prop_map);
-    size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
+    std::size_t retry_count_limit = get_retry_count(_prop_map);
+    std::size_t retry_wait = get_retry_wait_time_sec(_prop_map);
+    std::size_t max_retry_wait = get_max_retry_wait_time_sec(_prop_map);
 
     ret = parseS3Path(_s3ObjName, bucket, key, _prop_map);
     if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed parsing the S3 bucket and key from the physical path: \"%s\".", resource_name.c_str(),
@@ -1636,11 +1636,11 @@ irods::error s3PutCopyFile(
                         data.contentLength = data.originalContentLength = _fileSize;
                         data.pCtx = &bucketContext;
 
-                        uint64_t usStart = usNow();
+                        std::uint64_t usStart = usNow();
                         std::string&& hostname = s3GetHostname(_prop_map);
                         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                         S3_put_object (&bucketContext, key.c_str(), _fileSize, putProps, 0, 0, &putObjectHandler, &data);
-                        uint64_t usEnd = usNow();
+                        std::uint64_t usEnd = usNow();
                         double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                         rodsLog( LOG_DEBUG, "BW=%lf", bw);
                         if (data.status != S3StatusOK) {
@@ -1678,8 +1678,8 @@ irods::error s3PutCopyFile(
 
                     g_mpuResult = SUCCESS();
 
-                    int64_t seq;
-                    int64_t totalSeq = (_fileSize + chunksize - 1) / chunksize;
+                    std::int64_t seq;
+                    std::int64_t totalSeq = (_fileSize + chunksize - 1) / chunksize;
 
                     multipart_data_t partData;
                     int partContentLength = 0;
@@ -1807,7 +1807,7 @@ irods::error s3PutCopyFile(
                         data.contentLength -= partContentLength;
                     }
 
-                    uint64_t usStart = usNow();
+                    std::uint64_t usStart = usNow();
 
                     // Make the worker threads and start
                     int nThreads = s3GetMPUThreads(_prop_map);
@@ -1826,7 +1826,7 @@ irods::error s3PutCopyFile(
                         threads.pop_front();
                     }
 
-                    uint64_t usEnd = usNow();
+                    std::uint64_t usEnd = usNow();
                     double bw = (_fileSize / (1024.0*1024.0)) / ( (usEnd - usStart) / 1000000.0 );
                     rodsLog( LOG_DEBUG, "MultipartBW=%lf", bw);
 
@@ -1928,9 +1928,9 @@ irods::error s3CopyFile(
     std::string dest_bucket;
     std::string dest_key;
 
-    size_t retry_count_limit = get_retry_count(_src_ctx.prop_map());
-    size_t retry_wait = get_retry_wait_time_sec(_src_ctx.prop_map());
-    size_t max_retry_wait = get_max_retry_wait_time_sec(_src_ctx.prop_map());
+    std::size_t retry_count_limit = get_retry_count(_src_ctx.prop_map());
+    std::size_t retry_wait = get_retry_wait_time_sec(_src_ctx.prop_map());
+    std::size_t max_retry_wait = get_max_retry_wait_time_sec(_src_ctx.prop_map());
 
     std::string resource_name = get_resource_name(_src_ctx.prop_map());
 
@@ -1965,7 +1965,7 @@ irods::error s3CopyFile(
                 callback_data_t data;
                 data.prop_map_ptr = &_src_ctx.prop_map();
                 S3BucketContext bucketContext;
-                int64_t lastModified;
+                std::int64_t lastModified;
                 char eTag[256];
 
                 bzero (&bucketContext, sizeof (bucketContext));
@@ -1989,7 +1989,7 @@ irods::error s3CopyFile(
                 memset(&putProps, 0, sizeof(S3PutProperties));
                 putProps.expires = -1;
 
-                size_t retry_cnt = 0;
+                std::size_t retry_cnt = 0;
                 do {
                     bzero (&data, sizeof (data));
                     data.prop_map_ptr = &_src_ctx.prop_map();

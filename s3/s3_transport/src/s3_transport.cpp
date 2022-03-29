@@ -49,7 +49,7 @@ namespace irods::experimental::io::s3_transport
 
     irods::error get_object_s3_status(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
-            int64_t& object_size,
+            std::int64_t& object_size,
             object_s3_status& object_status) {
 
         data_for_head_callback data(bucket_context);
@@ -133,7 +133,7 @@ namespace irods::experimental::io::s3_transport
             const unsigned int restoration_days,
             const std::string& restoration_tier) {
 
-        uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         const auto xml = fmt::format("<RestoreRequest>\n  "
                                      "<Days>{}</Days>\n"
@@ -205,7 +205,7 @@ namespace irods::experimental::io::s3_transport
                                const std::string& function,
                                const libs3_types::bucket_context& saved_bucket_context,
                                libs3_types::status& pStatus,
-                               uint64_t thread_id )
+                               std::uint64_t thread_id )
     {
 
         int log_level = LOG_DEBUG;
@@ -257,8 +257,8 @@ namespace irods::experimental::io::s3_transport
     }  // end store_and_log_status
 
     // Returns timestamp in usec for delta-t comparisons
-    // uint64_t provides plenty of headroom
-    uint64_t get_time_in_microseconds()
+    // std::uint64_t provides plenty of headroom
+    std::uint64_t get_time_in_microseconds()
     {
         struct timeval tv;
         gettimeofday(&tv, nullptr);
@@ -370,10 +370,10 @@ namespace irods::experimental::io::s3_transport
                           void *callback_data)
             {
                 upload_manager *manager = (upload_manager *)callback_data;
-                int64_t ret = 0;
+                std::int64_t ret = 0;
                 if (manager->remaining) {
-                    int to_read_count = ((manager->remaining > static_cast<int64_t>(buffer_size)) ?
-                                  static_cast<int64_t>(buffer_size) : manager->remaining);
+                    int to_read_count = ((manager->remaining > static_cast<std::int64_t>(buffer_size)) ?
+                                  static_cast<std::int64_t>(buffer_size) : manager->remaining);
                     memcpy(buffer, manager->xml.c_str() + manager->offset, to_read_count);
                     ret = to_read_count;
                 }
@@ -493,10 +493,10 @@ namespace irods::experimental::io::s3_transport
                           void *callback_data)
             {
                 upload_manager *manager = (upload_manager *)callback_data;
-                int64_t ret = 0;
+                std::int64_t ret = 0;
                 if (manager->remaining) {
-                    int to_read_count = ((manager->remaining > static_cast<int64_t>(buffer_size)) ?
-                                  static_cast<int64_t>(buffer_size) : manager->remaining);
+                    int to_read_count = ((manager->remaining > static_cast<std::int64_t>(buffer_size)) ?
+                                  static_cast<std::int64_t>(buffer_size) : manager->remaining);
                     memcpy(buffer, manager->xml.c_str() + manager->offset, to_read_count);
                     ret = to_read_count;
                 }
