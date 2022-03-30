@@ -1085,133 +1085,161 @@ namespace irods_s3 {
         std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
 
-        irods::error result = SUCCESS();
-
         std::size_t retry_count_limit = get_retry_count(_ctx.prop_map());
         std::size_t retry_wait = get_retry_wait_time_sec(_ctx.prop_map());
         std::size_t max_retry_wait = get_max_retry_wait_time_sec(_ctx.prop_map());
 
+        const auto resource_name = get_resource_name(_ctx.prop_map());
+
         // =-=-=-=-=-=-=-
         // check incoming parameters
-        irods::error ret = s3CheckParams( _ctx );
-        if((result = ASSERT_PASS(ret, "[resource_name=%s] Invalid parameters or physical path.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
+        auto ret = s3CheckParams( _ctx );
+        if (!ret.ok()) {
+            ret = PASSMSG(fmt::format(
+                        "[resource_name={}] Invalid parameters or physical path.",
+                        resource_name), ret);
 
-            // =-=-=-=-=-=-=-
-            // get ref to fco
-            irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
+            irods::log(LOG_ERROR, ret.result());
 
-            std::memset(_statbuf, 0, sizeof(struct stat));
+            return ret;
+        }
 
-            boost::filesystem::path p(object->physical_path());
+        // =-=-=-=-=-=-=-
+        // get ref to fco
+        irods::data_object_ptr object = boost::dynamic_pointer_cast<irods::data_object>(_ctx.fco());
 
-            irods::error ret;
-            std::string bucket;
-            std::string key;
-            std::string key_id;
-            std::string access_key;
+        std::memset(_statbuf, 0, sizeof(struct stat));
 
-            ret = parseS3Path(object->physical_path(), bucket, key, _ctx.prop_map());
-            if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed parsing the S3 bucket and key from the physical path: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                     object->physical_path().c_str())).ok()) {
+        boost::filesystem::path p(object->physical_path());
 
-                ret = s3InitPerOperation( _ctx.prop_map() );
-                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to initialize the S3 system.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
+        std::string bucket;
+        std::string key;
+        std::string key_id;
+        std::string access_key;
 
-                    ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                    if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get the S3 credentials properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
+        ret = parseS3Path(object->physical_path(), bucket, key, _ctx.prop_map());
+        if (!ret.ok()) {
+            ret = PASSMSG(fmt::format(
+                        "[resource_name={}] Failed parsing the S3 bucket and key from the physical path: \"{}\".",
+                        resource_name, object->physical_path()), ret);
 
-                        std::string region_name = get_region_name(_ctx.prop_map());
+            irods::log(LOG_ERROR, ret.result());
 
-                        callback_data_t data;
-                        S3BucketContext bucketContext{};
+            return ret;
+        }
 
-                        bucketContext.bucketName = bucket.c_str();
-                        bucketContext.protocol = s3GetProto(_ctx.prop_map());
-                        bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
-                        bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
-                        bucketContext.accessKeyId = key_id.c_str();
-                        bucketContext.secretAccessKey = access_key.c_str();
-                        bucketContext.authRegion = region_name.c_str();
+        ret = s3InitPerOperation( _ctx.prop_map() );
+        if (!ret.ok()) {
+            ret = PASSMSG(fmt::format(
+                        "[resource_name={}] Failed to initialize the S3 system.",
+                        resource_name), ret);
 
-                        S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLoggingNotFound};
-                        std::size_t retry_cnt = 0;
-                        do {
-                            std::memset(&data, 0, sizeof(data));
-                            std::string&& hostname = s3GetHostname(_ctx.prop_map());
-                            bucketContext.hostName = hostname.c_str();
-                            data.pCtx = &bucketContext;
-                            S3_head_object(&bucketContext, key.c_str(), 0, 0, &headObjectHandler, &data);
+            irods::log(LOG_ERROR, ret.result());
 
-                            if ((retry_on_not_found && data.status != S3StatusOK) ||
-                                (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
+            return ret;
+        }
+
+        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        if (!ret.ok()) {
+            ret = PASSMSG(fmt::format(
+                        "[resource_name={}] Failed to get the S3 credentials properties.",
+                        resource_name), ret);
+
+            irods::log(LOG_ERROR, ret.result());
+
+            return ret;
+        }
+
+        std::string region_name = get_region_name(_ctx.prop_map());
+
+        callback_data_t data;
+        S3BucketContext bucketContext{};
+
+        bucketContext.bucketName = bucket.c_str();
+        bucketContext.protocol = s3GetProto(_ctx.prop_map());
+        bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+        bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
+        bucketContext.accessKeyId = key_id.c_str();
+        bucketContext.secretAccessKey = access_key.c_str();
+        bucketContext.authRegion = region_name.c_str();
+
+        S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLoggingNotFound};
+        std::size_t retry_cnt = 0;
+        do {
+            std::memset(&data, 0, sizeof(data));
+            std::string&& hostname = s3GetHostname(_ctx.prop_map());
+            bucketContext.hostName = hostname.c_str();
+            data.pCtx = &bucketContext;
+            S3_head_object(&bucketContext, key.c_str(), 0, 0, &headObjectHandler, &data);
+
+            if ((retry_on_not_found && data.status != S3StatusOK) ||
+                    (data.status != S3StatusOK && data.status != S3StatusHttpErrorNotFound)) {
 
 
-                                // On not found just sleep for a second and don't do exponential backoff
-                                if (data.status == S3StatusHttpErrorNotFound) {
-                                    s3_sleep( 1 );
-                                } else {
-                                    s3_sleep( retry_wait );
-                                    retry_wait *= 2;
-                                }
-                                if (retry_wait > max_retry_wait) {
-                                    retry_wait = max_retry_wait;
-                                }
-                            }
-                        } while ( data.status != S3StatusOK &&
-                                ( irods::experimental::io::s3_transport::S3_status_is_retryable(data.status) ||
-                                  ( retry_on_not_found && data.status == S3StatusHttpErrorNotFound ) ) &&
-                                ++retry_cnt < retry_count_limit );
-
-                        if (data.status == S3StatusOK) {
-
-                            _statbuf->st_mode = S_IFREG;
-                            _statbuf->st_nlink = 1;
-                            _statbuf->st_uid = getuid ();
-                            _statbuf->st_gid = getgid ();
-                            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
-                            _statbuf->st_size = savedProperties.contentLength;
-
-                        } else if (data.status == S3StatusHttpErrorNotFound && retry_on_not_found) {
-
-                            // This is likely a case where read after write consistency has not been reached.
-                            // Provide a detailed error message and return
-                            auto msg = fmt::format("[resource_name={}]  - Error stat'ing the S3 object: \"{}\"",
-                                        get_resource_name(_ctx.prop_map()),
-                                        object->physical_path());
-
-                            if(data.status >= 0) {
-                                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
-                            }
-
-                            result = ERROR(S3_FILE_STAT_ERR, msg);
-
-                        } else if (data.status == S3StatusHttpErrorNotFound) {
-
-                            // assume this is a collection if the key is not found
-                            _statbuf->st_mode = S_IFDIR;
-
-                        } else {
-
-                            auto msg = fmt::format("[resource_name={}]  - Error stat'ing the S3 object: \"{}\"",
-                                        get_resource_name(_ctx.prop_map()),
-                                        object->physical_path());
-
-                            if(data.status >= 0) {
-                                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
-                            }
-                            result = ERROR(S3_FILE_STAT_ERR, msg);
-                        }
-                    }
+                // On not found just sleep for a second and don't do exponential backoff
+                if (data.status == S3StatusHttpErrorNotFound) {
+                    s3_sleep( 1 );
+                } else {
+                    s3_sleep( retry_wait );
+                    retry_wait *= 2;
+                }
+                if (retry_wait > max_retry_wait) {
+                    retry_wait = max_retry_wait;
                 }
             }
+        } while ( data.status != S3StatusOK &&
+                ( irods::experimental::io::s3_transport::S3_status_is_retryable(data.status) ||
+                  ( retry_on_not_found && data.status == S3StatusHttpErrorNotFound ) ) &&
+                ++retry_cnt < retry_count_limit );
+
+        if (data.status == S3StatusOK) {
+            _statbuf->st_mode = S_IFREG;
+            _statbuf->st_nlink = 1;
+            _statbuf->st_uid = getuid ();
+            _statbuf->st_gid = getgid ();
+            _statbuf->st_atime = _statbuf->st_mtime = _statbuf->st_ctime = savedProperties.lastModified;
+            _statbuf->st_size = savedProperties.contentLength;
+
+            return SUCCESS();
         }
 
-        if( !result.ok() ) {
-            irods::log(LOG_ERROR, fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), result.result()));
+        if (data.status == S3StatusHttpErrorNotFound && retry_on_not_found) {
+            // This is likely a case where read after write consistency has not been reached.
+            // Provide a detailed error message and return
+            auto msg = fmt::format("[resource_name={}]  - Error stat'ing the S3 object: \"{}\"",
+                    resource_name, object->physical_path());
+
+            if(data.status >= 0) {
+                msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
+            }
+
+            ret = ERROR(S3_FILE_STAT_ERR, msg);
+
+            irods::log(LOG_ERROR, ret.result());
+
+            return ret;
         }
 
-        return result;
-    }
+        if (data.status == S3StatusHttpErrorNotFound) {
+            // assume this is a collection if the key is not found
+            _statbuf->st_mode = S_IFDIR;
+
+            return ret;
+        }
+
+        auto msg = fmt::format("[resource_name={}]  - Error stat'ing the S3 object: \"{}\"",
+                resource_name, object->physical_path());
+
+        if(data.status >= 0) {
+            msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
+        }
+
+        ret = ERROR(S3_FILE_STAT_ERR, msg);
+
+        irods::log(LOG_ERROR, ret.result());
+
+        return ret;
+    } // s3_file_stat_operation_with_flag_for_retry_on_not_found
 
     irods::error s3_file_stat_operation(
         irods::plugin_context& _ctx,
@@ -1563,13 +1591,17 @@ namespace irods_s3 {
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
         irods::error result = SUCCESS();
-        irods::error ret;
         std::string access_key;
         std::string secret_access_key;
 
+        const auto resource_name = get_resource_name(_ctx.prop_map());
+
         // retrieve archive naming policy from resource plugin context
         std::string archive_naming_policy = CONSISTENT_NAMING; // default
-        ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+        auto ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+        if (!ret.ok()) {
+            irods::log(LOG_ERROR, fmt::format("[{}] {}", resource_name, ret.result()));
+        }
         boost::to_lower(archive_naming_policy);
 
         irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
@@ -1581,109 +1613,131 @@ namespace irods_s3 {
         }
 
         ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
-        if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get S3 credential properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
+        if (!ret.ok()) {
+            // TODO: this is to maintain existing behavior but probably not necessary for error cases
+            object->physical_path(_new_file_name);
 
-            if (s3_copyobject_disabled(_ctx.prop_map())) {
-
-                // read the buffer size from rods environment
-                rodsLong_t buf_size = irods::get_advanced_setting<const int>(irods::CFG_TRANS_BUFFER_SIZE_FOR_PARA_TRANS) * 1024 * 1024;
-                char* buf = ( char* )malloc( buf_size );
-
-                const irods::at_scope_exit free_buf { [buf]() {
-                    free(buf);
-                }};
-
-                struct stat statbuf;
-                ret = s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, &statbuf, false);
-                if (( result = ASSERT_PASS(ret, "[resource_name=%s] Failed to stat the source file on rename : \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                         object->physical_path().c_str())).ok()) {
-
-                    std::string bucket_name;
-                    std::string src_object_key;
-                    std::string dest_object_key;
-                    std::string&& hostname = s3GetHostname(_ctx.prop_map());
-
-                    // get source object_key
-                    ret = parseS3Path(object->physical_path(), bucket_name, src_object_key, _ctx.prop_map());
-                    if(!ret.ok()) {
-                        return ret;
-                    }
-
-                    // get destination object_key
-                    ret = parseS3Path(_new_file_name, bucket_name, dest_object_key, _ctx.prop_map());
-                    if(!ret.ok()) {
-                        return ret;
-                    }
-
-                    // read from source and write to destination
-                    s3_transport_config src_s3_config;
-                    src_s3_config.hostname = hostname;
-                    src_s3_config.number_of_cache_transfer_threads = 1;
-                    src_s3_config.number_of_client_transfer_threads = 1;
-                    src_s3_config.bucket_name = bucket_name;
-                    src_s3_config.access_key = access_key;
-                    src_s3_config.secret_access_key = secret_access_key;
-                    src_s3_config.shared_memory_timeout_in_seconds = 180;
-                    src_s3_config.developer_messages_log_level = developer_messages_log_level;
-                    src_s3_config.region_name = get_region_name(_ctx.prop_map());
-                    src_s3_config.s3_protocol_str = s3GetProto(_ctx.prop_map());
-
-                    s3_transport src_transport_object{src_s3_config};
-                    idstream src_dstream_object{src_transport_object, src_object_key};
-
-                    // get the source object size
-                    off_t object_size = src_transport_object.get_existing_object_size();
-
-                    s3_transport_config dest_s3_config;
-                    dest_s3_config.hostname = hostname;
-                    dest_s3_config.number_of_cache_transfer_threads = 1;
-                    dest_s3_config.bucket_name = bucket_name;
-                    dest_s3_config.access_key = access_key;
-                    dest_s3_config.secret_access_key = secret_access_key;
-                    dest_s3_config.shared_memory_timeout_in_seconds = 180;
-                    dest_s3_config.developer_messages_log_level = developer_messages_log_level;
-                    dest_s3_config.region_name = get_region_name(_ctx.prop_map());
-                    dest_s3_config.put_repl_flag = false;
-                    dest_s3_config.object_size = object_size;
-                    dest_s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
-                    dest_s3_config.circular_buffer_size = 2 * dest_s3_config.minimum_part_size;
-                    dest_s3_config.s3_protocol_str = s3GetProto(_ctx.prop_map());
-
-                    dest_s3_config.number_of_client_transfer_threads = 1;
-                    s3_transport dest_transport_object{dest_s3_config};
-                    odstream dest_dstream_object{dest_transport_object, dest_object_key};
-
-                    // copy from src to dest
-                    for (off_t offset = 0; offset < object_size; offset += buf_size) {
-                        off_t read_write_size = (offset + buf_size) <= object_size ? buf_size : (object_size - offset);
-                        src_dstream_object.read(buf, read_write_size);
-                        dest_dstream_object.write(buf, read_write_size);
-                    }
-                    src_dstream_object.close();
-                    dest_dstream_object.close();
-
-                    // delete the original file
-                    result = s3_file_unlink_operation(_ctx);
-
-                }
-
-
-            } else {
-
-                // copy the object to the new location
-                ret = s3CopyFile(_ctx, object->physical_path(), _new_file_name, access_key, secret_access_key,
-                                 s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()),
-                                 s3_get_uri_request_style(_ctx.prop_map()));
-                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy object from: \"%s\" to \"%s\".",
-                                get_resource_name(_ctx.prop_map()).c_str(), object->physical_path().c_str(),
-                                _new_file_name)).ok()) {
-                    // delete the original object
-                    ret = s3_file_unlink_operation(_ctx);
-                    result = ASSERT_PASS(ret, "[resource_name=%s] Failed to unlink original S3 object: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                         object->physical_path().c_str());
-                }
-            }
+            return PASSMSG(fmt::format(
+                        "[resource_name={}] Failed to get S3 credential properties.",
+                        resource_name), ret);
         }
+
+        if (!s3_copyobject_disabled(_ctx.prop_map())) {
+            // copy the object to the new location
+            ret = s3CopyFile(_ctx, object->physical_path(), _new_file_name, access_key, secret_access_key,
+                    s3GetProto(_ctx.prop_map()), s3GetSTSDate(_ctx.prop_map()),
+                    s3_get_uri_request_style(_ctx.prop_map()));
+            if (!ret.ok()) {
+                // TODO: this is to maintain existing behavior but probably not necessary for error cases
+                object->physical_path(_new_file_name);
+
+                return PASSMSG(fmt::format(
+                            "[resource_name={}] Failed to copy object from: \"{}\" to \"{}\".",
+                            resource_name, object->physical_path(), _new_file_name), ret);
+            }
+
+            // delete the original object
+            ret = s3_file_unlink_operation(_ctx);
+            if (!ret.ok()) {
+                // TODO: this is to maintain existing behavior but probably not necessary for error cases
+                object->physical_path(_new_file_name);
+
+                return PASSMSG(fmt::format(
+                            "[resource_name={}] Failed to unlink original S3 object: \"{}\".",
+                            resource_name, object->physical_path()), ret);
+            }
+
+            object->physical_path(_new_file_name);
+
+            return ret;
+        }
+
+        // read the buffer size from rods environment
+        rodsLong_t buf_size = irods::get_advanced_setting<const int>(irods::CFG_TRANS_BUFFER_SIZE_FOR_PARA_TRANS) * 1024 * 1024;
+        char* buf = ( char* )malloc( buf_size );
+
+        const irods::at_scope_exit free_buf { [buf]() {
+            free(buf);
+        }};
+
+        struct stat statbuf;
+        ret = s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, &statbuf, false);
+        if (!ret.ok()) {
+            // TODO: this is to maintain existing behavior but probably not necessary for error cases
+            object->physical_path(_new_file_name);
+
+            return PASSMSG(fmt::format(
+                        "[resource_name={}] Failed to stat the source file on rename : \"{}\".",
+                        resource_name, object->physical_path()), ret);
+        }
+
+        std::string bucket_name;
+        std::string src_object_key;
+        std::string dest_object_key;
+        std::string&& hostname = s3GetHostname(_ctx.prop_map());
+
+        // get source object_key
+        ret = parseS3Path(object->physical_path(), bucket_name, src_object_key, _ctx.prop_map());
+        if (!ret.ok()) {
+            return ret;
+        }
+
+        // get destination object_key
+        ret = parseS3Path(_new_file_name, bucket_name, dest_object_key, _ctx.prop_map());
+        if (!ret.ok()) {
+            return ret;
+        }
+
+        // read from source and write to destination
+        s3_transport_config src_s3_config;
+        src_s3_config.hostname = hostname;
+        src_s3_config.number_of_cache_transfer_threads = 1;
+        src_s3_config.number_of_client_transfer_threads = 1;
+        src_s3_config.bucket_name = bucket_name;
+        src_s3_config.access_key = access_key;
+        src_s3_config.secret_access_key = secret_access_key;
+        src_s3_config.shared_memory_timeout_in_seconds = 180;
+        src_s3_config.developer_messages_log_level = developer_messages_log_level;
+        src_s3_config.region_name = get_region_name(_ctx.prop_map());
+        src_s3_config.s3_protocol_str = s3GetProto(_ctx.prop_map());
+
+        s3_transport src_transport_object{src_s3_config};
+        idstream src_dstream_object{src_transport_object, src_object_key};
+
+        // get the source object size
+        off_t object_size = src_transport_object.get_existing_object_size();
+
+        s3_transport_config dest_s3_config;
+        dest_s3_config.hostname = hostname;
+        dest_s3_config.number_of_cache_transfer_threads = 1;
+        dest_s3_config.bucket_name = bucket_name;
+        dest_s3_config.access_key = access_key;
+        dest_s3_config.secret_access_key = secret_access_key;
+        dest_s3_config.shared_memory_timeout_in_seconds = 180;
+        dest_s3_config.developer_messages_log_level = developer_messages_log_level;
+        dest_s3_config.region_name = get_region_name(_ctx.prop_map());
+        dest_s3_config.put_repl_flag = false;
+        dest_s3_config.object_size = object_size;
+        dest_s3_config.minimum_part_size = s3GetMPUChunksize(_ctx.prop_map());
+        dest_s3_config.circular_buffer_size = 2 * dest_s3_config.minimum_part_size;
+        dest_s3_config.s3_protocol_str = s3GetProto(_ctx.prop_map());
+
+        dest_s3_config.number_of_client_transfer_threads = 1;
+        s3_transport dest_transport_object{dest_s3_config};
+        odstream dest_dstream_object{dest_transport_object, dest_object_key};
+
+        // copy from src to dest
+        for (off_t offset = 0; offset < object_size; offset += buf_size) {
+            off_t read_write_size = (offset + buf_size) <= object_size ? buf_size : (object_size - offset);
+            src_dstream_object.read(buf, read_write_size);
+            dest_dstream_object.write(buf, read_write_size);
+        }
+        src_dstream_object.close();
+        dest_dstream_object.close();
+
+        // delete the original file
+        result = s3_file_unlink_operation(_ctx);
+
 
         // issue 1855 (irods issue 4326) - resources must now set physical path
         object->physical_path(_new_file_name);
@@ -1723,54 +1777,67 @@ namespace irods_s3 {
     // s3StageToCache - This routine is for testing the TEST_STAGE_FILE_TYPE.
     // Just copy the file from filename to cacheFilename. optionalInfo info
     // is not used.
-    irods::error s3_stage_to_cache_operation(
-        irods::plugin_context& _ctx,
-        const char*                               _cache_file_name )
+    irods::error s3_stage_to_cache_operation(irods::plugin_context& _ctx,
+                                             const char* _cache_file_name)
     {
+        const auto resource_name = get_resource_name(_ctx.prop_map());
+
         if (is_cacheless_mode(_ctx.prop_map())) {
-            return ERROR(SYS_NOT_SUPPORTED,
-                    boost::str(boost::format("[resource_name=%s] %s") %
-                        get_resource_name(_ctx.prop_map()) % __FUNCTION__));
-        } else {
-
-            irods::error result = SUCCESS();
-
-            // =-=-=-=-=-=-=-
-            // check incoming parameters
-            irods::error ret = s3CheckParams( _ctx );
-            if((result = ASSERT_PASS(ret, "[resource_name=%s] Invalid parameters or physical path.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
-
-                struct stat statbuf;
-                std::string key_id;
-                std::string access_key;
-
-                irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-
-                ret = s3_file_stat_operation(_ctx, &statbuf);
-                if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed stating the file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                         object->physical_path().c_str())).ok()) {
-
-                    if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, S3_FILE_STAT_ERR, "[resource_name=%s] Error stating the file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                              object->physical_path().c_str())).ok()) {
-
-                        if((result = ASSERT_ERROR(object->size() <= 0 || object->size() == static_cast<std::size_t>(statbuf.st_size), SYS_COPY_LEN_ERR,
-                                                  "[resource_name=%s] Error for file: \"%s\" inp data size: %ld does not match stat size: %ld.", get_resource_name(_ctx.prop_map()).c_str(),
-                                                  object->physical_path().c_str(), object->size(), statbuf.st_size)).ok()) {
-
-                            ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                            if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get S3 credential properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
-
-                                ret = s3GetFile( _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
-                                result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy the S3 object: \"%s\" to the cache: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                                     object->physical_path().c_str(), _cache_file_name);
-                            }
-                        }
-                    }
-                }
-            }
-            return result;
+            return ERROR(SYS_NOT_SUPPORTED, fmt::format(
+                        "[resource_name={}] stage-to-cache is not supported for cacheless mode",
+                        resource_name));
         }
-    }
+
+        // check incoming parameters
+        auto ret = s3CheckParams( _ctx );
+        if (!ret.ok()) {
+            return PASSMSG(fmt::format(
+                        "[resource_name={}] Invalid parameters or physical path.",
+                        resource_name), ret);
+        }
+
+        struct stat statbuf;
+        std::string key_id;
+        std::string access_key;
+
+        irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+        ret = s3_file_stat_operation(_ctx, &statbuf);
+        if (!ret.ok()) {
+            return PASSMSG(fmt::format(
+                        "[resource_name={}] Failed stating the file: \"{}\".",
+                        resource_name, object->physical_path()), ret);
+        }
+
+        if (0 == (statbuf.st_mode & S_IFREG)) {
+            return ERROR(S3_FILE_STAT_ERR, fmt::format(
+                        "[resource_name={}] Error stating the file: \"{}\".",
+                        resource_name, object->physical_path()));
+        }
+
+
+        if (object->size() > 0 && object->size() != static_cast<std::size_t>(statbuf.st_size)) {
+            return ERROR(SYS_COPY_LEN_ERR, fmt::format(
+                        "[resource_name={}] Error for file: \"{}\" inp data size: {} does not match stat size: {}.",
+                        resource_name, object->physical_path(), object->size(), statbuf.st_size));
+        }
+
+        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        if (!ret.ok()) {
+            return PASSMSG(fmt::format(
+                        "[resource_name={}] Failed to get S3 credential properties.",
+                        resource_name), ret);
+        }
+
+        ret = s3GetFile( _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
+        if (!ret.ok()) {
+            return PASSMSG(fmt::format(
+                        "[resource_name={}] Failed to copy the S3 object: \"{}\" to the cache: \"{}\".",
+                        resource_name, object->physical_path(), _cache_file_name), ret);
+        }
+
+        return ret;
+    } // s3_stage_to_cache_operation
 
     // =-=-=-=-=-=-=-
     // s3SyncToArch - This routine is for testing the TEST_STAGE_FILE_TYPE.
@@ -1780,78 +1847,105 @@ namespace irods_s3 {
         irods::plugin_context& _ctx,
         const char* _cache_file_name )
     {
+        const auto resource_name = get_resource_name(_ctx.prop_map());
+
         if (is_cacheless_mode(_ctx.prop_map())) {
-            return ERROR(SYS_NOT_SUPPORTED,
-                    boost::str(boost::format("[resource_name=%s] %s") %
-                        get_resource_name(_ctx.prop_map()) % __FUNCTION__));
-        } else {
-
-            irods::error result = SUCCESS();
-            // =-=-=-=-=-=-=-
-            // check incoming parameters
-            irods::error ret = s3CheckParams( _ctx );
-            if((result = ASSERT_PASS(ret, "[resource_name=%s] Invalid parameters or physical path.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
-
-                struct stat statbuf;
-                int status;
-                std::string key_id;
-                std::string access_key;
-
-                irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-                status = stat(_cache_file_name, &statbuf);
-                int err_status = UNIX_FILE_STAT_ERR - errno;
-                if((result = ASSERT_ERROR(status >= 0, err_status, "[resource_name=%s] Failed to stat cache file: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                          _cache_file_name)).ok()) {
-
-                    if((result = ASSERT_ERROR((statbuf.st_mode & S_IFREG) != 0, UNIX_FILE_STAT_ERR, "[resource_name=%s] Cache file: \"%s\" is not a file.", get_resource_name(_ctx.prop_map()).c_str(),
-                                              _cache_file_name)).ok()) {
-
-                        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
-                        if((result = ASSERT_PASS(ret, "[resource_name=%s] Failed to get S3 credential properties.", get_resource_name(_ctx.prop_map()).c_str())).ok()) {
-
-                            // retrieve archive naming policy from resource plugin context
-                            std::string archive_naming_policy = CONSISTENT_NAMING; // default
-                            ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
-                            if(!ret.ok()) {
-                                irods::log(LOG_ERROR, fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), ret.result()));
-                            }
-                            boost::to_lower(archive_naming_policy);
-
-                            // if archive naming policy is decoupled
-                            // we use the object's reversed id as S3 key name prefix
-                            if (archive_naming_policy == DECOUPLED_NAMING) {
-                                // extract object name and bucket name from physical path
-                                std::vector< std::string > tokens;
-                                irods::string_tokenize(object->physical_path(), "/", tokens);
-                                std::string bucket_name = tokens.front();
-                                std::string object_name = tokens.back();
-
-                                // reverse object id
-                                std::string obj_id = boost::lexical_cast<std::string>(object->id());
-                                std::reverse(obj_id.begin(), obj_id.end());
-
-                                // make S3 key name
-                                const auto s3_key_name = fmt::format("/{}/{}/{}", bucket_name, obj_id, object_name);
-
-                                // update physical path
-                                object->physical_path(s3_key_name);
-                            }
-
-                            ret = s3PutCopyFile(S3_PUTFILE, _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
-                            result = ASSERT_PASS(ret, "[resource_name=%s] Failed to copy the cache file: \"%s\" to the S3 object: \"%s\".", get_resource_name(_ctx.prop_map()).c_str(),
-                                                 _cache_file_name, object->physical_path().c_str());
-
-                        }
-                    }
-                }
-            }
-            if( !result.ok() ) {
-                irods::log(LOG_ERROR, fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), result.result()));
-            }
-            return result;
+            return ERROR(SYS_NOT_SUPPORTED, fmt::format(
+                        "[resource_name={}] sync-to-archive is not supported for cacheless mode",
+                        resource_name));
         }
 
-    }
+        // check incoming parameters
+        auto ret = s3CheckParams( _ctx );
+        if (!ret.ok()) {
+            ret = PASSMSG(fmt::format(
+                        "[resource_name={}] Invalid parameters or physical path.",
+                        resource_name), ret);
+
+            irods::log(LOG_ERROR, ret.result());
+
+            return ret;
+        }
+
+        struct stat statbuf;
+        std::string key_id;
+        std::string access_key;
+
+        irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+        if (const int ec = stat(_cache_file_name, &statbuf); ec < 0) {
+            const int err_status = UNIX_FILE_STAT_ERR - errno;
+
+            ret = ERROR(err_status, fmt::format(
+                        "[resource_name={}] Failed to stat cache file: \"{}\".",
+                        resource_name, _cache_file_name));
+
+            irods::log(LOG_ERROR, ret.result());
+
+            return ret;
+        }
+
+        if (0 == (statbuf.st_mode & S_IFREG)) {
+            ret = ERROR(UNIX_FILE_STAT_ERR, fmt::format(
+                        "[resource_name={}] Cache file: \"{}\" is not a file.",
+                        resource_name, _cache_file_name));
+
+            irods::log(LOG_ERROR, ret.result());
+
+            return ret;
+        }
+
+        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        if (!ret.ok()) {
+            ret = PASSMSG(fmt::format(
+                        "[resource_name={}] Failed to get S3 credential properties.",
+                        resource_name), ret);
+
+            irods::log(LOG_ERROR, ret.result());
+
+            return ret;
+        }
+
+        // retrieve archive naming policy from resource plugin context
+        std::string archive_naming_policy = CONSISTENT_NAMING; // default
+        ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
+        if(!ret.ok()) {
+            irods::log(LOG_ERROR, fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), ret.result()));
+        }
+        boost::to_lower(archive_naming_policy);
+
+        // if archive naming policy is decoupled
+        // we use the object's reversed id as S3 key name prefix
+        if (archive_naming_policy == DECOUPLED_NAMING) {
+            // extract object name and bucket name from physical path
+            std::vector< std::string > tokens;
+            irods::string_tokenize(object->physical_path(), "/", tokens);
+            std::string bucket_name = tokens.front();
+            std::string object_name = tokens.back();
+
+            // reverse object id
+            std::string obj_id = boost::lexical_cast<std::string>(object->id());
+            std::reverse(obj_id.begin(), obj_id.end());
+
+            // make S3 key name
+            const auto s3_key_name = fmt::format("/{}/{}/{}", bucket_name, obj_id, object_name);
+
+            // update physical path
+            object->physical_path(s3_key_name);
+        }
+
+        ret = s3PutCopyFile(S3_PUTFILE, _cache_file_name, object->physical_path(), statbuf.st_size, key_id, access_key, _ctx.prop_map());
+        if (!ret.ok()) {
+            ret = PASSMSG(fmt::format(
+                        "[resource_name={}] Failed to copy the cache file: \"{}\" to the S3 object: \"{}\".",
+                        resource_name, _cache_file_name, object->physical_path()), ret);
+
+            irods::log(LOG_ERROR, ret.result());
+
+            return ret;
+        }
+
+        return ret;
+    } // s3_sync_to_arch_operation
 
     // =-=-=-=-=-=-=-
     // used to allow the resource to determine which host
