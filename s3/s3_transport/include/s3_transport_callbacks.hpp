@@ -34,9 +34,13 @@
 #include "managed_shared_memory_object.hpp"
 #include "s3_multipart_shared_data.hpp"
 #include "s3_transport_types.hpp"
+#include "s3_transport_logging_category.hpp"
 
 namespace irods::experimental::io::s3_transport
 {
+    using log  = irods::experimental::log;
+    using logger = log::logger<s3_transport_logging_category>;
+
     template <typename CharT>
     class s3_transport;
 
@@ -135,7 +139,7 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 if (!cache_fstream) {
-                    rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
+                    logger::error("{}:{} ({}) [[{}]] could not open cache file",
                             __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     return S3StatusAbortedByCallback;
                 }
@@ -166,7 +170,7 @@ namespace irods::experimental::io::s3_transport
                 filename = f;
                 cache_fstream.open(filename.c_str(), std::ios_base::out);
                 if (!cache_fstream) {
-                    rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
+                    logger::error("{}:{} ({}) [[{}]] could not open cache file",
                             __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                 }
             }
@@ -363,7 +367,7 @@ namespace irods::experimental::io::s3_transport
                     }
 
                     if (!cache_fstream) {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
+                        logger::error("{}:{} ({}) [[{}]] could not open cache file",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                         return S3StatusAbortedByCallback;
                     }
@@ -400,7 +404,7 @@ namespace irods::experimental::io::s3_transport
                     filename = f;
                     cache_fstream.open(filename.c_str(), std::ios_base::in);
                     if (!cache_fstream) {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
+                        logger::error("{}:{} ({}) [[{}]] could not open cache file",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     }
                 }
@@ -459,9 +463,9 @@ namespace irods::experimental::io::s3_transport
 
                         // timeout reading from circular buffer
 
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                        logger::error("{}:{} ({}) [[{}]] "
                                 "Timed out waiting to read from circular buffer.  "
-                                "Remote likely hung up...\n",
+                                "Remote likely hung up...",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
 
                         // save that we got a timeout so that we don't keep retrying
@@ -495,7 +499,7 @@ namespace irods::experimental::io::s3_transport
                         circular_buffer.pop_front(this->bytes_written);
                     } catch (timeout_exception& e) {
                         // this should never happen but catch and log just in case
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                        logger::error("{}:{} ({}) [[{}]] "
                                 "Unexpected timeout when removing entries from circular buffer.",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     }
@@ -630,7 +634,7 @@ namespace irods::experimental::io::s3_transport
                             }
 
                         } catch (const bi::bad_alloc& ba) {
-                            rodsLog(LOG_ERROR, "%s:%d (%s) Exception caught allocating room for etags string. [%s]", __FILE__, __LINE__, __FUNCTION__, ba.what());
+                            logger::error("{}:{} ({}) Exception caught allocating room for etags string. [{}]", __FILE__, __LINE__, __FUNCTION__, ba.what());
                             return S3StatusOutOfMemory;
                         }
                         return libs3_types::status_ok;
@@ -706,7 +710,7 @@ namespace irods::experimental::io::s3_transport
                     }
 
                     if (!cache_fstream) {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
+                        logger::error("{}:{} ({}) [[{}]] could not open cache file",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                         return 0;
                     }
@@ -742,7 +746,7 @@ namespace irods::experimental::io::s3_transport
                     filename = f;
                     cache_fstream.open(filename.c_str(), std::ios_base::in);
                     if (!cache_fstream) {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] could not open cache file\n",
+                        logger::error("{}:{} ({}) [[{}]] could not open cache file",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     }
                 }
@@ -800,17 +804,17 @@ namespace irods::experimental::io::s3_transport
                     try {
                         circular_buffer.peek(this->bytes_written, bytes_to_return, libs3_buffer);
                     } catch(const std::system_error& se)  {
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
-                                "System error when peaking into circular buffer.  %s\n",
+                        logger::error("{}:{} ({}) [[{}]] "
+                                "System error when peaking into circular buffer.  {}",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier, se.what());
                         return 0;
                     } catch (timeout_exception& e) {
 
                         // timeout reading from circular buffer
 
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                        logger::error("{}:{} ({}) [[{}]] "
                                 "Timed out waiting to read from circular buffer.  "
-                                "Remote likely hung up...\n",
+                                "Remote likely hung up...",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
 
                         // save that we got a timeout so that we don't keep retrying
@@ -844,7 +848,7 @@ namespace irods::experimental::io::s3_transport
                         circular_buffer.pop_front(this->bytes_written);
                     } catch (timeout_exception& e) {
                         // this should never happen but catch and log just in case
-                        rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] "
+                        logger::error("{}:{} ({}) [[{}]] "
                                 "Unexpected timeout when removing entries from circular buffer.",
                                 __FILE__, __LINE__, __FUNCTION__, this->thread_identifier);
                     }
