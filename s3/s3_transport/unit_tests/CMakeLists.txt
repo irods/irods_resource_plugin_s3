@@ -58,10 +58,8 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -Wl,-
 add_compile_options(-nostdinc++ -Wall -Wextra -Werror)
 add_compile_options(-Wno-unused-parameter) # Until fix of irods_re_plugin.hpp
 add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://github.com/irods/irods/issues/3396
-add_compile_options(-DIRODS_ENABLE_SYSLOG)
 
 add_compile_definitions(PRIVATE
-                        IRODS_ENABLE_SYSLOG
                         SPDLOG_FMT_EXTERNAL)
 
 link_libraries(c++abi
@@ -69,6 +67,8 @@ link_libraries(c++abi
                xml2
                crypto
                pthread
+               irods_server
+               irods_common
                ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so)
 
 include_directories(${IRODS_INCLUDE_DIRS}

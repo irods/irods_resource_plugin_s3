@@ -19,6 +19,7 @@
 #include <string_view>
 #include <fmt/format.h>
 #include <irods/miscServerFunct.hpp>
+#include "../../include/s3_transport_logging_category.hpp"
 
 // to run the following unit tests, the aws command line utility needs to be available in
 // the path and "aws configure" needs to be run to set up the keys
@@ -34,8 +35,6 @@ namespace io = irods::experimental::io;
 
 std::string keyfile = "/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair";
 std::string hostname = "s3.amazonaws.com";
-
-static int log_level = LOG_NOTICE;
 
 const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
 
@@ -60,6 +59,7 @@ void read_keys(const std::string& keyfile, std::string& access_key, std::string&
 std::string create_bucket() {
 
     using namespace std::chrono;
+
     std::int64_t ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     const auto bucket_name = fmt::format("irods-s3-unit-test-{}", ms);
@@ -67,7 +67,7 @@ std::string create_bucket() {
     // create the bucket
     const auto aws_mb_command = fmt::format("aws --endpoint-url http://{} s3 mb s3://{}", hostname, bucket_name);
 
-    irods::log(LOG_NOTICE, aws_mb_command);
+    fmt::print("{}\n", aws_mb_command);
     std::system(aws_mb_command.c_str());
 
     return bucket_name;
@@ -77,32 +77,34 @@ void remove_bucket(const std::string& bucket_name) {
 
     // remove the bucket
     const auto aws_rb_command = fmt::format("aws --endpoint-url http://{} s3 rb --force s3://{}", hostname, bucket_name);
-    irods::log(LOG_NOTICE, aws_rb_command);
+    fmt::print("{}\n", aws_rb_command);
     std::system(aws_rb_command.c_str());
 }
 
 void upload_stage_and_cleanup(const std::string& bucket_name, const std::string& filename,
         const std::string& object_prefix)
 {
+
     // clean up from a previous test, ignore errors
     const auto aws_rm_command = fmt::format("aws --endpoint-url http://{} s3 rm s3://{}/{}{}", hostname, bucket_name, object_prefix, filename);
-    irods::log(LOG_NOTICE, aws_rm_command);
+    fmt::print("{}\n", aws_rm_command);
     std::system(aws_rm_command.c_str());
 
     const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
-    irods::log(LOG_NOTICE, std::string("rm ") + downloaded_file_name);
+    fmt::print("{}\n", std::string("rm ") + downloaded_file_name);
     remove(downloaded_file_name.c_str());
 }
 
 void download_stage_and_cleanup(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
+
     // stage file to s3 and cleanup from previous tests
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
-    irods::log(LOG_NOTICE, aws_cp_command);
+    fmt::print("{}\n", aws_cp_command);
     std::system(aws_cp_command.c_str());
 
     const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
-    irods::log(LOG_NOTICE, std::string("rm ") + downloaded_file_name);
+    fmt::print("{}\n", std::string("rm ") + downloaded_file_name);
     remove(downloaded_file_name.c_str());
 }
 
@@ -111,7 +113,7 @@ void read_write_stage_and_cleanup(const std::string& bucket_name, const std::str
 
     // stage the file to s3 and cleanup
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
-    irods::log(LOG_NOTICE, aws_cp_command);
+    fmt::print("{}\n", aws_cp_command);
     std::system(aws_cp_command.c_str());
 
     const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
@@ -120,22 +122,23 @@ void read_write_stage_and_cleanup(const std::string& bucket_name, const std::str
     remove(downloaded_file_name.c_str());
 
     const auto cp_command = fmt::format("cp {} {}", filename, comparison_file_name);
-    irods::log(LOG_NOTICE, cp_command);
+    fmt::print("{}\n", cp_command);
     std::system(cp_command.c_str());
 }
 
 void check_upload_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
+
     // download the file and compare (using s3 client with system calls for now)
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp s3://{}/{}{} {}.downloaded", hostname, bucket_name, object_prefix, filename, filename);
 
-    irods::log(LOG_NOTICE, aws_cp_command);
+    fmt::print("{}\n", aws_cp_command);
     int download_return_val = std::system(aws_cp_command.c_str());
 
     REQUIRE(0 == download_return_val);
 
     const auto cmp_command = fmt::format("cmp -s {} {}.downloaded", filename, filename);
-    irods::log(LOG_NOTICE, cmp_command);
+    fmt::print("{}\n", cmp_command);
     int cmp_return_val = std::system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
@@ -143,9 +146,10 @@ void check_upload_results(const std::string& bucket_name, const std::string& fil
 
 void check_download_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
+
     // compare the downloaded file
     const auto cmp_command = fmt::format("cmp -s {} {}.downloaded", filename, filename);
-    irods::log(LOG_NOTICE, cmp_command);
+    fmt::print("{}\n", cmp_command);
     int cmp_return_val = std::system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
@@ -153,18 +157,19 @@ void check_download_results(const std::string& bucket_name, const std::string& f
 
 void check_read_write_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
+
     const auto downloaded_file_name = fmt::format("{}.downloaded", filename);
     const auto comparison_file_name = fmt::format("{}.comparison", filename);
 
     // download the file and compare (using s3 client with system calls for now)
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp s3://{}/{}{} {}", hostname, bucket_name, object_prefix, filename, downloaded_file_name);
-    irods::log(LOG_NOTICE, aws_cp_command);
+    fmt::print("{}\n", aws_cp_command);
     int download_return_val = std::system(aws_cp_command.c_str());
 
     REQUIRE(0 == download_return_val);
 
     const auto cmp_command = fmt::format("cmp -s {} {}", downloaded_file_name, comparison_file_name);
-    irods::log(LOG_NOTICE, cmp_command);
+    fmt::print("{}\n", cmp_command);
     int cmp_return_val = std::system(cmp_command.c_str());
 
     REQUIRE(0 == cmp_return_val);
@@ -186,7 +191,8 @@ void upload_part(const char* const hostname,
                  const std::string& s3_sts_date_str = "date",
                  bool server_encrypt_flag = false)
 {
-    rodsLog(LOG_NOTICE, "%s:%d (%s) open file=%s put_repl_flag=%d\n", __FILE__, __LINE__, __FUNCTION__, filename, put_repl_flag);
+
+    fmt::print("{}:{} ({}) open file={} put_repl_flag={}\n", __FILE__, __LINE__, __FUNCTION__, filename, put_repl_flag);
     std::ifstream ifs;
     ifs.open(filename, std::ios::in | std::ios::binary | std::ios::ate);
     if (!ifs.good()) {
@@ -208,7 +214,7 @@ void upload_part(const char* const hostname,
 
     std::uint64_t current_buffer_size = end - start;
 
-    rodsLog(LOG_NOTICE, "%s:%d (%s) [[%d]] [file_size=%lu][start=%lu][end=%lu][current_buffer_size=%lu]\n",
+    fmt::print("{}:{} ({}) [[{}]] [file_size={}][start={}][end={}][current_buffer_size={}]\n",
             __FILE__, __LINE__, __FUNCTION__,
             thread_number, file_size, start, end, current_buffer_size);
 
@@ -236,7 +242,6 @@ void upload_part(const char* const hostname,
     s3_config.s3_sts_date_str = s3_sts_date_str;
     s3_config.server_encrypt_flag = server_encrypt_flag;
     s3_config.put_repl_flag = put_repl_flag;
-    s3_config.developer_messages_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
     s3_config.circular_buffer_size = 4 * s3_config.bytes_this_thread;
 
@@ -300,7 +305,7 @@ void download_part(const char* const hostname,
             std::ios::out | std::ios::binary);
 
     if (!ofs.good()) {
-        rodsLog(LOG_ERROR, "failed to open file %s\n", filename);
+        fmt::print(stderr, "failed to open file {}\n", filename);
         return;
     }
 
@@ -317,7 +322,6 @@ void download_part(const char* const hostname,
     s3_config.access_key = access_key;
     s3_config.secret_access_key = secret_access_key;
     s3_config.shared_memory_timeout_in_seconds = 20;
-    s3_config.developer_messages_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
 
     s3_transport tp1{s3_config};
@@ -344,11 +348,11 @@ void download_part(const char* const hostname,
     }
     ofs.close();
 
-    rodsLog(LOG_NOTICE, "READ DONE FOR %d\n", thread_number);
+    fmt::print("READ DONE FOR {}\n", thread_number);
 
     // will be automatic
     ds1.close();
-    rodsLog(LOG_NOTICE, "CLOSE DONE FOR %d\n", thread_number);
+    fmt::print("CLOSE DONE FOR {}\n", thread_number);
 
     free(current_buffer);
 
@@ -367,7 +371,7 @@ void read_write_on_file(const char *hostname,
                         std::ios_base::openmode open_modes)
 {
 
-    rodsLog(LOG_NOTICE, "%s:%d (%s) [[%d]] [open file for read/write]\n",
+    fmt::print("{}:{} ({}) [[{}]] [open file for read/write]\n",
             __FILE__, __LINE__, __FUNCTION__, thread_number);
 
     std::fstream fs;
@@ -386,7 +390,6 @@ void read_write_on_file(const char *hostname,
     s3_config.secret_access_key = secret_access_key;
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.put_repl_flag = false;
-    s3_config.developer_messages_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
     s3_config.cache_directory = ".";
     s3_config.circular_buffer_size = 10*1024*1024;
@@ -420,7 +423,7 @@ void read_write_on_file(const char *hostname,
         if (open_modes & std::ios_base::app) {
             fs.close();
             ds1.close();
-            rodsLog(LOG_NOTICE, "CLOSE DONE FOR %d\n", thread_number);
+            fmt::print("CLOSE DONE FOR {}\n", thread_number);
             return;
         }
 
@@ -463,7 +466,7 @@ void read_write_on_file(const char *hostname,
     std::this_thread::sleep_for(2s);
     // will be automatic
     ds1.close();
-    rodsLog(LOG_NOTICE, "CLOSE DONE FOR %d\n", thread_number);
+    fmt::print("CLOSE DONE FOR {}\n", thread_number);
 }
 
 void do_upload_process(const std::string& bucket_name,
@@ -473,6 +476,7 @@ void do_upload_process(const std::string& bucket_name,
                        int process_count,
                        const bool& expected_cache_flag)
 {
+
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
 
@@ -489,13 +493,13 @@ void do_upload_process(const std::string& bucket_name,
             return;
         }
 
-        rodsLog(LOG_NOTICE, "%s:%d (%s) [%d] started process %d\n", __FILE__, __LINE__, __FUNCTION__,
+        fmt::print("{}:{} ({}) [{}] started process {}\n", __FILE__, __LINE__, __FUNCTION__,
                 getpid(), pid);
     }
 
     int pid;
     while ((pid = wait(nullptr)) > 0) {
-        rodsLog(LOG_NOTICE, "%s:%d (%s) process %d finished\n", __FILE__, __LINE__, __FUNCTION__, pid);
+        fmt::print("{}:{} ({}) process {} finished\n", __FILE__, __LINE__, __FUNCTION__, pid);
     }
 
     check_upload_results(bucket_name, filename, object_prefix);
@@ -508,6 +512,7 @@ void do_download_process(const std::string& bucket_name,
                          int process_count,
                          const bool& expected_cache_flag)
 {
+
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
 
@@ -525,13 +530,13 @@ void do_download_process(const std::string& bucket_name,
             return;
         }
 
-        rodsLog(LOG_NOTICE, "%s:%d (%s) [%d] started process %d\n", __FILE__, __LINE__, __FUNCTION__,
+        fmt::print("{}:{} ({}) [{}] started process {}\n", __FILE__, __LINE__, __FUNCTION__,
                 getpid(), pid);
     }
 
     int pid;
     while ((pid = wait(nullptr)) > 0) {
-        rodsLog(LOG_NOTICE, "%s:%d (%s) process %d finished\n", __FILE__, __LINE__, __FUNCTION__, pid);
+        fmt::print("{}:{} ({}) process {} finished\n", __FILE__, __LINE__, __FUNCTION__, pid);
     }
 
     check_download_results(bucket_name, filename, object_prefix);
@@ -546,6 +551,7 @@ void do_upload_thread(const std::string& bucket_name,
                       const std::string& s3_protocol_str = "http",
                       const std::string& s3_sts_date_str = "date")
 {
+
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
 
@@ -580,6 +586,7 @@ void do_upload_single_part(const std::string& bucket_name,
                            const std::string& s3_sts_date_str = "date",
                            bool server_encrypt_flag = false)
 {
+
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
 
@@ -601,6 +608,7 @@ void do_download_thread(const std::string& bucket_name,
                         const bool& expected_cache_flag,
                         const std::string& s3_protocol_str = "http")
 {
+
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
 
@@ -632,6 +640,7 @@ void do_read_write_thread(const std::string& bucket_name,
                           int thread_count,
                           std::ios_base::openmode open_modes = std::ios_base::in | std::ios_base::out)
 {
+
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
 
@@ -664,12 +673,13 @@ void test_seek_end(const std::string& bucket_name,
                           const std::string& object_prefix,
                           const std::string& keyfile)
 {
+
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
 
     // stage file to s3
     const auto aws_cp_command = fmt::format("aws --endpoint-url http://{} s3 cp {} s3://{}/{}{}", hostname, filename, bucket_name, object_prefix, filename);
-    irods::log(LOG_NOTICE, aws_cp_command);
+    fmt::print("{}\n", aws_cp_command);
     std::system(aws_cp_command.c_str());
 
     // get the size of the file
@@ -687,7 +697,6 @@ void test_seek_end(const std::string& bucket_name,
     s3_config.secret_access_key = secret_access_key;
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.put_repl_flag = true;
-    s3_config.developer_messages_log_level = LOG_NOTICE;
     s3_config.region_name = "us-east-1";
 
     std::ios_base::openmode open_modes = std::ios_base::in;
@@ -703,12 +712,11 @@ void test_seek_end(const std::string& bucket_name,
     REQUIRE(offset == file_size - 1);
 
     ds.close();
-    rodsLog(LOG_NOTICE, "CLOSE DONE\n");
+    fmt::print("CLOSE DONE");
 }
 
 TEST_CASE("quick test upload", "[quick_test][quick_test_upload]")
 {
-    rodsLogLevel(log_level);
 
     std::string bucket_name = create_bucket();
 
@@ -726,8 +734,6 @@ TEST_CASE("quick test upload", "[quick_test][quick_test_upload]")
 
 TEST_CASE("quick test download", "[quick_test][quick_test_download]")
 {
-    rodsLogLevel(log_level);
-
     std::string bucket_name = create_bucket();
 
     SECTION("download large file with multiple threads")
@@ -744,8 +750,6 @@ TEST_CASE("quick test download", "[quick_test][quick_test_download]")
 
 TEST_CASE("shmem tests 2", "[shmem2]")
 {
-    rodsLogLevel(log_level);
-
     std::string bucket_name = create_bucket();
 
     SECTION("test shmem with internal lock locked")
@@ -805,7 +809,6 @@ TEST_CASE("shmem tests 2", "[shmem2]")
 
 TEST_CASE("s3_transport_upload_multiple_thread_minimum_part_size", "[upload][thread][minimum_part_size]")
 {
-    rodsLogLevel(log_level);
     bool expected_cache_flag = true;
 
     std::string bucket_name = create_bucket();
@@ -823,7 +826,6 @@ TEST_CASE("s3_transport_upload_multiple_thread_minimum_part_size", "[upload][thr
 
 TEST_CASE("s3_transport_single_part", "[thread][upload][single_part]")
 {
-    rodsLogLevel(log_level);
 
     std::string bucket_name = create_bucket();
 
@@ -850,7 +852,6 @@ TEST_CASE("s3_transport_single_part", "[thread][upload][single_part]")
 
 TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
 {
-    rodsLogLevel(log_level);
 
     std::string bucket_name = create_bucket();
 
@@ -935,7 +936,6 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
 
 TEST_CASE("s3_transport_download_large_multiple_threads", "[download][thread]")
 {
-    rodsLogLevel(log_level);
 
     std::string bucket_name = create_bucket();
 
@@ -984,7 +984,6 @@ TEST_CASE("s3_transport_download_large_multiple_threads", "[download][thread]")
 
 TEST_CASE("s3_transport_upload_large_multiple_processes", "[upload_process][process]")
 {
-    rodsLogLevel(log_level);
 
     std::string bucket_name = create_bucket();
 
@@ -1004,7 +1003,6 @@ TEST_CASE("s3_transport_upload_large_multiple_processes", "[upload_process][proc
 
 TEST_CASE("s3_transport_download_large_multiple_processes", "[download_process][process]")
 {
-    rodsLogLevel(log_level);
 
     std::string bucket_name = create_bucket();
 
@@ -1023,7 +1021,6 @@ TEST_CASE("s3_transport_download_large_multiple_processes", "[download_process][
 
 TEST_CASE("s3_transport_readwrite_thread", "[rw][thread]")
 {
-    rodsLogLevel(log_level);
 
     std::string bucket_name = create_bucket();
 
@@ -1066,7 +1063,6 @@ TEST_CASE("s3_transport_readwrite_thread", "[rw][thread]")
 
 TEST_CASE("test_seek_end_existing_file", "[seek_end]")
 {
-    rodsLogLevel(log_level);
 
     std::string bucket_name = create_bucket();
 
@@ -1090,7 +1086,7 @@ TEST_CASE("test_seek_end_existing_file", "[seek_end]")
 
 TEST_CASE("test_part_splits", "[part_splits]")
 {
-    rodsLogLevel(log_level);
+
 
     SECTION("read write small file")
     {
@@ -1101,7 +1097,7 @@ TEST_CASE("test_part_splits", "[part_splits]")
         for (int64_t bytes_this_thread = 5*1024*1024; bytes_this_thread <= 1024*1024*1024; ++bytes_this_thread) {
 
             if (bytes_this_thread % (5*1024*1024) == 0) {
-                 rodsLog(LOG_NOTICE, "bytes_this_thread: %ld\n", bytes_this_thread);
+                 fmt::print("bytes_this_thread: {}\n", bytes_this_thread);
             }
 
             std::vector<int64_t> part_sizes;
