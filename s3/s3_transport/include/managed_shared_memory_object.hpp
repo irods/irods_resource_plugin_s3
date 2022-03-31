@@ -6,9 +6,10 @@
 #include <boost/container/scoped_allocator.hpp>
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
-
 #include <string>
 #include <utility>
+
+#include "s3_transport_logging_category.hpp"
 
 namespace irods::experimental::interprocess
 {
@@ -17,6 +18,9 @@ namespace irods::experimental::interprocess
     {
         namespace bi = boost::interprocess;
         namespace bc = boost::container;
+
+        using log  = irods::experimental::log;
+        using logger = log::logger<s3_transport_logging_category>;
 
         using segment_manager       = bi::managed_shared_memory::segment_manager;
         using void_allocator        = bc::scoped_allocator_adaptor<bi::allocator<void, segment_manager>>;
@@ -79,7 +83,7 @@ namespace irods::experimental::interprocess
 
                 if (shmem_has_expired) {
 
-                   rodsLog(LOG_NOTICE, "%s:%d (%s) SHMEM_HAS_EXPIRED\n", __FILE__, __LINE__, __FUNCTION__);
+                    logger::debug("{}:{} ({}) SHMEM_HAS_EXPIRED", __FILE__, __LINE__, __FUNCTION__);
 
                     // rebuild shmem object
                     shm_.destroy<ipc_object>(SHARED_DATA_NAME.c_str());

@@ -2,7 +2,6 @@
 
 // iRODS includes
 #include <irods/transport/transport.hpp>
-#include <irods/rodsLog.h>
 
 // misc includes
 #include <nlohmann/json.hpp>
@@ -38,6 +37,7 @@
 // local includes
 #include "s3_multipart_shared_data.hpp"
 #include "s3_transport.hpp"
+#include "s3_transport_logging_category.hpp"
 
 
 namespace irods::experimental::io::s3_transport
@@ -46,6 +46,9 @@ namespace irods::experimental::io::s3_transport
     const std::string  S3_RESTORATION_TIER_STANDARD{"Standard"};
     const unsigned int S3_DEFAULT_RESTORATION_DAYS = 7;
     const std::string  S3_DEFAULT_RESTORATION_TIER{S3_RESTORATION_TIER_STANDARD};
+
+    using log  = irods::experimental::log;
+    using logger = log::logger<s3_transport_logging_category>;
 
     irods::error get_object_s3_status(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
@@ -100,7 +103,7 @@ namespace irods::experimental::io::s3_transport
 
 	    case object_s3_status::DOES_NOT_EXIST:
 
-		rodsLog(LOG_ERROR, "Object does not exist and open mode requires it to exist.\n");
+		logger::error("Object does not exist and open mode requires it to exist.");
 		result = ERROR(S3_FILE_OPEN_ERR, "Object does not exist and open mode requires it to exist.");
 		break;
 
@@ -135,11 +138,11 @@ namespace irods::experimental::io::s3_transport
 
         std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        const auto xml = fmt::format("<RestoreRequest>\n  "
-                                     "<Days>{}</Days>\n"
+        const auto xml = fmt::format("<RestoreRequest>\n "
+                                     "  <Days>{}</Days>\n"
                                      "  <GlacierJobParameters>\n"
                                      "    <Tier>{}</Tier>\n"
-                                     "  </GlacierJobParameters>\n"
+                                     "  </GlacierJobParameters>]n"
                                      "</RestoreRequest>\n",
                                      restoration_days,
                                      restoration_tier);
@@ -149,9 +152,9 @@ namespace irods::experimental::io::s3_transport
         upload_manager.xml = const_cast<char*>(xml.c_str());
         upload_manager.offset = 0;
 
-        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] Multipart:  Restoring object %s", __FILE__, __LINE__, __FUNCTION__, thread_id, object_key.c_str());
+        logger::debug("{}:{} ({}) [[{}]] Multipart:  Restoring object {}", __FILE__, __LINE__, __FUNCTION__, thread_id, object_key.c_str());
 
-        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] [key=%s] Request: %s\n", __FILE__, __LINE__, __FUNCTION__,
+        logger::debug("{}:{} ({}) [[{}]] [key={}] Request: {}", __FILE__, __LINE__, __FUNCTION__,
                 thread_id, object_key.c_str(), xml.c_str() );
 
         S3RestoreObjectHandler commit_handler
@@ -162,12 +165,12 @@ namespace irods::experimental::io::s3_transport
         S3_restore_object(&bucket_context, object_key.c_str(),
                 &commit_handler, upload_manager.remaining, nullptr, 0, &upload_manager);
 
-        rodsLog(LOG_DEBUG, "%s:%d (%s) [[%lu]] [key=%s][manager.status=%s]\n", __FILE__, __LINE__,
+        logger::debug("{}:{} ({}) [[{}]] [key={}][manager.status={}]", __FILE__, __LINE__,
                 __FUNCTION__, thread_id, object_key.c_str(), S3_get_status_name(upload_manager.status));
 
         if (upload_manager.status != S3StatusOK) {
 
-            rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] S3_restore_object returned error [status=%s][object_key=%s].\n",
+            logger::error("{}:{} ({}) [[{}]] S3_restore_object returned error [status={}][object_key={}].",
                     __FILE__, __LINE__, __FUNCTION__, thread_id,
                     S3_get_status_name(upload_manager.status), object_key.c_str());
 
@@ -186,9 +189,9 @@ namespace irods::experimental::io::s3_transport
 
     void print_bucket_context(const libs3_types::bucket_context& bucket_context)
     {
-        rodsLog(LOG_DEBUG, "BucketContext: [hostName=%s] [bucketName=%s][protocol=%d]"
-               "[uriStyle=%d][accessKeyId=%s][secretAccessKey=%s]"
-               "[securityToken=%s][stsDate=%d][region=%s]\n",
+        logger::debug("BucketContext: [hostName={}] [bucketName={}][protocol={}]"
+               "[uriStyle={}][accessKeyId={}][secretAccessKey={}]"
+               "[securityToken={}][stsDate={}][region={}]",
                bucket_context.hostName == nullptr ? "" : bucket_context.hostName,
                bucket_context.bucketName == nullptr ? "" : bucket_context.bucketName,
                bucket_context.protocol,
@@ -208,52 +211,87 @@ namespace irods::experimental::io::s3_transport
                                std::uint64_t thread_id )
     {
 
-        int log_level = LOG_DEBUG;
-
         if (thread_id == 0) {
             thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         }
 
         pStatus = status;
         if(status != libs3_types::status_ok && status != S3StatusHttpErrorNotFound) {
-            log_level = LOG_ERROR;
-        }
 
-        rodsLog(log_level,  "%s:%d [%s] [[%lu]]  libs3_types::status: [%s] - %d\n",
-                __FILE__, __LINE__, __FUNCTION__, thread_id, S3_get_status_name( status ), static_cast<int>(status) );
-        if (saved_bucket_context.hostName) {
-            rodsLog(log_level,  "%s:%d [%s] [[%lu]]  S3Host: %s\n",
-                    __FILE__, __LINE__, __FUNCTION__, thread_id, saved_bucket_context.hostName );
-        }
-
-        rodsLog(log_level,  "%s:%d [%s] [[%lu]]  Function: %s\n",
-                __FILE__, __LINE__, __FUNCTION__, thread_id, function.c_str() );
-
-        if (error) {
-
-            if (error->message) {
-                rodsLog(log_level,  "%s:%d [%s] [[%lu]]  Message: %s\n",
-                        __FILE__, __LINE__, __FUNCTION__, thread_id, error->message);
+            logger::error( "{}:{} [{}] [[{}]]  libs3_types::status: [{}] - {}",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id, S3_get_status_name( status ), static_cast<int>(status) );
+            if (saved_bucket_context.hostName) {
+                logger::error( "{}:{} [{}] [[{}]]  S3Host: {}",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, saved_bucket_context.hostName );
             }
-            if (error->resource) {
-                rodsLog(log_level,  "%s:%d [%s] [[%lu]]  Resource: %s\n",
-                        __FILE__, __LINE__, __FUNCTION__, thread_id, error->resource);
-            }
-            if (error->furtherDetails) {
-                rodsLog(log_level,  "%s:%d [%s] [[%lu]]  Further Details: %s\n",
-                        __FILE__, __LINE__, __FUNCTION__, thread_id, error->furtherDetails);
-            }
-            if (error->extraDetailsCount) {
-                rodsLog(log_level,  "%s:%d [%s] [[%lu]]%s",
-                        __FILE__, __LINE__, __FUNCTION__, thread_id, "  Extra Details:\n");
 
-                for (int i = 0; i < error->extraDetailsCount; i++) {
-                    rodsLog(log_level,  "%s:%d [%s] [[%lu]]    %s: %s\n",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->extraDetails[i].name,
-                            error->extraDetails[i].value);
+            logger::error( "{}:{} [{}] [[{}]]  Function: {}",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id, function.c_str() );
+
+            if (error) {
+
+                if (error->message) {
+                    logger::error( "{}:{} [{}] [[{}]]  Message: {}",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->message);
+                }
+                if (error->resource) {
+                    logger::error( "{}:{} [{}] [[{}]]  Resource: {}",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->resource);
+                }
+                if (error->furtherDetails) {
+                    logger::error( "{}:{} [{}] [[{}]]  Further Details: {}",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->furtherDetails);
+                }
+                if (error->extraDetailsCount) {
+                    logger::error( "{}:{} [{}] [[{}]]{}",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, "  Extra Details:");
+
+                    for (int i = 0; i < error->extraDetailsCount; i++) {
+                        logger::error( "{}:{} [{}] [[{}]]    {}: {}",
+                                __FILE__, __LINE__, __FUNCTION__, thread_id, error->extraDetails[i].name,
+                                error->extraDetails[i].value);
+                    }
                 }
             }
-        }
+
+        } else {
+
+            logger::debug( "{}:{} [{}] [[{}]]  libs3_types::status: [{}] - {}",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id, S3_get_status_name( status ), static_cast<int>(status) );
+            if (saved_bucket_context.hostName) {
+                logger::debug( "{}:{} [{}] [[{}]]  S3Host: {}",
+                        __FILE__, __LINE__, __FUNCTION__, thread_id, saved_bucket_context.hostName );
+            }
+
+            logger::debug( "{}:{} [{}] [[{}]]  Function: {}",
+                    __FILE__, __LINE__, __FUNCTION__, thread_id, function.c_str() );
+
+            if (error) {
+
+                if (error->message) {
+                    logger::debug( "{}:{} [{}] [[{}]]  Message: {}",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->message);
+                }
+                if (error->resource) {
+                    logger::debug( "{}:{} [{}] [[{}]]  Resource: {}",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->resource);
+                }
+                if (error->furtherDetails) {
+                    logger::debug( "{}:{} [{}] [[{}]]  Further Details: {}",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->furtherDetails);
+                }
+                if (error->extraDetailsCount) {
+                    logger::debug( "{}:{} [{}] [[{}]]{}",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, "  Extra Details:");
+
+                    for (int i = 0; i < error->extraDetailsCount; i++) {
+                        logger::debug( "{}:{} [{}] [[{}]]    {}: {}",
+                                __FILE__, __LINE__, __FUNCTION__, thread_id, error->extraDetails[i].name,
+                                error->extraDetails[i].value);
+                    }
+                }
+            }
+       }
     }  // end store_and_log_status
 
     // Returns timestamp in usec for delta-t comparisons
@@ -265,12 +303,12 @@ namespace irods::experimental::io::s3_transport
         return (tv.tv_sec) * 1000000LL + tv.tv_usec;
     } // end get_time_in_microseconds
 
-    // Sleep between _s/2 to _s. 
+    // Sleep between _s/2 to _s.
     // The random addition ensures that threads don't all cluster up and retry
     // at the same time (dogpile effect)
     void s3_sleep(
         int _s) {
-    
+
         std::random_device r;
         std::default_random_engine e1(r());
         std::uniform_int_distribution<int> uniform_dist(0, RAND_MAX);
