@@ -193,6 +193,28 @@ parent:
 parent context:
 ```
 
+### Increasing/Decreasing Plugin Logging
+
+To increase or decrease the logging level for the S3 plugin, add an `s3_resource_plugin` entry into the `log_level` stanza in /etc/irods/server_config.json.  The following is an example entry that increases the logging level to include debug logging.  The default level is info.
+
+```
+"log_level": {
+    "agent": "info",
+    "agent_factory": "info",
+    "api": "info",
+    "authentication": "info",
+    "database": "info",
+    "delay_server": "info",
+    "legacy": "info",
+    "microservice": "info",
+    "network": "info",
+    "resource": "info",
+    "rule_engine": "info",
+    "server": "info",
+    "s3_resource_plugin": "debug"
+},
+```
+
 ## Using this plugin with Google Cloud Storage (GCS)
 
 This plugin has been manually tested to work with Google Cloud Storage, with some caveats.
