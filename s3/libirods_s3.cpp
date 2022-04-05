@@ -167,7 +167,46 @@ const std::string  S3_RESTORATION_TIER_EXPEDITED{"Expedited"};
 const unsigned int S3_DEFAULT_RESTORATION_DAYS = 7;
 const std::string  S3_DEFAULT_RESTORATION_TIER{S3_RESTORATION_TIER_STANDARD};
 
+const std::string  CFG_LOG_LEVEL_CATEGORY_S3_RESOURCE_PLUGIN_KW{"s3_resource_plugin"};
+
 thread_local S3ResponseProperties savedProperties;
+
+
+// this is a copy of the server's version of get_level_from_config
+// except that no message is logged if the configuration is not found
+auto get_level_from_config(const std::string& _category) -> irods::experimental::log::level
+{
+    using log = irods::experimental::log;
+
+    // clang-format off
+    static const std::unordered_map<std::string, log::level> conv_table{
+        {"trace",    log::level::trace},
+        {"debug",    log::level::debug},
+        {"info",     log::level::info},
+        {"warn",     log::level::warn},
+        {"error",    log::level::error},
+        {"critical", log::level::critical}
+    };
+    // clang-format on
+
+    auto level = log::level::info;
+
+    try {
+
+        // example: level_str = "debug"
+        const auto& level_str = irods::get_server_property<const nlohmann::json&>(irods::CFG_LOG_LEVEL_KW).at(_category);
+
+        if (auto iter = conv_table.find(level_str); std::end(conv_table) != iter) {
+            level = iter->second;
+        }
+    }
+    catch (const std::exception&) {
+        // do nothing on exception
+    }
+
+    return level;
+
+}
 
 // gets the resource name from the property map
 std::string get_resource_name(irods::plugin_property_map& _prop_map) {
@@ -2077,9 +2116,20 @@ irods::error s3CheckParams(irods::plugin_context& _ctx )
 /// @brief Start up operation - Initialize the S3 library and set the auth fields in the properties.
 irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
 {
+
+    irods::error ret;
+
+    using log = irods::experimental::log;
+    using transport_logger = log::logger<s3_transport_logging_category>;
+
+    const auto log_level = get_level_from_config(CFG_LOG_LEVEL_CATEGORY_S3_RESOURCE_PLUGIN_KW);
+
+    s3_logger::set_level(log_level);
+    transport_logger::set_level(log_level);
+
     std::string resource_name = get_resource_name(_prop_map);
 
-    auto ret = s3Init( _prop_map );
+    ret = s3Init( _prop_map );
     if (!ret.ok()) {
         ret = PASSMSG(fmt::format(
                         "[resource_name={}] Failed to initialize the S3 library.",
