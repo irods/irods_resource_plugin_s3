@@ -40,7 +40,34 @@ from ..configuration import IrodsConfig
 from .resource_suite import ResourceSuite
 from .test_chunkydevtest import ChunkyDevTest
 
+# Used to make files that are not-zero but have random bytes spread throughout
+def make_arbitrary_file(f_name, f_size, buffer_size=32*1024*1024):
+    # do not care about true randomness
+    random.seed(5)
+    bytes_written = 0
+    buffer = buffer_size * [0x78]       # 'x' - bytearray() below appears to require int instead
+                                        #       of char which was valid in python2
+    with open(f_name, "wb") as out:
 
+        while bytes_written < f_size:
+
+            if f_size - bytes_written < buffer_size:
+                to_write = f_size - bytes_written
+                buffer = to_write * [0x78]  # 'x'
+            else:
+                to_write = buffer_size
+
+            current_char = random.randrange(256)
+
+            # just write some random byte each 1024 chars
+            for i in range(0, to_write, 1024):
+                buffer[i] = current_char
+                current_char = random.randrange(256)
+            buffer[len(buffer)-1] = random.randrange(256)
+
+            out.write(bytearray(buffer))
+
+            bytes_written += to_write
 
 class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
     def __init__(self, *args, **kwargs):
@@ -612,3 +639,237 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             self.admin.assert_icommand('iadmin rmresc s3archive1_1858')
             self.admin.assert_icommand('iadmin rmresc s3cache2_1858')
             self.admin.assert_icommand('iadmin rmresc s3archive2_1858')
+
+
+class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+
+    def __init__(self, *args, **kwargs):
+        """Set up the cacheless test."""
+        # if self.proto is defined use it else default to HTTPS
+        if not hasattr(self, 'proto'):
+            self.proto = 'HTTPS'
+
+        # if self.archive_naming_policy is defined use it
+        # else default to 'consistent'
+        if not hasattr(self, 'archive_naming_policy'):
+            self.archive_naming_policy = 'consistent'
+
+        super(Test_S3_Cache_Glacier_Base, self).__init__(*args, **kwargs)
+
+    def setUp(self):
+
+        super(Test_S3_Cache_Glacier_Base, self).setUp()
+
+        self.admin = self.admin_sessions[0]
+        self.user0 = self.user_sessions[0]
+        self.user1 = self.user_sessions[1]
+
+        # set up aws configuration
+        self.read_aws_keys()
+
+        # set up s3 bucket
+        try:
+            httpClient = urllib3.poolmanager.ProxyManager(
+                os.environ['http_proxy'],
+                timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
+                cert_reqs='CERT_REQUIRED',
+                retries=urllib3.Retry(
+                    total=5,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+        except KeyError:
+            httpClient = None
+
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint,
+                              access_key=self.aws_access_key_id,
+                              secret_key=self.aws_secret_access_key,
+                              http_client=httpClient,
+                              region=self.s3region)
+        else:
+            s3_client = Minio(self.s3endPoint,
+                              access_key=self.aws_access_key_id,
+                              secret_key=self.aws_secret_access_key,
+                              http_client=httpClient,
+                              region=self.s3region,
+                              secure=False)
+
+        if hasattr(self, 'static_bucket_name'):
+            self.s3bucketname = self.static_bucket_name
+        else:
+            distro_str = '{}-{}'.format(distro.id(), distro.version()).replace(' ', '').replace('.', '')
+            self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
+            self.s3bucketname += ''.join(random.choice(string.ascii_letters) for i in range(10))
+            self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
+            s3_client.make_bucket(self.s3bucketname, location=self.s3region)
+
+        # set up resources
+
+        hostname = lib.get_hostname()
+        s3params = 'S3_RETRY_COUNT=15;S3_WAIT_TIME_SECONDS=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
+        s3params += ';S3_STSDATE=' + self.s3stsdate
+        s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+        s3params += ';S3_AUTH_FILE=' +  self.keypairfile
+        s3params += ';S3_REGIONNAME=' + self.s3region
+        s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        if hasattr(self, 's3sse'):
+            s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
+
+        s3params=os.environ.get('S3PARAMS', s3params);
+
+        with session.make_session_for_existing_admin() as admin_session:
+            irods_config = IrodsConfig()
+            admin_session.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
+            admin_session.assert_icommand("iadmin mkresc demoResc compound", 'STDOUT_SINGLELINE', 'compound')
+            admin_session.assert_icommand("iadmin mkresc cacheResc 'unixfilesystem' " + hostname + ":" + irods_config.irods_directory + "/cacheRescVault", 'STDOUT_SINGLELINE', 'cacheResc')
+            admin_session.assert_icommand('iadmin mkresc archiveResc s3 '+hostname+':/'+self.s3bucketname+'/irods/Vault "'+s3params+'"', 'STDOUT_SINGLELINE', 'archiveResc')
+            admin_session.assert_icommand("iadmin addchildtoresc demoResc cacheResc cache")
+            admin_session.assert_icommand("iadmin addchildtoresc demoResc archiveResc archive")
+
+    def tearDown(self):
+        super(Test_S3_Cache_Glacier_Base, self).tearDown()
+
+        # delete s3 bucket
+        try:
+            httpClient = urllib3.poolmanager.ProxyManager(
+                os.environ['http_proxy'],
+                timeout=urllib3.Timeout.DEFAULT_TIMEOUT,
+                cert_reqs='CERT_REQUIRED',
+                retries=urllib3.Retry(
+                    total=5,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+        except KeyError:
+            httpClient = None
+
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint,
+                              access_key=self.aws_access_key_id,
+                              secret_key=self.aws_secret_access_key,
+                              http_client=httpClient,
+                              region=self.s3region)
+        else:
+            s3_client = Minio(self.s3endPoint,
+                              access_key=self.aws_access_key_id,
+                              secret_key=self.aws_secret_access_key,
+                              http_client=httpClient,
+                              region=self.s3region,
+                              secure=False)
+
+        objects = s3_client.list_objects(self.s3bucketname, recursive=True)
+
+        if not hasattr(self, 'static_bucket_name'):
+            s3_client.remove_bucket(self.s3bucketname)
+
+        # tear down resources
+        with session.make_session_for_existing_admin() as admin_session:
+            admin_session.assert_icommand("iadmin rmchildfromresc demoResc archiveResc")
+            admin_session.assert_icommand("iadmin rmchildfromresc demoResc cacheResc")
+            admin_session.assert_icommand("iadmin rmresc archiveResc")
+            admin_session.assert_icommand("iadmin rmresc cacheResc")
+            admin_session.assert_icommand("iadmin rmresc demoResc")
+            admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
+
+        shutil.rmtree(IrodsConfig().irods_directory + "/cacheRescVault", ignore_errors=True)
+
+    def get_resource_context(self, resc_name):
+
+        resource_context = self.admin.run_icommand('iquest "%s" "SELECT RESC_CONTEXT where RESC_NAME = \'{resc_name}\'"'.format(**locals()))[0].strip()
+        return resource_context
+
+    def read_aws_keys(self):
+        # read access keys from keypair file
+        with open(self.keypairfile) as f:
+            self.aws_access_key_id = f.readline().rstrip()
+            self.aws_secret_access_key = f.readline().rstrip()
+
+    def call_iget_get_status(self, rc1, rc2, file1, file2, file1_get, file2_get):
+        _, _, rc1  = self.user0.run_icommand("iget -f {file1} {file1_get}".format(**locals()))
+        _, _, rc2  = self.user0.run_icommand("iget -f {file2} {file2_get}".format(**locals()))
+        return rc1 == 0 and rc2 == 0
+
+    @unittest.skip("wait for fix of irods issue 6502")
+    def test_put_get_glacier_expedited_retrieval(self):
+
+        # get original resource context
+        old_resource_context = self.get_resource_context("archiveResc")
+
+        try:
+
+            # update resource context for Glacier/expedited
+            new_resource_context = "{old_resource_context};S3_STORAGE_CLASS=Glacier;S3_RESTORATION_TIER=expedited".format(**locals())
+
+            self.admin.assert_icommand('iadmin modresc archiveResc context "{new_resource_context}"'.format(**locals()))
+
+            file1 = "f1"
+            file1_get = "f1.get"
+            file2 = "f2"
+            file2_get = "f2.get"
+
+            file1_size = 8*1024*1024
+            file2_size = 32*1024*1024 + 1
+
+            # create and put file
+            make_arbitrary_file(file1, file1_size)
+            make_arbitrary_file(file2, file2_size)
+
+            self.user0.assert_icommand("iput -f {file1}".format(**locals()))
+            self.user0.assert_icommand("iput -f {file2}".format(**locals()))
+
+            # new file, is it safe to assume cache is replica 0?
+            self.user0.assert_icommand("itrim -N 1 -n 0 {file1}".format(**locals()), 'STDOUT')
+            self.user0.assert_icommand("itrim -N 1 -n 0 {file2}".format(**locals()), 'STDOUT')
+
+            # Once 6502 is fixed, revisit these assertions.  They may need to be changed to HIERARCHY_ERROR
+            cmd = "iget -f {file1} {file1_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            cmd = "iget -f {file2} {file2_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            # Wait for the file to be restored from glacier.  Try every 20 seconds.
+            # Wait up to 6 minutes (should be done in less than 5).
+            rc1 = 1
+            rc2 = 1
+
+            lib.delayAssert(lambda:
+                    self.call_iget_get_status(rc1, rc2, file1, file2, file1_get, file2_get), interval=20, maxrep=18)
+
+            # make sure the files that were put and got are the same
+            self.user0.assert_icommand("diff {file1} {file1_get}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("diff {file2} {file2_get}".format(**locals()), 'EMPTY')
+
+        finally:
+
+            # cleanup
+
+            # restore old resource context
+            self.admin.assert_icommand('iadmin modresc archiveResc context "{old_resource_context}"'.format(**locals()))
+
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(file1_get):
+                os.unlink(file1_get)
+            if os.path.exists(file2_get):
+                os.unlink(file2_get)
