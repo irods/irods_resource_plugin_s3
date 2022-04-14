@@ -9,8 +9,10 @@ import string
 import subprocess
 import urllib3
 
-from resource_suite_s3_nocache import Test_S3_NoCache_Base
-from resource_suite_s3_cache import Test_S3_Cache_Base
+from .resource_suite_s3_nocache import Test_S3_NoCache_Base
+from .resource_suite_s3_nocache import Test_S3_NoCache_Glacier_Base
+from .resource_suite_s3_cache import Test_S3_Cache_Base
+from .resource_suite_s3_cache import Test_S3_Cache_Glacier_Base
 
 import sys
 if sys.version_info >= (2,7):
@@ -148,3 +150,23 @@ class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
         pass
 
 
+class Test_S3_NoCache_Glacier(Test_S3_NoCache_Glacier_Base, unittest.TestCase):
+
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3EnableMPU=1
+        super(Test_S3_NoCache_Glacier, self).__init__(*args, **kwargs)
+
+class Test_S3_Cache_Glacier(Test_S3_Cache_Glacier_Base, unittest.TestCase):
+
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3EnableMPU=1
+        self.s3stsdate=''
+        super(Test_S3_Cache_Glacier, self).__init__(*args, **kwargs)

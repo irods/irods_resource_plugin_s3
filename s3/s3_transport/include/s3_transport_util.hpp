@@ -118,13 +118,13 @@ namespace irods::experimental::io::s3_transport
         irods::experimental::circular_buffer<libs3_types::char_type>&
                                circular_buffer;
 
-        int64_t                content_length;
-        int64_t                bytes_written;
+        std::int64_t           content_length;
+        std::int64_t           bytes_written;
         libs3_types::status    status;
 
         libs3_types::bucket_context&
                                saved_bucket_context;   // To enable more detailed error messages
-        uint64_t               thread_identifier;
+        std::uint64_t          thread_identifier;
     };
 
     struct data_for_head_callback
@@ -139,7 +139,7 @@ namespace irods::experimental::io::s3_transport
         {}
 
         time_t                             last_modified;
-        int64_t                            content_length;
+        std::int64_t                       content_length;
         std::string                        x_amz_storage_class;
         std::string                        x_amz_restore;
         libs3_types::status                status;

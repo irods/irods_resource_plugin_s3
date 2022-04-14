@@ -53,8 +53,18 @@ extern const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS;
 namespace irods::experimental::io::s3_transport
 {
     extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
-    extern const std::string  S3_DEFAULT_RESTORATION_TIER;
+
+    extern const std::string  S3_RESTORATION_TIER_STANDARD;
+    extern const std::string  S3_RESTORATION_TIER_BULK;
+    extern const std::string  S3_RESTORATION_TIER_EXPEDITED;
     extern const unsigned int S3_DEFAULT_RESTORATION_DAYS;
+    extern const std::string  S3_DEFAULT_RESTORATION_TIER;
+
+    extern const std::string  S3_STORAGE_CLASS_STANDARD;
+    extern const std::string  S3_STORAGE_CLASS_GLACIER;
+    extern const std::string  S3_STORAGE_CLASS_DEEP_ARCHIVE;
+    extern const std::string  S3_STORAGE_CLASS_GLACIER_IR;
+    extern const std::string  S3_DEFAULT_STORAGE_CLASS;
 
     const int64_t DEFAULT_MAX_SINGLE_PART_UPLOAD_SIZE = 5L * 1024 * 1024 * 1024;
 
@@ -62,19 +72,22 @@ namespace irods::experimental::io::s3_transport
 
     irods::error get_object_s3_status(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
-            int64_t& object_size,
-            object_s3_status& object_status);
+            std::int64_t& object_size,
+            object_s3_status& object_status,
+            std::string& storage_class);
 
     irods::error handle_glacier_status(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
             const unsigned int restoration_days,
             const std::string& restoration_tier,
-            object_s3_status object_status);
+            object_s3_status object_status,
+            const std::string& storage_class = "");
 
     irods::error restore_s3_object(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
             const unsigned int restoration_days,
-            const std::string& restoration_tier);
+            const std::string& restoration_tier,
+            const std::string& storage_class = "");
 
     int S3_status_is_retryable(S3Status status);
 
@@ -111,6 +124,7 @@ namespace irods::experimental::io::s3_transport
             , restoration_tier{S3_DEFAULT_RESTORATION_TIER}
             , max_single_part_upload_size{DEFAULT_MAX_SINGLE_PART_UPLOAD_SIZE}
             , non_data_transfer_timeout_seconds{S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS}
+            , s3_storage_class{S3_DEFAULT_STORAGE_CLASS}
 
         {}
 
@@ -160,6 +174,7 @@ namespace irods::experimental::io::s3_transport
 
         int64_t max_single_part_upload_size;
         unsigned int non_data_transfer_timeout_seconds;
+        std::string  s3_storage_class;
     };
 
 
@@ -680,7 +695,8 @@ namespace irods::experimental::io::s3_transport
                         if (existing_object_size == config::UNKNOWN_OBJECT_SIZE) {
                             // do a stat to get object size
                             object_s3_status object_status = object_s3_status::DOES_NOT_EXIST;
-                            irods::error ret = get_object_s3_status(object_key_, bucket_context_, existing_object_size, object_status);
+                            std::string storage_class;
+                            irods::error ret = get_object_s3_status(object_key_, bucket_context_, existing_object_size, object_status, storage_class);
                             if (!ret.ok() || object_status == object_s3_status::DOES_NOT_EXIST) {
                                 rodsLog(LOG_ERROR, "%s:%d (%s) [[%lu]] seek failed because object size is unknown and HEAD failed",
                                          __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
@@ -1307,14 +1323,17 @@ namespace irods::experimental::io::s3_transport
                 rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] open file_open_counter = %d\n",
                     __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), data.file_open_counter);
 
+                std::string storage_class;  // used if in archive
+
                 if (object_must_exist_ || download_to_cache_) {
+
 
                     // do a HEAD to get the object size, if a previous thread has already done one then
                     // just read the object size from shmem
                     if (data.cache_file_download_progress == cache_file_download_status::SUCCESS) {
                         object_status = object_s3_status::IN_S3;
                     } else {
-                        irods::error ret = get_object_s3_status(object_key_, bucket_context_, s3_object_size, object_status);
+                        irods::error ret = get_object_s3_status(object_key_, bucket_context_, s3_object_size, object_status, storage_class);
                         if (!ret.ok()) {
                             return_value = false;
                             this->set_error(ret);
@@ -1330,7 +1349,8 @@ namespace irods::experimental::io::s3_transport
                 // restore object from glacier if necessary
                 if (object_must_exist_) {
 
-                    irods::error ret = handle_glacier_status(object_key_, bucket_context_, config_.restoration_days, config_.restoration_tier, object_status);
+                    irods::error ret = handle_glacier_status(object_key_, bucket_context_, config_.restoration_days, config_.restoration_tier,
+                            object_status, storage_class);
                     if (!ret.ok()) {
                         this->set_error(ret);
                         return_value = false;
@@ -1454,6 +1474,7 @@ namespace irods::experimental::io::s3_transport
             S3PutProperties put_props{};
             put_props.useServerSideEncryption = config_.server_encrypt_flag;
             std::stringstream msg;
+            put_props.xAmzStorageClass = config_.s3_storage_class.c_str();
 
             put_props.md5 = nullptr;
             put_props.expires = -1;
@@ -2155,6 +2176,7 @@ namespace irods::experimental::io::s3_transport
                 put_props.md5 = nullptr;
                 put_props.expires = -1;
                 put_props.useServerSideEncryption = config_.server_encrypt_flag;
+                put_props.xAmzStorageClass = config_.s3_storage_class.c_str();
 
                 // zero out bytes_written in case of failure and re-run
                 write_callback->bytes_written = 0;

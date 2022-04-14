@@ -52,8 +52,6 @@ extern const size_t       S3_DEFAULT_MAX_RETRY_WAIT_SEC;
 extern const size_t       S3_DEFAULT_RETRY_COUNT;
 extern const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
 extern const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS;
-extern const unsigned int S3_DEFAULT_RESTORATION_DAYS;
-extern const std::string  S3_DEFAULT_RESTORATION_TIER;
 extern const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS;
 
 std::string s3GetHostname(irods::plugin_property_map& _prop_map);
@@ -71,6 +69,7 @@ size_t get_retry_count(irods::plugin_property_map& _prop_map);
 unsigned int get_non_data_transfer_timeout_seconds(irods::plugin_property_map& _prop_map);
 unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map);
 std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map);
+std::string s3_get_storage_class_from_configuration(irods::plugin_property_map& _prop_map);
 
 void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
         const char *function, const S3BucketContext *pCtx, S3Status *pStatus,
@@ -100,6 +99,8 @@ typedef struct callback_data
 
     S3BucketContext *pCtx; /* To enable more detailed error messages */
     irods::plugin_property_map *prop_map_ptr;
+    std::string x_amz_storage_class;
+    std::string x_amz_restore;
 } callback_data_t;
 
 typedef struct upload_manager
