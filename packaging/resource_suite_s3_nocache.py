@@ -2094,3 +2094,460 @@ OUTPUT ruleExecOut
 
             # cleanup
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+
+class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
+
+    def __init__(self, *args, **kwargs):
+        """Set up the cacheless test."""
+        # if self.proto is defined use it else default to HTTPS
+        if not hasattr(self, 'proto'):
+            self.proto = 'HTTPS'
+
+        # if self.archive_naming_policy is defined use it
+        # else default to 'consistent'
+        if not hasattr(self, 'archive_naming_policy'):
+            self.archive_naming_policy = 'consistent'
+
+        super(Test_S3_NoCache_Glacier_Base, self).__init__(*args, **kwargs)
+
+    def setUp(self):
+
+        super(Test_S3_NoCache_Glacier_Base, self).setUp()
+        self.admin = self.admin_sessions[0]
+        self.user0 = self.user_sessions[0]
+        self.user1 = self.user_sessions[1]
+
+        print("run_resource_setup - BEGIN")
+        self.testfile = "testfile.txt"
+        self.testdir = "testdir"
+
+        hostname = lib.get_hostname()
+
+        # read aws keys
+        self.read_aws_keys()
+
+        # set up s3 bucket
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region = self.s3region)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region = self.s3region, secure=False)
+
+        if hasattr(self, 'static_bucket_name'):
+            self.s3bucketname = self.static_bucket_name
+        else:
+            distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','').replace('.', '')
+            self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
+            self.s3bucketname += ''.join(random.choice(string.ascii_letters) for i in range(10))
+            self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
+            s3_client.make_bucket(self.s3bucketname, location=self.s3region)
+
+        self.testresc = "TestResc"
+        self.testvault = "/" + self.testresc
+        self.anotherresc = "AnotherResc"
+        self.anothervault = "/" + self.anotherresc
+
+        self.s3_context = 'S3_DEFAULT_HOSTNAME=' + self.s3endPoint
+        self.s3_context += ';S3_AUTH_FILE=' + self.keypairfile
+        self.s3_context += ';S3_REGIONNAME=' + self.s3region
+        self.s3_context += ';S3_RETRY_COUNT=2'
+        self.s3_context += ';S3_WAIT_TIME_SECONDS=3'
+        self.s3_context += ';S3_PROTO=' + self.proto
+        self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        self.s3_context += ';HOST_MODE=cacheless_attached'
+        self.s3_context += ';S3_ENABLE_MD5=1'
+        self.s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
+        self.s3_context += ';S3_CACHE_DIR=/var/lib/irods'
+
+        if hasattr(self, 's3DisableCopyObject'):
+            self.s3DisableCopyObject = self.s3DisableCopyObject
+            self.s3_context += ';S3_ENABLE_COPYOBJECT=0'
+
+        if hasattr(self, 's3sse'):
+            self.s3_context += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
+
+        self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+
+        self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
+
+        self.admin.assert_icommand("iadmin mkresc demoResc s3 " + hostname + ":/" + self.s3bucketname + "/demoResc " + self.s3_context, 'STDOUT_SINGLELINE', 's3')
+
+        self.admin.assert_icommand(
+            ['iadmin', "mkresc", self.testresc, 's3', hostname + ":/" + self.s3bucketname + self.testvault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
+        self.admin.assert_icommand(
+            ['iadmin', "mkresc", self.anotherresc, 's3', hostname + ":/" + self.s3bucketname + self.anothervault, self.s3_context], 'STDOUT_SINGLELINE', 's3')
+
+        with open(self.testfile, 'wt') as f:
+            print('I AM A TESTFILE -- [' + self.testfile + ']', file=f, end='')
+        self.admin.run_icommand(['imkdir', self.testdir])
+        self.admin.run_icommand(['iput', self.testfile])
+        self.admin.run_icommand(['icp', self.testfile, '../../public/'])
+        self.admin.run_icommand(['ichmod', 'read', self.user0.username, '../../public/' + self.testfile])
+        self.admin.run_icommand(['ichmod', 'write', self.user1.username, '../../public/' + self.testfile])
+        print('run_resource_setup - END')
+
+    def tearDown(self):
+        print("run_resource_teardown - BEGIN")
+        os.unlink(self.testfile)
+        self.admin.run_icommand('icd')
+        self.admin.run_icommand(['irm', self.testfile, '../public/' + self.testfile])
+        self.admin.run_icommand('irm -rf ../../bundle')
+
+        super(Test_S3_NoCache_Glacier_Base, self).tearDown()
+        with session.make_session_for_existing_admin() as admin_session:
+            admin_session.run_icommand('irmtrash -M')
+            admin_session.run_icommand(['iadmin', 'rmresc', self.testresc])
+            admin_session.run_icommand(['iadmin', 'rmresc', self.anotherresc])
+            admin_session.assert_icommand("iadmin rmresc demoResc")
+            admin_session.assert_icommand("iadmin modresc origResc name demoResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
+            print("run_resource_teardown - END")
+
+        # delete s3 bucket
+        if self.proto == 'HTTPS':
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region)
+        else:
+            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region, secure=False)
+        objects = s3_client.list_objects(self.s3bucketname, recursive=True)
+
+        if hasattr(self, 'static_bucket_name'):
+            self.s3bucketname = self.static_bucket_name
+        else:
+            s3_client.remove_bucket(self.s3bucketname)
+
+    def read_aws_keys(self):
+        # read access keys from keypair file
+        with open(self.keypairfile) as f:
+            self.aws_access_key_id = f.readline().rstrip()
+            self.aws_secret_access_key = f.readline().rstrip()
+
+    def call_iget_get_status(self, rc1, rc2, file1, file2, file1_get, file2_get):
+        _, _, rc1  = self.user0.run_icommand("iget -f {file1} {file1_get}".format(**locals()))
+        _, _, rc2  = self.user0.run_icommand("iget -f {file2} {file2_get}".format(**locals()))
+        return rc1 == 0 and rc2 == 0
+
+    def test_put_get_glacier_expedited_retrieval(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            s3_context = self.s3_context
+            s3_context += ';S3_STORAGE_CLASS=Glacier;S3_RESTORATION_TIER=expedited'
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            file1 = "f1"
+            file1_get = "f1.get"
+            file2 = "f2"
+            file2_get = "f2.get"
+
+            file1_size = 8*1024*1024
+            file2_size = 32*1024*1024 + 1
+
+            # create and put file
+            make_arbitrary_file(file1, file1_size)
+            make_arbitrary_file(file2, file2_size)
+
+            self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
+            self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
+
+            cmd = "iget -f {file1} {file1_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            cmd = "iget -f {file2} {file2_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            # Wait for the file to be restored from glacier.  Try every 20 seconds.
+            # Wait up to 6 minutes (should be done in less than 5).
+            rc1 = 1
+            rc2 = 1
+
+            lib.delayAssert(lambda:
+                    self.call_iget_get_status(rc1, rc2, file1, file2, file1_get, file2_get), interval=20, maxrep=18)
+
+            # make sure the files that were put and got are the same
+            self.user0.assert_icommand("diff {file1} {file1_get}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("diff {file2} {file2_get}".format(**locals()), 'EMPTY')
+
+        finally:
+
+            # cleanup
+
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(file1_get):
+                os.unlink(file1_get)
+            if os.path.exists(file2_get):
+                os.unlink(file2_get)
+
+    def test_put_get_glacier_standard_retrieval(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            s3_context = self.s3_context
+            s3_context += ';S3_STORAGE_CLASS=Glacier;S3_RESTORATION_TIER=standard'
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            file1 = "f1"
+            file1_get = "f1.get"
+            file2 = "f2"
+            file2_get = "f2.get"
+
+            file1_size = 8*1024*1024
+            file2_size = 32*1024*1024 + 1
+
+            # create and put file
+            make_arbitrary_file(file1, file1_size)
+            make_arbitrary_file(file2, file2_size)
+
+            self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
+            self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
+
+            cmd = "iget -f {file1} {file1_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            cmd = "iget -f {file2} {file2_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            # do not wait for retrieval as that takes 3-5 hours
+
+        finally:
+
+            # cleanup
+
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(file1_get):
+                os.unlink(file1_get)
+            if os.path.exists(file2_get):
+                os.unlink(file2_get)
+
+    def test_put_get_glacier_bulk_retrieval(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            s3_context = self.s3_context
+            s3_context += ';S3_STORAGE_CLASS=Glacier;S3_RESTORATION_TIER=bulk'
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            file1 = "f1"
+            file1_get = "f1.get"
+            file2 = "f2"
+            file2_get = "f2.get"
+
+            file1_size = 8*1024*1024
+            file2_size = 32*1024*1024 + 1
+
+            # create and put file
+            make_arbitrary_file(file1, file1_size)
+            make_arbitrary_file(file2, file2_size)
+
+            self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
+            self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
+
+            cmd = "iget -f {file1} {file1_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            cmd = "iget -f {file2} {file2_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            # do not wait for retrieval as that takes 5-12 hours
+
+        finally:
+
+            # cleanup
+
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(file1_get):
+                os.unlink(file1_get)
+            if os.path.exists(file2_get):
+                os.unlink(file2_get)
+
+
+    def test_put_get_deep_archive(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            s3_context = self.s3_context
+            s3_context += ';S3_STORAGE_CLASS=deep_archive;S3_RESTORATION_TIER=bulk'   # note restoration_tier is not applicable to deep archive and not used
+                                                                                      # this will test that it is not attempted to be used
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            file1 = "f1"
+            file1_get = "f1.get"
+            file2 = "f2"
+            file2_get = "f2.get"
+
+            file1_size = 8*1024*1024
+            file2_size = 32*1024*1024 + 1
+
+            # create and put file
+            make_arbitrary_file(file1, file1_size)
+            make_arbitrary_file(file2, file2_size)
+
+            self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
+            self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
+
+            cmd = "iget -f {file1} {file1_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in DEEP_ARCHIVE and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in DEEP_ARCHIVE and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            cmd = "iget -f {file2} {file2_get}".format(**locals())
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in DEEP_ARCHIVE and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
+
+            stdout, stderr, rc  = self.user0.run_icommand(cmd)
+            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('Object is in DEEP_ARCHIVE and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
+
+            # do not wait for retrieval
+
+        finally:
+
+            # cleanup
+
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(file1_get):
+                os.unlink(file1_get)
+            if os.path.exists(file2_get):
+                os.unlink(file2_get)
+
+    def test_put_get_glacier_ir(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            s3_context = self.s3_context
+            s3_context += ';S3_STORAGE_CLASS=Glacier_IR;S3_RESTORATION_TIER=expedited' # note restoration_tier is not applicable for glacier_ir
+                                                                                       # this will test that it is not attempted to be used
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            file1 = "f1"
+            file1_get = "f1.get"
+            file2 = "f2"
+            file2_get = "f2.get"
+
+            file1_size = 8*1024*1024
+            file2_size = 32*1024*1024 + 1
+
+            # create and put file
+            make_arbitrary_file(file1, file1_size)
+            make_arbitrary_file(file2, file2_size)
+
+            self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
+            self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
+
+            # glacier_ir does not require restoration
+            self.user0.assert_icommand("iget -f {file1} {file1_get}".format(**locals()))  # iput
+            self.user0.assert_icommand("iget -f {file2} {file2_get}".format(**locals()))  # iput
+
+            # make sure the files that were put and got are the same
+            self.user0.assert_icommand("diff {file1} {file1_get}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("diff {file2} {file2_get}".format(**locals()), 'EMPTY')
+
+        finally:
+
+            # cleanup
+
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
+            self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            if os.path.exists(file1):
+                os.unlink(file1)
+            if os.path.exists(file2):
+                os.unlink(file2)
+            if os.path.exists(file1_get):
+                os.unlink(file1_get)
+            if os.path.exists(file2_get):
+                os.unlink(file2_get)
+
