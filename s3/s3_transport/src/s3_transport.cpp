@@ -44,8 +44,16 @@ namespace irods::experimental::io::s3_transport
 {
     const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
     const std::string  S3_RESTORATION_TIER_STANDARD{"Standard"};
+    const std::string  S3_RESTORATION_TIER_BULK{"Bulk"};
+    const std::string  S3_RESTORATION_TIER_EXPEDITED{"Expedited"};
     const unsigned int S3_DEFAULT_RESTORATION_DAYS = 7;
     const std::string  S3_DEFAULT_RESTORATION_TIER{S3_RESTORATION_TIER_STANDARD};
+
+    const std::string  S3_STORAGE_CLASS_STANDARD{"STANDARD"};
+    const std::string  S3_STORAGE_CLASS_GLACIER{"GLACIER"};
+    const std::string  S3_STORAGE_CLASS_DEEP_ARCHIVE{"DEEP_ARCHIVE"};
+    const std::string  S3_STORAGE_CLASS_GLACIER_IR{"GLACIER_IR"};
+    const std::string  S3_DEFAULT_STORAGE_CLASS{S3_STORAGE_CLASS_STANDARD};
 
     using log  = irods::experimental::log;
     using logger = log::logger<s3_transport_logging_category>;
@@ -53,7 +61,8 @@ namespace irods::experimental::io::s3_transport
     irods::error get_object_s3_status(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
             std::int64_t& object_size,
-            object_s3_status& object_status) {
+            object_s3_status& object_status,
+            std::string& storage_class) {
 
         data_for_head_callback data(bucket_context);
 
@@ -69,7 +78,11 @@ namespace irods::experimental::io::s3_transport
 
         object_size = data.content_length;
 
-        if (data.x_amz_storage_class == "GLACIER") {
+        // Note that GLACIER_IR does not need or accept restoration
+        if (boost::iequals(data.x_amz_storage_class, S3_STORAGE_CLASS_GLACIER) ||
+                boost::iequals(data.x_amz_storage_class, S3_STORAGE_CLASS_DEEP_ARCHIVE)) {
+
+            storage_class = data.x_amz_storage_class;
 
             if (data.x_amz_restore.find("ongoing-request=\"false\"") != std::string::npos) {
                 // already restored
@@ -91,41 +104,42 @@ namespace irods::experimental::io::s3_transport
             libs3_types::bucket_context& bucket_context,
             const unsigned int restoration_days,
             const std::string& restoration_tier,
-            object_s3_status object_status) {
+            object_s3_status object_status,
+            const std::string &storage_class) {
 
         irods::error result = SUCCESS();
 
-	switch (object_status) {
+        switch (object_status) {
 
-	    case object_s3_status::IN_S3:
+            case object_s3_status::IN_S3:
 
-		break;
+                break;
 
-	    case object_s3_status::DOES_NOT_EXIST:
+            case object_s3_status::DOES_NOT_EXIST:
 
-		logger::error("Object does not exist and open mode requires it to exist.");
-		result = ERROR(S3_FILE_OPEN_ERR, "Object does not exist and open mode requires it to exist.");
-		break;
+                logger::error("Object does not exist and open mode requires it to exist.");
+                result = ERROR(S3_FILE_OPEN_ERR, "Object does not exist and open mode requires it to exist.");
+                break;
 
-	    case object_s3_status::IN_GLACIER:
+            case object_s3_status::IN_GLACIER:
 
-		result =  restore_s3_object(object_key, bucket_context, restoration_days, restoration_tier);
-		break;
+                result =  restore_s3_object(object_key, bucket_context, restoration_days, restoration_tier, storage_class);
+                break;
 
-	    case object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS:
+            case object_s3_status::IN_GLACIER_RESTORE_IN_PROGRESS:
 
-		// restoration is already in progress
-		result = ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and is currently being restored.  "
-			"Try again later.");
-		break;
+                // restoration is already in progress
+                result = ERROR(REPLICA_IS_BEING_STAGED, fmt::format("Object is in {} and is currently being restored.  "
+                    "Try again later.", storage_class));
+                break;
 
-	    default:
+            default:
 
-		// invalid object status - should not happen
-		result = ERROR(S3_FILE_OPEN_ERR, "Invalid S3 object status detected.");
-		break;
+                // invalid object status - should not happen
+                result = ERROR(S3_FILE_OPEN_ERR, "Invalid S3 object status detected.");
+                break;
 
-	}
+        }
 
         return result;
 
@@ -134,18 +148,29 @@ namespace irods::experimental::io::s3_transport
     irods::error restore_s3_object(const std::string& object_key,
             libs3_types::bucket_context& bucket_context,
             const unsigned int restoration_days,
-            const std::string& restoration_tier) {
+            const std::string& restoration_tier,
+            const std::string& storage_class) {
 
         std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        const auto xml = fmt::format("<RestoreRequest>\n "
-                                     "  <Days>{}</Days>\n"
-                                     "  <GlacierJobParameters>\n"
-                                     "    <Tier>{}</Tier>\n"
-                                     "  </GlacierJobParameters>]n"
-                                     "</RestoreRequest>\n",
-                                     restoration_days,
-                                     restoration_tier);
+        // restoration tier only valid for GLACIER
+        std::string xml;
+        if (storage_class == S3_STORAGE_CLASS_DEEP_ARCHIVE) {
+            xml = fmt::format("<RestoreRequest>\n "
+                              "  <Days>{}</Days>\n"
+                              "</RestoreRequest>\n",
+                              restoration_days
+                              );
+        } else {
+            xml = fmt::format("<RestoreRequest>\n "
+                              "  <Days>{}</Days>\n"
+                              "  <GlacierJobParameters>\n"
+                              "    <Tier>{}</Tier>\n"
+                              "  </GlacierJobParameters>\n"
+                              "</RestoreRequest>\n",
+                              restoration_days,
+                              restoration_tier);
+        }
 
         irods::experimental::io::s3_transport::upload_manager upload_manager(bucket_context);
         upload_manager.remaining = xml.size();
@@ -174,11 +199,11 @@ namespace irods::experimental::io::s3_transport
                     __FILE__, __LINE__, __FUNCTION__, thread_id,
                     S3_get_status_name(upload_manager.status), object_key.c_str());
 
-            return ERROR(REPLICA_STAGING_FAILED, "Object is in glacier, but scheduling restoration failed.");
+            return ERROR(REPLICA_STAGING_FAILED, fmt::format("Object is in {}, but scheduling restoration failed.", storage_class));
         }
 
-        return ERROR(REPLICA_IS_BEING_STAGED, "Object is in glacier and has been queued for restoration.  "
-                "Try again later.");
+        return ERROR(REPLICA_IS_BEING_STAGED, fmt::format("Object is in {} and has been queued for restoration.  "
+                "Try again later.", storage_class));
 
     } // end restore_s3_object
 

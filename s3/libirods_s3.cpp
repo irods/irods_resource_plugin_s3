@@ -4,6 +4,7 @@
 #include "s3_operations.hpp"
 #include "s3_plugin_logging_category.hpp"
 #include "s3_transport/include/s3_transport_logging_category.hpp"
+#include "s3_transport/include/s3_transport.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -161,11 +162,7 @@ const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS = 180;
 const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
 
-const std::string  S3_RESTORATION_TIER_STANDARD{"Standard"};
-const std::string  S3_RESTORATION_TIER_BULK{"Bulk"};
-const std::string  S3_RESTORATION_TIER_EXPEDITED{"Expedited"};
-const unsigned int S3_DEFAULT_RESTORATION_DAYS = 7;
-const std::string  S3_DEFAULT_RESTORATION_TIER{S3_RESTORATION_TIER_STANDARD};
+const std::string  S3_STORAGE_CLASS_KW{"S3_STORAGE_CLASS"};
 
 const std::string  CFG_LOG_LEVEL_CATEGORY_S3_RESOURCE_PLUGIN_KW{"s3_resource_plugin"};
 
@@ -363,9 +360,20 @@ S3Status responsePropertiesCallback(
     const S3ResponseProperties *properties,
     void *callbackData)
 {
+    callback_data_t *data = static_cast<callback_data_t *>(callbackData);
+
     // Here we are saving the only 2 things iRODS actually cares about.
     savedProperties.lastModified = properties->lastModified;
     savedProperties.contentLength = properties->contentLength;
+
+    // read the headers used by GLACIER
+    if (properties->xAmzStorageClass) {
+        data->x_amz_storage_class = properties->xAmzStorageClass;
+    }
+    if (properties->xAmzRestore) {
+       data->x_amz_restore = properties->xAmzRestore;
+    }
+
     return S3StatusOK;
 }
 
@@ -1079,7 +1087,9 @@ unsigned int get_non_data_transfer_timeout_seconds(irods::plugin_property_map& _
 
 unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map) {
 
-    unsigned int restoration_days = S3_DEFAULT_RESTORATION_DAYS;
+    namespace s3_transport = irods::experimental::io::s3_transport;
+
+    unsigned int restoration_days = s3_transport::S3_DEFAULT_RESTORATION_DAYS;
     std::string restoration_days_str;
     irods::error ret = _prop_map.get< std::string >( s3_restoration_days, restoration_days_str );
     if( ret.ok() ) {
@@ -1089,7 +1099,7 @@ unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map) {
             std::string resource_name = get_resource_name(_prop_map);
             s3_logger::error(
                 "[resource_name={}] failed to cast {} [{}] to a std::size_t.  Using default of {}.", resource_name.c_str(),
-                s3_restoration_days.c_str(), restoration_days_str.c_str(), S3_DEFAULT_RESTORATION_DAYS);
+                s3_restoration_days.c_str(), restoration_days_str.c_str(), s3_transport::S3_DEFAULT_RESTORATION_DAYS);
         }
     }
 
@@ -1098,26 +1108,59 @@ unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map) {
 
 std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map)
 {
+
+    namespace s3_transport = irods::experimental::io::s3_transport;
+
     irods::error ret;
     std::string restoration_tier_str;
     ret = _prop_map.get< std::string >(
         s3_restoration_tier,
         restoration_tier_str );
     if (!ret.ok()) { // Default to original behavior
-        return S3_DEFAULT_RESTORATION_TIER;
+        return s3_transport::S3_DEFAULT_RESTORATION_TIER;
     }
-    if ( boost::iequals(restoration_tier_str.c_str(), S3_RESTORATION_TIER_EXPEDITED)) {
-        return S3_RESTORATION_TIER_EXPEDITED;
-    } else if ( boost::iequals(restoration_tier_str.c_str(), S3_RESTORATION_TIER_STANDARD)) {
-        return S3_RESTORATION_TIER_STANDARD;
-    } else if ( boost::iequals(restoration_tier_str.c_str(), S3_RESTORATION_TIER_BULK)) {
-        return S3_RESTORATION_TIER_BULK;
+    if ( boost::iequals(restoration_tier_str.c_str(), s3_transport::S3_RESTORATION_TIER_EXPEDITED)) {
+        return s3_transport::S3_RESTORATION_TIER_EXPEDITED;
+    } else if ( boost::iequals(restoration_tier_str.c_str(), s3_transport::S3_RESTORATION_TIER_STANDARD)) {
+        return s3_transport::S3_RESTORATION_TIER_STANDARD;
+    } else if ( boost::iequals(restoration_tier_str.c_str(), s3_transport::S3_RESTORATION_TIER_BULK)) {
+        return s3_transport::S3_RESTORATION_TIER_BULK;
     } else {
         std::string resource_name = get_resource_name(_prop_map);
         s3_logger::error(
             "[resource_name={}] Unknown setting for {} [{}].  Using default of \"{}\".", resource_name.c_str(),
-            s3_restoration_tier.c_str(), restoration_tier_str.c_str(), S3_DEFAULT_RESTORATION_TIER.c_str());
-        return S3_DEFAULT_RESTORATION_TIER;
+            s3_restoration_tier.c_str(), restoration_tier_str.c_str(), s3_transport::S3_DEFAULT_RESTORATION_TIER.c_str());
+        return s3_transport::S3_DEFAULT_RESTORATION_TIER;
+    }
+}
+
+std::string s3_get_storage_class_from_configuration(irods::plugin_property_map& _prop_map)
+{
+    namespace s3_transport = irods::experimental::io::s3_transport;
+
+    irods::error ret;
+    std::string storage_class_str;
+    ret = _prop_map.get< std::string >(
+        S3_STORAGE_CLASS_KW,
+        storage_class_str);
+    if (!ret.ok()) { // Default to original behavior
+        return s3_transport::S3_DEFAULT_STORAGE_CLASS;
+    }
+
+    if ( boost::iequals(storage_class_str.c_str(), s3_transport::S3_STORAGE_CLASS_STANDARD)) {
+        return s3_transport::S3_STORAGE_CLASS_STANDARD;
+    } else if ( boost::iequals(storage_class_str.c_str(), s3_transport::S3_STORAGE_CLASS_GLACIER)) {
+        return s3_transport::S3_STORAGE_CLASS_GLACIER;
+    } else if ( boost::iequals(storage_class_str.c_str(), s3_transport::S3_STORAGE_CLASS_DEEP_ARCHIVE)) {
+        return s3_transport::S3_STORAGE_CLASS_DEEP_ARCHIVE;
+    } else if ( boost::iequals(storage_class_str.c_str(), s3_transport::S3_STORAGE_CLASS_GLACIER_IR)) {
+        return s3_transport::S3_STORAGE_CLASS_GLACIER_IR;
+    } else {
+        std::string resource_name = get_resource_name(_prop_map);
+        s3_logger::warn(
+            "[resource_name={}] Unknown setting for {} [{}].  Using default of \"{}\".", resource_name.c_str(),
+            S3_STORAGE_CLASS_KW.c_str(), storage_class_str.c_str(), s3_transport::S3_DEFAULT_STORAGE_CLASS.c_str());
+        return s3_transport::S3_DEFAULT_STORAGE_CLASS;
     }
 }
 
@@ -1658,12 +1701,13 @@ irods::error s3PutCopyFile(
     std::string authRegionStr = get_region_name(_prop_map);
     bucketContext.authRegion = authRegionStr.c_str();
 
-
     S3PutProperties *putProps = NULL;
     putProps = (S3PutProperties*)calloc( sizeof(S3PutProperties), 1 );
     if ( putProps && server_encrypt )
         putProps->useServerSideEncryption = true;
     putProps->expires = -1;
+    std::string storage_class = s3_get_storage_class_from_configuration(_prop_map);
+    putProps->xAmzStorageClass = storage_class.c_str();
 
     // HML: add a check to see whether or not multipart upload is enabled.
     bool mpu_enabled = s3GetEnableMultiPartUpload(_prop_map);
