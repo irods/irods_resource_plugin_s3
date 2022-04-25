@@ -194,7 +194,7 @@ auto get_level_from_config(const std::string& _category) -> irods::experimental:
     try {
 
         // example: level_str = "debug"
-        const auto& level_str = irods::get_server_property<const nlohmann::json&>(irods::CFG_LOG_LEVEL_KW).at(_category);
+        const auto& level_str = irods::get_server_property<const nlohmann::json&>(irods::KW_CFG_LOG_LEVEL).at(_category);
 
         if (auto iter = conv_table.find(level_str); std::end(conv_table) != iter) {
             level = iter->second;
