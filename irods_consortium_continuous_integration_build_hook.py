@@ -43,14 +43,16 @@ def install_os_specific_dependencies_apt():
     irods_python_ci_utilities.install_os_packages(['make', 'libssl-dev', 'libxml2-dev', 'libcurl4-gnutls-dev', 'gcc'])
 
 def install_os_specific_dependencies_yum():
-    irods_python_ci_utilities.install_os_packages(['openssl-devel', 'libxml2-devel', 'curl-devel'])
+    irods_python_ci_utilities.install_os_packages(['make', 'gcc', 'openssl-devel', 'libxml2-devel', 'curl-devel'])
 
 def install_os_specific_dependencies():
     dispatch_map = {
         'Ubuntu': install_os_specific_dependencies_apt,
         'Centos': install_os_specific_dependencies_yum,
         'Centos linux': install_os_specific_dependencies_yum,
+        'Almalinux': install_os_specific_dependencies_yum,
         'Opensuse ':  install_os_specific_dependencies_yum,
+        'Debian gnu_linux': install_os_specific_dependencies_apt
     }
     try:
         return dispatch_map[irods_python_ci_utilities.get_distribution()]()
