@@ -24,6 +24,7 @@ import shutil
 import string
 import subprocess
 import urllib3
+import distro
 
 from .resource_suite_s3_nocache import Test_S3_NoCache_Base
 
@@ -57,11 +58,6 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         super(Test_S3_Cache_Base, self).__init__(*args, **kwargs)
 
     def setUp(self):
-        # skip ssl tests on ub12
-        distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','').replace('.', '')
-        if self._testMethodName.startswith('test_ssl') and distro_str.lower().startswith('ubuntu12'):
-           self.skipTest("skipping ssl tests on ubuntu 12")
-
         # set up aws configuration
         self.read_aws_keys()
 
@@ -97,6 +93,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
         else:
+            distro_str = '{}-{}'.format(distro.id(), distro.version()).replace(' ', '').replace('.', '')
             self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
             self.s3bucketname += ''.join(random.choice(string.ascii_letters) for i in range(10))
             self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
