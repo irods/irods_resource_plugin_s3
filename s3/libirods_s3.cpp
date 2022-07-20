@@ -1017,22 +1017,33 @@ unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map) {
 
     namespace s3_transport = irods::experimental::io::s3_transport;
 
-    unsigned int restoration_days = s3_transport::S3_DEFAULT_RESTORATION_DAYS;
+    int restoration_days = static_cast<int>(s3_transport::S3_DEFAULT_RESTORATION_DAYS);
     std::string restoration_days_str;
     irods::error ret = _prop_map.get< std::string >( s3_restoration_days, restoration_days_str );
     if( ret.ok() ) {
         try {
-            restoration_days = boost::lexical_cast<unsigned int>( restoration_days_str );
+
+            restoration_days = boost::lexical_cast<int>( restoration_days_str );
+
+            if (restoration_days < 0) {
+                restoration_days = static_cast<int>(s3_transport::S3_DEFAULT_RESTORATION_DAYS);
+                std::string resource_name = get_resource_name(_prop_map);
+                s3_logger::error(
+                        "[resource_name={}] failed to cast {} [{}] to an unsigned integer.  Using default of {}.", resource_name.c_str(),
+                        s3_restoration_days.c_str(), restoration_days_str.c_str(), s3_transport::S3_DEFAULT_RESTORATION_DAYS);
+            }
+
         } catch ( const boost::bad_lexical_cast& ) {
+
             std::string resource_name = get_resource_name(_prop_map);
             rodsLog(
                 LOG_ERROR,
-                "[resource_name=%s] failed to cast %s [%s] to a size_t.  Using default of %u.", resource_name.c_str(),
+                "[resource_name=%s] failed to cast %s [%s] to an unsigned integer.  Using default of %u.", resource_name.c_str(),
                 s3_restoration_days.c_str(), restoration_days_str.c_str(), s3_transport::S3_DEFAULT_RESTORATION_DAYS);
         }
     }
 
-    return restoration_days;
+    return static_cast<unsigned int>(restoration_days);
 }
 
 std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map)
