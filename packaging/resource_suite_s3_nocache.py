@@ -1638,7 +1638,7 @@ OUTPUT ruleExecOut
                 os.unlink(file1)
 
 
-    def recursive_register_from_s3_bucket(self):
+    def test_recursive_register_from_s3_bucket(self):
 
         # create some files on s3
         if self.proto == 'HTTPS':
@@ -1667,7 +1667,7 @@ OUTPUT ruleExecOut
         f.seek(0)
         s3_client.put_object(self.s3bucketname, 'basedir/subdir2/f3', f, size)
 
-        self.admin.assert_icommand("ireg -C /%s/basedir %s/basedir" % (self.s3bucketname, self.admin.session_collection))
+        self.admin.assert_icommand("ireg -r /%s/basedir %s/basedir" % (self.s3bucketname, self.admin.session_collection))
         file_count = self.admin.run_icommand('''iquest "%s" "SELECT count(DATA_ID) where COLL_NAME like '%/basedir%'"''')[0]
         self.assertEquals(file_count, u'9\n')
 
