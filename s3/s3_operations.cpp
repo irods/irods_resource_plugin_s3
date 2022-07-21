@@ -263,8 +263,8 @@ namespace irods_s3 {
             }
         }
 
-        // if number_of_threads is still zero, first try readng from NUM_THREADS_KW
-        if (number_of_threads == 0) {
+        // if number_of_threads is still unknown, first try readng from NUM_THREADS_KW
+        if (number_of_threads <= 0) {
 
             // try to get number of threads from NUM_THREADS_KW
             char *num_threads_str = getValByKey(&file_obj->cond_input(), NUM_THREADS_KW);
@@ -306,8 +306,8 @@ namespace irods_s3 {
             }
 
             // If we still don't know the # of threads, set it to 1 unless the oprType is unknown in
-            // which case it will remain 1 which will force use of cache.
-            if (number_of_threads == 0 && oprType != -1) {
+            // which case it will remain <= 0 which will force use of cache.
+            if (number_of_threads <= 0 && oprType != -1) {
                 number_of_threads = 1;
             }
         }
