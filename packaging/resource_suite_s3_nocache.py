@@ -1589,7 +1589,7 @@ OUTPUT ruleExecOut
                 os.unlink(file1)
 
 
-    def recursive_register_from_s3_bucket(self):
+    def test_recursive_register_from_s3_bucket(self):
 
         # create some files on s3
         if self.proto == 'HTTPS':

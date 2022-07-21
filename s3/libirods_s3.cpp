@@ -1028,9 +1028,10 @@ unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map) {
             if (restoration_days < 0) {
                 restoration_days = static_cast<int>(s3_transport::S3_DEFAULT_RESTORATION_DAYS);
                 std::string resource_name = get_resource_name(_prop_map);
-                s3_logger::error(
-                        "[resource_name={}] failed to cast {} [{}] to an unsigned integer.  Using default of {}.", resource_name.c_str(),
-                        s3_restoration_days.c_str(), restoration_days_str.c_str(), s3_transport::S3_DEFAULT_RESTORATION_DAYS);
+                rodsLog(
+                    LOG_ERROR,
+                    "[resource_name=%s] failed to cast %s [%s] to an unsigned integer.  Using default of %u.", resource_name.c_str(),
+                    s3_restoration_days.c_str(), restoration_days_str.c_str(), s3_transport::S3_DEFAULT_RESTORATION_DAYS);
             }
 
         } catch ( const boost::bad_lexical_cast& ) {
