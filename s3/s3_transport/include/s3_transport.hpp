@@ -134,8 +134,8 @@ namespace irods::experimental::io::s3_transport
         {}
 
         std::int64_t object_size;
-        unsigned int number_of_cache_transfer_threads;  // only used when doing full file upload/download via cache
-        unsigned int number_of_client_transfer_threads; // controlled by iRODS
+        unsigned int number_of_cache_transfer_threads;   // only used when doing full file upload/download via cache
+        int number_of_client_transfer_threads;           // controlled by iRODS
         std::int64_t bytes_this_thread;                  // only used when doing a multipart upload
         unsigned int retry_count_limit;
         int          retry_wait_seconds;
@@ -444,9 +444,9 @@ namespace irods::experimental::io::s3_transport
                     ( data.know_number_of_threads && data.threads_remaining_to_close == 0 )  ||
                     ( !(data.know_number_of_threads) && data.file_open_counter == 0 && !data.cache_file_flushed );
 
-                logger::debug("{}:{} ({}) [[{}]] [last_file_to_close={}]",
+                logger::debug("{}:{} ({}) [[{}]] [last_file_to_close={}][know_number_of_threads={}][threads_remaining_to_close={}]",
                         __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(),
-                        last_file_to_close_);
+                        last_file_to_close_, data.know_number_of_threads, data.threads_remaining_to_close);
 
                 // if a critical error occurred - do not flush cache file or complete multipart upload
 
@@ -1185,7 +1185,7 @@ namespace irods::experimental::io::s3_transport
                 //   3. If we have > 1 thread and multipart is disabled
                 //   4. If doing multipart upload file size < #threads * minimum part size
                 if ( config_.object_size == 0 || config_.object_size == config::UNKNOWN_OBJECT_SIZE ||
-                        ( config_.number_of_client_transfer_threads == 0 ) ||
+                        ( config_.number_of_client_transfer_threads <= 0 ) ||
                         ( config_.number_of_client_transfer_threads > 1 && !config_.multipart_enabled ) ||
                         ( config_.number_of_client_transfer_threads > 1 &&
                           config_.object_size < static_cast<std::int64_t>(config_.number_of_client_transfer_threads) *
@@ -1315,7 +1315,9 @@ namespace irods::experimental::io::s3_transport
                 std::int64_t s3_object_size = 0;
 
                 data.file_open_counter += 1;
-                if (this->config_.number_of_client_transfer_threads == 0) {
+                logger::debug("{}:{} ({}) [[{}]] number_of_client_transfer_threads = {}",
+                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), this->config_.number_of_client_transfer_threads);
+                if (this->config_.number_of_client_transfer_threads <= 0) {
                     data.know_number_of_threads = false;
                 }
 
