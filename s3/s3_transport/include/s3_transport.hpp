@@ -1256,7 +1256,7 @@ namespace irods::experimental::io::s3_transport
                 (_mode & std::ios_base::in) == std::ios_base::in,
                 (_mode & std::ios_base::out) == std::ios_base::out,
                 (_mode & std::ios_base::trunc) == std::ios_base::trunc,
-                (_mode & std::ios_base::app) == std::ios_base::out,
+                (_mode & std::ios_base::app) == std::ios_base::app,
                 (_mode & std::ios_base::ate) == std::ios_base::ate,
                 (_mode & std::ios_base::binary) == std::ios_base::binary);
 
