@@ -2030,44 +2030,57 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
         result = ASSERT_PASS(ret, "[resource_name=%s] Failed to read S3 auth info.", resource_name.c_str());
     }
 
+    if (!result.ok()) {
+        return result;
+    }
+
     bool attached_mode = true, cacheless_mode = false;
     std::tie(cacheless_mode, attached_mode) = get_modes_from_properties(_prop_map);
 
     if (!attached_mode) {
+        // Set the RESOURCE_HOST of this resource to the rodsHostAddr_t for this server.
+        // This server will now act as the owner of this resource for any processing on
+        // this server.
+        // Note:  On error conditions below, detached mode will remain disabled and a warning
+        // will be logged.
 
-        // update host to new host
-        char resource_location[MAX_NAME_LEN];
-        gethostname(resource_location, MAX_NAME_LEN);
+        char local_hostname[MAX_NAME_LEN];
+        gethostname(local_hostname, MAX_NAME_LEN);
 
-        bool error = false;
-        rodsLong_t resc_id = 0;
-        irods::error ret = resc_mgr.hier_to_leaf_id(resource_name, resc_id);
-        if( !ret.ok() ) { 
-            error = true;
-        } else {
-
-            rodsServerHost_t *resource_host = nullptr;
-            ret = irods::get_resource_property< rodsServerHost_t*& >(resc_id, irods::RESOURCE_HOST, resource_host);
-
-            if (!ret.ok() || !resource_host) {
-                 error = true;
-            } else {
-                 resource_host->hostName->name = strdup(resource_location);
-                 resource_host->localFlag = LOCAL_HOST;
-                 ret = irods::set_resource_property< rodsServerHost_t* >( resource_name, irods::RESOURCE_HOST, resource_host);
-                 if (!ret.ok()) {
-                     error = true;
-                 }
-            }
+        std::string resource_name;
+        ret = _prop_map.get<std::string>(irods::RESOURCE_NAME, resource_name);
+        if (!ret.ok()) {
+            rodsLog(LOG_WARNING,
+                "Detached mode failed to set RESOURCE_HOST to %s."
+                "  Failed to get irods::RESOURCE_NAME property.",
+                local_hostname);
+            return SUCCESS();
         }
 
-        if (error) {
-            // log the error but continue
-            rodsLog(LOG_ERROR, "[resource_name=%s] Attached mode failed to set RESOURCE_HOST to %s.", resource_name.c_str(), resource_location);
+        // Look up the rodsServerHost_t for this server and set this as the RESOURCE_HOST of the resource.
+        // The rodsServerHost_t entry is shared throughout the code (not just used for this
+        // resource) so you can't adjust the existing entry attached to the resource.
+        rodsHostAddr_t addr{};
+        std::strncpy(addr.hostAddr, local_hostname, LONG_NAME_LEN);
+        const auto& zone_name = irods::get_server_property<const std::string>(irods::CFG_ZONE_NAME_KW);
+        std::strncpy(addr.zoneName, zone_name.c_str(), NAME_LEN);
+
+        rodsServerHost_t* local_host = nullptr;
+        const int resolve_host_return = resolveHost(&addr, &local_host);
+        if (resolve_host_return < 0) {
+            rodsLog(LOG_WARNING,
+                "[resource_name=%s] Detached mode failed to set RESOURCE_HOST to %s."
+                "  Failed to call resolveHost.  Error returned is %d.",
+                resource_name.c_str(),
+                local_hostname,
+                resolve_host_return);
+            return SUCCESS();
         }
+
+        irods::set_resource_property<rodsServerHost_t*>(resource_name, irods::RESOURCE_HOST, local_host);
     }
 
-    return result;
+    return SUCCESS();
 }
 
 /// @brief stop operation. Deinitialize the s3 library
