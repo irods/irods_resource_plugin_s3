@@ -934,7 +934,9 @@ namespace irods_s3 {
             // to be created
             if (!data.dstream_ptr) {
                 char buff[1];
-                s3_file_write_operation(_ctx, buff, 0);
+                if (const auto err = s3_file_write_operation(_ctx, buff, 0); !err.ok()) {
+                    return PASS(err);
+                }
                 data = fd_data.get(fd);
             }
 
