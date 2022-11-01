@@ -173,7 +173,7 @@ thread_local S3ResponseProperties savedProperties;
 // except that no message is logged if the configuration is not found
 auto get_level_from_config(const std::string& _category) -> irods::experimental::log::level
 {
-    using log = irods::experimental::log;
+    namespace log = irods::experimental::log;
 
     // clang-format off
     static const std::unordered_map<std::string, log::level> conv_table{
@@ -2174,7 +2174,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
 
     irods::error ret;
 
-    using log = irods::experimental::log;
+    namespace log = irods::experimental::log;
     using transport_logger = log::logger<s3_transport_logging_category>;
 
     const auto log_level = get_level_from_config(CFG_LOG_LEVEL_CATEGORY_S3_RESOURCE_PLUGIN_KW);
