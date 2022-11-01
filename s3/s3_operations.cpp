@@ -67,7 +67,7 @@ using s3_transport_config = irods::experimental::io::s3_transport::config;
 
 namespace irods_s3 {
 
-    using log  = irods::experimental::log;
+    namespace log  = irods::experimental::log;
     using logger = log::logger<s3_plugin_logging_category>;
 
     std::mutex global_mutex;

@@ -19,7 +19,7 @@ namespace irods::experimental::interprocess
         namespace bi = boost::interprocess;
         namespace bc = boost::container;
 
-        using log  = irods::experimental::log;
+        namespace log  = irods::experimental::log;
         using logger = log::logger<s3_transport_logging_category>;
 
         using segment_manager       = bi::managed_shared_memory::segment_manager;

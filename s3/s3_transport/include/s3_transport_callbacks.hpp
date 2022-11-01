@@ -38,7 +38,7 @@
 
 namespace irods::experimental::io::s3_transport
 {
-    using log  = irods::experimental::log;
+    namespace log  = irods::experimental::log;
     using logger = log::logger<s3_transport_logging_category>;
 
     template <typename CharT>

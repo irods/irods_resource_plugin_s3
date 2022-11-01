@@ -68,7 +68,7 @@ namespace irods::experimental::io::s3_transport
     extern const std::string  S3_STORAGE_CLASS_GLACIER_IR;
     extern const std::string  S3_DEFAULT_STORAGE_CLASS;
 
-    using log  = irods::experimental::log;
+    namespace log  = irods::experimental::log;
     using logger = log::logger<s3_transport_logging_category>;
 
     const std::int64_t DEFAULT_MAX_SINGLE_PART_UPLOAD_SIZE = 5L * 1024 * 1024 * 1024;

@@ -55,7 +55,7 @@ namespace irods::experimental::io::s3_transport
     const std::string  S3_STORAGE_CLASS_GLACIER_IR{"GLACIER_IR"};
     const std::string  S3_DEFAULT_STORAGE_CLASS{S3_STORAGE_CLASS_STANDARD};
 
-    using log  = irods::experimental::log;
+    namespace log  = irods::experimental::log;
     using logger = log::logger<s3_transport_logging_category>;
 
     irods::error get_object_s3_status(const std::string& object_key,
