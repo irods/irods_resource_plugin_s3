@@ -43,38 +43,10 @@ else:
 
 from .. import test
 from .. import lib
+from . import s3plugin_lib
 from ..configuration import IrodsConfig
 from ..controller import IrodsController
 from . import session
-
-# Used to make files that are not-zero but have random bytes spread throughout
-def make_arbitrary_file(f_name, f_size, buffer_size=32*1024*1024):
-    # do not care about true randomness
-    random.seed(5)
-    bytes_written = 0
-    buffer = buffer_size * [0x78]       # 'x' - bytearray() below appears to require int instead
-                                        #       of char which was valid in python2
-    with open(f_name, "wb") as out:
-
-        while bytes_written < f_size:
-
-            if f_size - bytes_written < buffer_size:
-                to_write = f_size - bytes_written
-                buffer = to_write * [0x78]  # 'x'
-            else:
-                to_write = buffer_size
-
-            current_char = random.randrange(256)
-
-            # just write some random byte each 1024 chars
-            for i in range(0, to_write, 1024):
-                buffer[i] = current_char
-                current_char = random.randrange(256)
-            buffer[len(buffer)-1] = random.randrange(256)
-
-            out.write(bytearray(buffer))
-
-            bytes_written += to_write
 
 class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
@@ -108,10 +80,11 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.read_aws_keys()
 
         # set up s3 bucket
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region = self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region = self.s3region, secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                region = self.s3region,
+                secure=(self.proto == 'HTTPS'))
 
         if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
@@ -183,10 +156,12 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             print("run_resource_teardown - END")
 
         # delete s3 bucket
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region, secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
+
         objects = s3_client.list_objects(self.s3bucketname, recursive=True)
 
         if hasattr(self, 'static_bucket_name'):
@@ -245,8 +220,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         print("  output: [" + output + "]")
         assert output.strip() == localfile
         # local cleanup
-        if os.path.exists(localfile):
-            os.unlink(localfile)
+        s3plugin_lib.remove_if_exists(localfile)
 
     def test_local_iget_with_overwrite(self):
         # local setup
@@ -259,8 +233,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         print("  output: [" + output + "]")
         assert output.strip() == localfile
         # local cleanup
-        if os.path.exists(localfile):
-            os.unlink(localfile)
+        s3plugin_lib.remove_if_exists(localfile)
 
     def test_local_iget_with_bad_option(self):
         # assertions
@@ -287,12 +260,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("iget -f " + filename + " " + retrievedfile)  # should get updated file
         assert filecmp.cmp(updated_filename, retrievedfile)  # confirm retrieved is correct
         # local cleanup
-        if os.path.exists(filename):
-            os.unlink(filename)
-        if os.path.exists(updated_filename):
-            os.unlink(updated_filename)
-        if os.path.exists(retrievedfile):
-            os.unlink(retrievedfile)
+        s3plugin_lib.remove_if_exists(filename)
+        s3plugin_lib.remove_if_exists(updated_filename)
+        s3plugin_lib.remove_if_exists(retrievedfile)
 
     def test_iget_with_purgec(self):
         # local setup
@@ -307,8 +277,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
 
         # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        s3plugin_lib.remove_if_exists(filepath)
 
     def test_iget_specify_resource_with_single_thread__issue_3140(self):
         # local setup
@@ -545,8 +514,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("ils -L " + filename, 'STDERR_SINGLELINE', [filename, "does not exist"])
         self.admin.assert_icommand("iput " + filename)  # iput
         self.admin.assert_icommand("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should be listed
-        if os.path.exists(filename):
-            os.unlink(filename)
+        s3plugin_lib.remove_if_exists(filename)
 
     def test_local_iput(self):
         '''also needs to count and confirm number of replicas after the put'''
@@ -559,8 +527,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("iput " + datafilename)  # iput
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', datafilename)  # should be listed
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     def test_local_iput_overwrite(self):
         self.admin.assert_icommand_fail("iput " + self.testfile)  # fail, already exists
@@ -577,8 +544,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             checksum = base64.b64encode(hashlib.sha256(f.read()).digest()).decode()
         self.admin.assert_icommand("ils -L", 'STDOUT_SINGLELINE', "sha2:" + checksum)  # check proper checksum
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     def test_local_iput_upper_checksum(self):
         # local setup
@@ -591,8 +557,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             checksum = base64.b64encode(hashlib.sha256(f.read()).digest()).decode()
         self.admin.assert_icommand("ils -L", 'STDOUT_SINGLELINE', "sha2:" + checksum)  # check proper checksum
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     def test_local_iput_onto_specific_resource(self):
         # local setup
@@ -605,8 +570,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', datafilename)  # should be listed
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', self.testresc)  # should be listed
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     @unittest.skipIf(True, 'Enable once #2634 is resolved')
     def test_local_iput_interrupt_directory(self):
@@ -622,8 +586,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         restartfile = "collectionrestartfile"
         # assertions
         iputcmd = "iput -X " + restartfile + " -r " + datadir
-        if os.path.exists(restartfile):
-            os.unlink(restartfile)
+        s3plugin_lib.remove_if_exists(restartfile)
         self.admin.interrupt_icommand(iputcmd, restartfile, 10)  # once restartfile reaches 10 bytes
         assert os.path.exists(restartfile), restartfile + " should now exist, but did not"
         print("  restartfile [" + restartfile + "] contents --> [")
@@ -637,8 +600,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             self.admin.assert_icommand("ils -L " + datadir, 'STDOUT_SINGLELINE', datafilename)  # should be listed
         # local cleanup
         lib.execute_command(['rm', '-rf', datadir])
-        if os.path.exists(restartfile):
-            os.unlink(restartfile)
+        s3plugin_lib.remove_if_exists(restartfile)
 
     @unittest.skipIf(True, 'Enable once race conditions fixed, see #2634')
     def test_local_iput_interrupt_largefile(self):
@@ -648,8 +610,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         lib.make_file(datafilename, file_size)
         restartfile = 'bigrestartfile'
         iputcmd = 'iput --lfrestart {0} {1}'.format(restartfile, datafilename)
-        if os.path.exists(restartfile):
-            os.unlink(restartfile)
+        s3plugin_lib.remove_if_exists(restartfile)
         self.admin.interrupt_icommand(iputcmd, restartfile, 300)  # once restartfile reaches 300 bytes
         time.sleep(2)  # wait for all interrupted threads to exit
         assert os.path.exists(restartfile), restartfile + " should now exist, but did not"
@@ -666,10 +627,8 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE',
                                    [" " + str(os.stat(datafilename).st_size) + " " + today.isoformat(), datafilename])  # length should be size on disk
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
-        if os.path.exists(restartfile):
-            os.unlink(restartfile)
+        s3plugin_lib.remove_if_exists(datafilename)
+        s3plugin_lib.remove_if_exists(restartfile)
 
     @unittest.skip('N/A for S3')
     def test_local_iput_physicalpath_no_permission(self):
@@ -681,8 +640,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("iput -p /newfileinroot.txt " + datafilename, 'STDERR_SINGLELINE',
                                    ["UNIX_FILE_CREATE_ERR", "Permission denied"])  # should fail to write
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     @unittest.skip('N/A for S3')
     def test_local_iput_physicalpath(self):
@@ -696,8 +654,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', datafilename)  # should be listed
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', fullpath)  # should be listed
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     @unittest.skip('N/A for S3')
     def test_admin_local_iput_relative_physicalpath_into_server_bin(self):
@@ -710,8 +667,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         # should disallow relative path
         self.admin.assert_icommand("iput -p " + relpath + " " + datafilename, 'STDERR_SINGLELINE', "absolute")
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     @unittest.skip('N/A for S3')
     def test_local_iput_relative_physicalpath_into_server_bin(self):
@@ -723,8 +679,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         relpath = "relativephysicalpath.txt"
         self.user0.assert_icommand("iput -p " + relpath + " " + datafilename, 'STDERR_SINGLELINE', "absolute")  # should error
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     def test_local_iput_with_changed_target_filename(self):
         # local setup
@@ -736,8 +691,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("iput " + datafilename + " " + changedfilename)  # should complete
         self.admin.assert_icommand("ils -L " + changedfilename, 'STDOUT_SINGLELINE', changedfilename)  # should be listed
         # local cleanup
-        if os.path.exists(datafilename):
-            os.unlink(datafilename)
+        s3plugin_lib.remove_if_exists(datafilename)
 
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing: Lists Vault files")
     def test_iput_overwrite_others_file__ticket_2086(self):
@@ -769,8 +723,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
                     assert os.path.exists(physicalpath)
 
         # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        s3plugin_lib.remove_if_exists(filepath)
 
     def test_iput_with_purgec(self):
         # local setup
@@ -787,8 +740,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
 
         # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        s3plugin_lib.remove_if_exists(filepath)
 
     def test_local_iput_with_force_and_destination_resource__ticket_1706(self):
         # local setup
@@ -1015,8 +967,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
 
         # local cleanup
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        s3plugin_lib.remove_if_exists(filepath)
 
     def test_irepl_with_admin_mode(self):
         lib.touch("file.txt")
@@ -1195,8 +1146,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.user0.assert_icommand("itrim -N 1 -S {put_resource} {filename}".format(**locals()), 'STDOUT_SINGLELINE', "Total size trimmed = " + str(filesizeMB) +" MB. Number of files trimmed = 1.")
 
         # local cleanup
-        if os.path.exists(filepath):
-           os.unlink(filepath)
+        s3plugin_lib.remove_if_exists(filepath)
 
     @unittest.skip("skipping because this isn't really an s3 test and server changed")
     def test_itrim_returns_on_negative_status__ticket_3531(self):
@@ -1230,8 +1180,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.admin.assert_icommand("iadmin rmchildfromresc {itrimReplResc} {resc2}".format(**locals()), 'EMPTY')
         self.admin.assert_icommand("iadmin rmresc {itrimReplResc}".format(**locals()), 'EMPTY')
         self.user0.assert_icommand("irm -f {filename}".format(**locals()), 'EMPTY')
-        if os.path.exists(filepath):
-            os.unlink(filepath)
+        s3plugin_lib.remove_if_exists(filepath)
 
 
     # tests add for cacheless S3
@@ -1269,13 +1218,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             # local cleanup
             self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
-            if os.path.exists(filename_get):
-                os.unlink(filename_get)
-
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(filename_get)
 
     def test_iput_small_file_over_larger(self):
 
@@ -1309,12 +1254,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             # local cleanup
             self.admin.assert_icommand("irm -f " + file2, 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
-            if os.path.exists(filename_get):
-                os.unlink(filename_get)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(filename_get)
 
 
     @unittest.skip("simultaneous opens are no longer allowed")
@@ -1377,8 +1319,7 @@ OUTPUT ruleExecOut
         finally:
             # local cleanup
             self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
-            if os.path.exists(rule_file_path):
-                os.unlink(rule_file_path)
+            s3plugin_lib.remove_if_exists(rule_file_path)
 
     @unittest.skipIf(True, "skip until issue 5018 fixed")
     def test_read_write_zero_length_file_issue_1890(self):
@@ -1413,8 +1354,7 @@ OUTPUT ruleExecOut
         finally:
             # local cleanup
             self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
-            if os.path.exists(rule_file_path):
-                os.unlink(rule_file_path)
+            s3plugin_lib.remove_if_exists(rule_file_path)
 
     def test_seek_end(self):
 
@@ -1446,8 +1386,7 @@ OUTPUT ruleExecOut
         finally:
             # local cleanup
             self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
-            if os.path.exists(rule_file_path):
-                os.unlink(rule_file_path)
+            s3plugin_lib.remove_if_exists(rule_file_path)
 
 
     def test_seek_cur(self):
@@ -1481,9 +1420,7 @@ OUTPUT ruleExecOut
         finally:
             # local cleanup
             self.user0.assert_icommand("irm -f {target_obj}".format(**locals()))
-            if os.path.exists(rule_file_path):
-                os.unlink(rule_file_path)
-
+            s3plugin_lib.remove_if_exists(rule_file_path)
 
     def test_small_write_read_in_large_file(self):
 
@@ -1546,14 +1483,9 @@ OUTPUT ruleExecOut
             # local cleanup
             self.user0.assert_icommand("irm -f {target_obj}".format(**locals()), 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-
-            if os.path.exists(write_rule_file_path):
-                os.unlink(write_rule_file_path)
-
-            if os.path.exists(read_rule_file_path):
-                os.unlink(read_rule_file_path)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(write_rule_file_path)
+            s3plugin_lib.remove_if_exists(read_rule_file_path)
 
     def test_detached_mode(self):
 
@@ -1600,10 +1532,8 @@ OUTPUT ruleExecOut
             # local cleanup
             self.admin.assert_icommand("irm -f " + file1, 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
 
             # cleanup
             self.admin.assert_icommand("iadmin rmresc %s" % resource_name, 'EMPTY')
@@ -1634,17 +1564,17 @@ OUTPUT ruleExecOut
             hostname = lib.get_hostname()
             self.admin.assert_icommand("iadmin modresc demoResc host %s" % hostname, 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-
+            s3plugin_lib.remove_if_exists(file1)
 
     def test_recursive_register_from_s3_bucket(self):
 
         # create some files on s3
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region, secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
+
         file_contents = b'random test data'
         f = io.BytesIO(file_contents)
         size = len(file_contents)
@@ -1685,8 +1615,7 @@ OUTPUT ruleExecOut
 
             self.user0.assert_icommand("irm -f {file2}".format(**locals()))  # imv
 
-            if os.path.exists(file1):
-                os.unlink(file1)
+            s3plugin_lib.remove_if_exists(file1)
 
     def test_put_get_small_file_in_repl_node(self):
 
@@ -1743,10 +1672,8 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc3", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
 
     def test_put_get_large_file_in_repl_node(self):
 
@@ -1803,10 +1730,8 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc3", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
 
     def test_put_get_various_file_sizes(self):
 
@@ -1854,7 +1779,7 @@ OUTPUT ruleExecOut
             for file_size in file_sizes:
 
                 # create and put file
-                make_arbitrary_file(file1, file_size)
+                s3plugin_lib.make_arbitrary_file(file1, file_size)
                 self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
 
                 # make sure file is right size
@@ -1862,7 +1787,7 @@ OUTPUT ruleExecOut
 
                 # get file from first repl
                 self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
-            
+
                 self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
 
                 # make sure the file that was put and got are the same
@@ -1873,15 +1798,13 @@ OUTPUT ruleExecOut
             # cleanup
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
 
     # issue 2024
     @unittest.skipIf(psutil.disk_usage('/').free < 2 * (4*1024*1024*1024 + 1), "not enough free space for two 4 GiB files")
     def test_put_get_file_greater_than_4GiB_one_thread(self):
-   
+
         try:
 
             hostname = lib.get_hostname()
@@ -1896,7 +1819,7 @@ OUTPUT ruleExecOut
             file_size = 4*1024*1024*1024 + 1  # +1 - make sure one thread handles more than 4 GiB
 
             # create and put file
-            make_arbitrary_file(file1, file_size)
+            s3plugin_lib.make_arbitrary_file(file1, file_size)
 
             self.user0.assert_icommand("iput -N 1 -f -R s3resc1 {file1}".format(**locals()))  # iput
 
@@ -1916,10 +1839,8 @@ OUTPUT ruleExecOut
             self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
 
     # issue 2024
     @unittest.skipIf(psutil.disk_usage('/').free < 2 * (8*1024*1024*1024 + 2), "not enough free space for two 8 GiB files")
@@ -1939,12 +1860,12 @@ OUTPUT ruleExecOut
             file_size = 8*1024*1024*1024 + 2  # +2 - make sure each thread handles more than 4 GiB
 
             # create and put file
-            make_arbitrary_file(file1, file_size)
+            s3plugin_lib.make_arbitrary_file(file1, file_size)
 
             if self.s3EnableMPU == False:
                 # iput will fail because file is too big for single part upload
                 self.user0.assert_icommand("iput -N 2 -f -R s3resc1 {file1}".format(**locals()), 'STDERR_SINGLELINE', 'ERROR') # iput
- 
+
             else:
                 self.user0.assert_icommand("iput -N 2 -f -R s3resc1 {file1}".format(**locals()))  # iput
 
@@ -1968,10 +1889,8 @@ OUTPUT ruleExecOut
             self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
 
     # issue 2024
     def test_large_file_put_repl_node(self):
@@ -1999,7 +1918,7 @@ OUTPUT ruleExecOut
 
 
             # create and put file
-            make_arbitrary_file(file1, file_size)
+            s3plugin_lib.make_arbitrary_file(file1, file_size)
             self.user0.assert_icommand("iput -f -R replresc {file1}".format(**locals()))  # iput
 
             # make sure file is right size
@@ -2027,10 +1946,8 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc replresc", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
 
     def test_rm_without_force(self):
 
@@ -2046,7 +1963,7 @@ OUTPUT ruleExecOut
             file_size = 120*1024*1024;
 
             # create and put file
-            make_arbitrary_file(file1, file_size)
+            s3plugin_lib.make_arbitrary_file(file1, file_size)
             self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
 
             # remove file without force
@@ -2059,8 +1976,7 @@ OUTPUT ruleExecOut
             # cleanup
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
+            s3plugin_lib.remove_if_exists(file1)
 
     def test_missing_keyfile(self):
 
@@ -2128,10 +2044,11 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
         self.read_aws_keys()
 
         # set up s3 bucket
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region = self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region = self.s3region, secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                region = self.s3region,
+                secure=(self.proto == 'HTTPS'))
 
         if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
@@ -2203,10 +2120,12 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             print("run_resource_teardown - END")
 
         # delete s3 bucket
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint, access_key=self.aws_access_key_id, secret_key=self.aws_secret_access_key, region=self.s3region, secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
+
         objects = s3_client.list_objects(self.s3bucketname, recursive=True)
 
         if hasattr(self, 'static_bucket_name'):
@@ -2247,8 +2166,8 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             file2_size = 32*1024*1024 + 1
 
             # create and put file
-            make_arbitrary_file(file1, file1_size)
-            make_arbitrary_file(file2, file2_size)
+            s3plugin_lib.make_arbitrary_file(file1, file1_size)
+            s3plugin_lib.make_arbitrary_file(file2, file2_size)
 
             self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
             self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
@@ -2291,14 +2210,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
-            if os.path.exists(file1_get):
-                os.unlink(file1_get)
-            if os.path.exists(file2_get):
-                os.unlink(file2_get)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(file1_get)
+            s3plugin_lib.remove_if_exists(file2_get)
 
     def test_put_get_glacier_standard_retrieval(self):
 
@@ -2322,8 +2237,8 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             file2_size = 32*1024*1024 + 1
 
             # create and put file
-            make_arbitrary_file(file1, file1_size)
-            make_arbitrary_file(file2, file2_size)
+            s3plugin_lib.make_arbitrary_file(file1, file1_size)
+            s3plugin_lib.make_arbitrary_file(file2, file2_size)
 
             self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
             self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
@@ -2356,14 +2271,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
-            if os.path.exists(file1_get):
-                os.unlink(file1_get)
-            if os.path.exists(file2_get):
-                os.unlink(file2_get)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(file1_get)
+            s3plugin_lib.remove_if_exists(file2_get)
 
     def test_put_get_glacier_bulk_retrieval(self):
 
@@ -2387,8 +2298,8 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             file2_size = 32*1024*1024 + 1
 
             # create and put file
-            make_arbitrary_file(file1, file1_size)
-            make_arbitrary_file(file2, file2_size)
+            s3plugin_lib.make_arbitrary_file(file1, file1_size)
+            s3plugin_lib.make_arbitrary_file(file2, file2_size)
 
             self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
             self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
@@ -2421,15 +2332,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
-            if os.path.exists(file1_get):
-                os.unlink(file1_get)
-            if os.path.exists(file2_get):
-                os.unlink(file2_get)
-
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(file1_get)
+            s3plugin_lib.remove_if_exists(file2_get)
 
     def test_put_get_deep_archive(self):
 
@@ -2454,8 +2360,8 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             file2_size = 32*1024*1024 + 1
 
             # create and put file
-            make_arbitrary_file(file1, file1_size)
-            make_arbitrary_file(file2, file2_size)
+            s3plugin_lib.make_arbitrary_file(file1, file1_size)
+            s3plugin_lib.make_arbitrary_file(file2, file2_size)
 
             self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
             self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
@@ -2488,14 +2394,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
-            if os.path.exists(file1_get):
-                os.unlink(file1_get)
-            if os.path.exists(file2_get):
-                os.unlink(file2_get)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(file1_get)
+            s3plugin_lib.remove_if_exists(file2_get)
 
     def test_put_get_glacier_ir(self):
 
@@ -2520,8 +2422,8 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             file2_size = 32*1024*1024 + 1
 
             # create and put file
-            make_arbitrary_file(file1, file1_size)
-            make_arbitrary_file(file2, file2_size)
+            s3plugin_lib.make_arbitrary_file(file1, file1_size)
+            s3plugin_lib.make_arbitrary_file(file2, file2_size)
 
             self.user0.assert_icommand("iput -f -R s3resc1 {file1}".format(**locals()))  # iput
             self.user0.assert_icommand("iput -f -R s3resc1 {file2}".format(**locals()))  # iput
@@ -2542,12 +2444,7 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
-            if os.path.exists(file1_get):
-                os.unlink(file1_get)
-            if os.path.exists(file2_get):
-                os.unlink(file2_get)
-
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(file1_get)
+            s3plugin_lib.remove_if_exists(file2_get)
