@@ -35,39 +35,11 @@ else:
     import unittest2 as unittest
 
 from .. import lib
+from . import s3plugin_lib
 from . import session
 from ..configuration import IrodsConfig
 from .resource_suite import ResourceSuite
 from .test_chunkydevtest import ChunkyDevTest
-
-# Used to make files that are not-zero but have random bytes spread throughout
-def make_arbitrary_file(f_name, f_size, buffer_size=32*1024*1024):
-    # do not care about true randomness
-    random.seed(5)
-    bytes_written = 0
-    buffer = buffer_size * [0x78]       # 'x' - bytearray() below appears to require int instead
-                                        #       of char which was valid in python2
-    with open(f_name, "wb") as out:
-
-        while bytes_written < f_size:
-
-            if f_size - bytes_written < buffer_size:
-                to_write = f_size - bytes_written
-                buffer = to_write * [0x78]  # 'x'
-            else:
-                to_write = buffer_size
-
-            current_char = random.randrange(256)
-
-            # just write some random byte each 1024 chars
-            for i in range(0, to_write, 1024):
-                buffer[i] = current_char
-                current_char = random.randrange(256)
-            buffer[len(buffer)-1] = random.randrange(256)
-
-            out.write(bytearray(buffer))
-
-            bytes_written += to_write
 
 class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
     def __init__(self, *args, **kwargs):
@@ -108,19 +80,12 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         except KeyError:
             httpClient = None
 
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint,
-                              access_key=self.aws_access_key_id,
-                              secret_key=self.aws_secret_access_key,
-                              http_client=httpClient,
-                              region=self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint,
-                              access_key=self.aws_access_key_id,
-                              secret_key=self.aws_secret_access_key,
-                              http_client=httpClient,
-                              region=self.s3region,
-                              secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                http_client=httpClient,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
 
         if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
@@ -173,19 +138,12 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         except KeyError:
             httpClient = None
 
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint,
-                              access_key=self.aws_access_key_id,
-                              secret_key=self.aws_secret_access_key,
-                              http_client=httpClient,
-                              region=self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint,
-                              access_key=self.aws_access_key_id,
-                              secret_key=self.aws_secret_access_key,
-                              http_client=httpClient,
-                              region=self.s3region,
-                              secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                http_client=httpClient,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
 
         objects = s3_client.list_objects(self.s3bucketname, recursive=True)
 
@@ -422,8 +380,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 2 ", filename])  # should be listed only once
 
         finally:
-            if os.path.exists(filepath):
-                os.unlink(filepath)
+            s3plugin_lib.remove_if_exists(filepath)
 
     def test_iget_with_purgec(self):
         # local setup
@@ -682,19 +639,12 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
         except KeyError:
             httpClient = None
 
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint,
-                              access_key=self.aws_access_key_id,
-                              secret_key=self.aws_secret_access_key,
-                              http_client=httpClient,
-                              region=self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint,
-                              access_key=self.aws_access_key_id,
-                              secret_key=self.aws_secret_access_key,
-                              http_client=httpClient,
-                              region=self.s3region,
-                              secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                http_client=httpClient,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
 
         if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
@@ -746,19 +696,12 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
         except KeyError:
             httpClient = None
 
-        if self.proto == 'HTTPS':
-            s3_client = Minio(self.s3endPoint,
-                              access_key=self.aws_access_key_id,
-                              secret_key=self.aws_secret_access_key,
-                              http_client=httpClient,
-                              region=self.s3region)
-        else:
-            s3_client = Minio(self.s3endPoint,
-                              access_key=self.aws_access_key_id,
-                              secret_key=self.aws_secret_access_key,
-                              http_client=httpClient,
-                              region=self.s3region,
-                              secure=False)
+        s3_client = Minio(self.s3endPoint,
+                access_key=self.aws_access_key_id,
+                secret_key=self.aws_secret_access_key,
+                http_client=httpClient,
+                region=self.s3region,
+                secure=(self.proto == 'HTTPS'))
 
         objects = s3_client.list_objects(self.s3bucketname, recursive=True)
 
@@ -778,8 +721,7 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
 
     def get_resource_context(self, resc_name):
 
-        resource_context = self.admin.run_icommand('iquest "%s" "SELECT RESC_CONTEXT where RESC_NAME = \'{resc_name}\'"'.format(**locals()))[0].strip()
-        return resource_context
+        return self.admin.run_icommand('iquest "%s" "SELECT RESC_CONTEXT where RESC_NAME = \'{resc_name}\'"'.format(**locals()))[0].strip()
 
     def read_aws_keys(self):
         # read access keys from keypair file
@@ -814,8 +756,8 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
             file2_size = 32*1024*1024 + 1
 
             # create and put file
-            make_arbitrary_file(file1, file1_size)
-            make_arbitrary_file(file2, file2_size)
+            s3plugin_lib.make_arbitrary_file(file1, file1_size)
+            s3plugin_lib.make_arbitrary_file(file2, file2_size)
 
             self.user0.assert_icommand("iput -f {file1}".format(**locals()))
             self.user0.assert_icommand("iput -f {file2}".format(**locals()))
@@ -865,11 +807,7 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
             self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
             self.user0.assert_icommand("irm -f {file2}".format(**locals()), 'EMPTY')
 
-            if os.path.exists(file1):
-                os.unlink(file1)
-            if os.path.exists(file2):
-                os.unlink(file2)
-            if os.path.exists(file1_get):
-                os.unlink(file1_get)
-            if os.path.exists(file2_get):
-                os.unlink(file2_get)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(file1_get)
+            s3plugin_lib.remove_if_exists(file2_get)
