@@ -17,10 +17,6 @@
 #include <irods/irods_stacktrace.hpp>
 #include <irods/irods_at_scope_exit.hpp>
 
-#ifdef USING_JSON
-#include <json/json.h>
-#endif
-
 // =-=-=-=-=-=-=-
 // irods includes
 #include <irods/irods_resource_plugin.hpp>
