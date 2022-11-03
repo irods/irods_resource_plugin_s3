@@ -15,10 +15,6 @@
 #include <dataObjOpr.hpp>
 #include <irods_stacktrace.hpp>
 
-#ifdef USING_JSON
-#include <json/json.h>
-#endif
-
 // =-=-=-=-=-=-=-
 // irods includes
 #include "irods_resource_plugin.hpp"
