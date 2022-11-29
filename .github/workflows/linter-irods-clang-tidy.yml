@@ -1,0 +1,13 @@
+name: Run Static Analysis Checks
+
+on: pull_request
+
+defaults:
+    run:
+        shell: bash
+
+jobs:
+    clang-tidy:
+        uses: irods/irods_reusable_github_workflows/.github/workflows/linter-irods-clang-tidy.yml@main
+        with:
+            install_irods_development_package: true
