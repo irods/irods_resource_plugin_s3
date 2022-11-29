@@ -1,0 +1,11 @@
+name: Check Formatting
+
+on: pull_request
+
+defaults:
+    run:
+        shell: bash
+
+jobs:
+    clang-format:
+        uses: irods/irods_reusable_github_workflows/.github/workflows/linter-irods-clang-format.yml@main
