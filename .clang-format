@@ -200,4 +200,4 @@ CompactNamespaces: false
 IncludeBlocks:   Preserve
 InsertTrailingCommas: None
 ReflowComments:  true
-RequiresClausePosition: OwnLine
+#RequiresClausePosition: OwnLine
