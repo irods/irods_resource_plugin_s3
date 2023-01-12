@@ -6,6 +6,20 @@ This plugin can work as a standalone "cacheless" resource or as an archive resou
 
 Install the plugin either via your package manager (`yum`/`apt`) and [the binary distributions](https://irods.org/download/ "iRODS Download") or use the instructions below to build from source.
 
+The following S3 services and appliances (in no particular order) have been tested (but may not be in continuous integration):
+
+ - Amazon (AWS) S3
+ - Fujifilm Object Archive
+ - MinIO S3
+ - Ceph S3
+ - Spectra Logic Vail
+ - Spectra Logic BlackPearl
+ - Google Cloud Storage (GCS)
+ - Wasabi S3
+ - Oracle OCI
+ - Quantum ActiveScale
+ - Garage S3
+
 ## Build Prerequisites
 
 To build the S3 Resource Plugin, you will need to have:
