@@ -9,26 +9,53 @@ import tempfile
 
 import irods_python_ci_utilities
 
+def update_local_package_repositories():
+    # Updating via dnf or yum actually upgrades packages, so don't do anything in those cases (for now).
+    dispatch_map = {
+        'Ubuntu': ['sudo', 'apt-get', 'update'],
+        'Centos': None,
+        'Centos linux': None,
+        'Almalinux': None,
+        'Opensuse ':  None,
+        'Debian gnu_linux': ['sudo', 'apt-get', 'update']
+    }
+    try:
+        cmd = dispatch_map[irods_python_ci_utilities.get_distribution()]
+        if cmd:
+            irods_python_ci_utilities.subprocess_get_output(cmd, check_rc=True)
+    except KeyError:
+        irods_python_ci_utilities.raise_not_implemented_for_distribution()
 
 def add_cmake_to_front_of_path():
     cmake_path = '/opt/irods-externals/cmake3.11.4-0/bin'
     os.environ['PATH'] = os.pathsep.join([cmake_path, os.environ['PATH']])
 
 def install_building_dependencies(externals_directory):
-    externals_list = ['irods-externals-cmake3.11.4-0',
-                      'irods-externals-avro1.9.0-0',
-                      'irods-externals-boost1.67.0-0',
-                      'irods-externals-clang-runtime6.0-0',
-                      'irods-externals-clang6.0-0',
-                      'irods-externals-cppzmq4.2.3-0',
-                      'irods-externals-json3.7.3-0',
-                      'irods-externals-libarchive3.3.2-1',
-                      'irods-externals-libs3e4197a5e-0',
-                      'irods-externals-zeromq4-14.1.6-0']
+    # The externals_list needs to include all dependencies, not the minimum set required for this plugin. If custom
+    # externals are being supplied via externals_directory, only the externals packages which exist in that directory
+    # will be installed.
+    externals_list = [
+        'irods-externals-avro1.9.0-0',
+        'irods-externals-boost1.67.0-0',
+        'irods-externals-catch22.3.0-0',
+        'irods-externals-clang-runtime6.0-0',
+        'irods-externals-clang6.0-0',
+        'irods-externals-cmake3.11.4-0',
+        'irods-externals-cppzmq4.2.3-0',
+        'irods-externals-fmt6.1.2-1',
+        'irods-externals-json3.7.3-0',
+        'irods-externals-libarchive3.3.2-1',
+        'irods-externals-libs3c0e278d28-0',
+        'irods-externals-nanodbc2.13.0-1',
+        'irods-externals-spdlog1.5.0-1',
+        'irods-externals-zeromq4-14.1.6-0'
+    ]
     if externals_directory == 'None' or externals_directory is None:
         irods_python_ci_utilities.install_irods_core_dev_repository()
         irods_python_ci_utilities.install_os_packages(externals_list)
     else:
+        # Make sure the local package repositories are up to date so package dependencies can also be installed.
+        update_local_package_repositories()
         package_suffix = irods_python_ci_utilities.get_package_suffix()
         os_specific_directory = irods_python_ci_utilities.append_os_specific_directory(externals_directory)
         externals = []
@@ -39,12 +66,7 @@ def install_building_dependencies(externals_directory):
     install_os_specific_dependencies()
 
 def install_os_specific_dependencies_apt():
-    if irods_python_ci_utilities.get_distribution() == 'Ubuntu': # cmake from externals requires newer libstdc++ on ub12
-        irods_python_ci_utilities.subprocess_get_output(['sudo', 'apt-get', 'update'], check_rc=True)
-        if irods_python_ci_utilities.get_distribution_version_major() == '12':
-            irods_python_ci_utilities.install_os_packages(['python-software-properties'])
-            irods_python_ci_utilities.subprocess_get_output(['sudo', 'add-apt-repository', '-y', 'ppa:ubuntu-toolchain-r/test'], check_rc=True)
-            irods_python_ci_utilities.install_os_packages(['libstdc++6'])
+    update_local_package_repositories()
     irods_python_ci_utilities.install_os_packages(['make', 'libssl-dev', 'libxml2-dev', 'libcurl4-gnutls-dev', 'gcc'])
 
 def install_os_specific_dependencies_yum():
