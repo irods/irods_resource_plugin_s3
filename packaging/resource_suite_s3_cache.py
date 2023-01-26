@@ -594,6 +594,81 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             self.admin.assert_icommand('iadmin rmresc s3archive2_1858')
 
 
+    def test_itouch_nonexistent_file__issue_6479(self):
+        replica_number_in_s3 = 1
+        filename = 'test_itouch_nonexistent_file__issue_6479'
+        logical_path = os.path.join(self.user0.session_collection, filename)
+
+        try:
+            # Just itouch and ensure that the data object is created successfully.
+            self.user0.assert_icommand(['itouch', logical_path])
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, 0))
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # debugging
+            self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
+
+            # Trim the replica in cache so that we know we are working with the S3 replica.
+            self.user0.assert_icommand(['itrim', '-N1', '-n0', logical_path], 'STDOUT')
+            self.assertFalse(lib.replica_exists(self.user0, logical_path, 0))
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+
+            # Ensure that the replica actually exists. A new replica will be made on the cache resource.
+            self.user0.assert_icommand(['iget', logical_path, '-'])
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, 2))
+
+        finally:
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            for replica_number in [0, 1]:
+                self.admin.run_icommand([
+                    'iadmin', 'modrepl',
+                    'logical_path', logical_path,
+                    'replica_number', str(replica_number),
+                    'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
+
+
+    def test_istream_nonexistent_file__issue_6479(self):
+        replica_number_in_s3 = 1
+        filename = 'test_istream_nonexistent_file__issue_6479'
+        logical_path = os.path.join(self.user0.session_collection, filename)
+        content = 'streamin and screamin'
+
+        try:
+            # istream to a new data object and ensure that it is created successfully.
+            self.user0.assert_icommand(['istream', 'write', logical_path], input=content)
+
+            # debugging
+            self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
+
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, 0))
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # Trim the replica in cache so that we know we are working with the S3 replica.
+            self.user0.assert_icommand(['itrim', '-N1', '-n0', logical_path], 'STDOUT')
+            self.assertFalse(lib.replica_exists(self.user0, logical_path, 0))
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+
+            # Ensure that the replica actually contains the contents streamed into it. A new replica will be made on
+            # the cache resource.
+            self.user0.assert_icommand(['iget', logical_path, '-'], 'STDOUT', content)
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+            self.assertTrue(lib.replica_exists(self.user0, logical_path, 2))
+
+        finally:
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            for replica_number in [0, 1]:
+                self.admin.run_icommand([
+                    'iadmin', 'modrepl',
+                    'logical_path', logical_path,
+                    'replica_number', str(replica_number),
+                    'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
+
+
 class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
     def __init__(self, *args, **kwargs):
