@@ -2059,6 +2059,194 @@ OUTPUT ruleExecOut
             self.user0.run_icommand(['irm', '-f', logical_path])
 
 
+    def test_iput_with_invalid_secret_key_and_overwrite__issue_6154(self):
+        replica_number_in_s3 = 0
+        filename = 'test_iput_with_invalid_secret_key__issue_6154'
+        logical_path = os.path.join(self.user0.session_collection, filename)
+        physical_path = os.path.join(self.user0.local_session_dir, filename)
+        file_size_in_bytes = 10
+        access_key = 'nopenopenopenope'
+        secret_key = 'wrongwrongwrong!'
+
+        try:
+            lib.make_file(physical_path, file_size_in_bytes)
+
+            with lib.file_backed_up(self.keypairfile):
+                # Invalidate the existing keypairfile so that the S3 resource cannot communicate with the S3 backend.
+                with open(self.keypairfile, 'w') as f:
+                    f.write('{}\n{}'.format(access_key, secret_key))
+
+                # Put the physical file, which should fail, leaving a data object with a single stale replica. The main
+                # purpose of this test is to ensure that the system is in a state from which it can recover.
+                self.user0.assert_icommand(['iput', physical_path, logical_path], 'STDERR', 'S3_PUT_ERROR')
+                self.assertEqual(str(0), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # debugging
+            self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
+
+            # Now overwrite the data object with wild success. This is here to ensure that things are back to normal.
+            self.user0.assert_icommand(['iput', '-f', physical_path, logical_path])
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+        finally:
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            self.admin.run_icommand([
+                'iadmin', 'modrepl',
+                'logical_path', logical_path,
+                'replica_number', str(replica_number_in_s3),
+                'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
+
+
+    def test_iput_with_invalid_secret_key_and_remove__issue_6154(self):
+        replica_number_in_s3 = 0
+        filename = 'test_iput_with_invalid_secret_key__issue_6154'
+        logical_path = os.path.join(self.user0.session_collection, filename)
+        physical_path = os.path.join(self.user0.local_session_dir, filename)
+        file_size_in_bytes = 10
+        access_key = 'nopenopenopenope'
+        secret_key = 'wrongwrongwrong!'
+
+        try:
+            lib.make_file(physical_path, file_size_in_bytes)
+
+            with lib.file_backed_up(self.keypairfile):
+                # Invalidate the existing keypairfile so that the S3 resource cannot communicate with the S3 backend.
+                with open(self.keypairfile, 'w') as f:
+                    f.write('{}\n{}'.format(access_key, secret_key))
+
+                # Put the physical file, which should fail, leaving a data object with a single stale replica. The main
+                # purpose of this test is to ensure that the system is in a state from which it can recover.
+                self.user0.assert_icommand(['iput', physical_path, logical_path], 'STDERR', 'S3_PUT_ERROR')
+                self.assertEqual(str(0), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+                # debugging
+                self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
+
+                # Attempt to remove the data object, which fails due to the invalid secret key.
+                self.user0.assert_icommand(['irm', '-f', logical_path], 'STDERR', 'S3_FILE_UNLINK_ERR')
+                self.assertTrue(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+
+            # debugging
+            self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
+
+            # Attempt to remove the data object, which succeeds because the S3 object doesn't exist anyway.
+            self.user0.assert_icommand(['irm', '-f', logical_path])
+            self.assertFalse(lib.replica_exists(self.user0, logical_path, 0))
+            self.assertFalse(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+
+        finally:
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            self.admin.run_icommand([
+                'iadmin', 'modrepl',
+                'logical_path', logical_path,
+                'replica_number', str(replica_number_in_s3),
+                'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
+
+
+    def test_iput_and_replicate_with_invalid_secret_key__issue_6154(self):
+        replica_number_in_s3 = 1
+        filename = 'test_iput_and_replicate_with_invalid_secret_key__issue_6154'
+        logical_path = os.path.join(self.user0.session_collection, filename)
+        physical_path = os.path.join(self.user0.local_session_dir, filename)
+        file_size_in_bytes = 10
+        access_key = 'nopenopenopenope'
+        secret_key = 'wrongwrongwrong!'
+        test_resc = 'test_resc'
+
+        try:
+            lib.create_ufs_resource(test_resc, self.admin)
+
+            lib.make_file(physical_path, file_size_in_bytes)
+
+            # Put the physical file to the test resource. The test will replicate to S3.
+            self.user0.assert_icommand(['iput', '-R', test_resc, physical_path, logical_path])
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, 0))
+
+            with lib.file_backed_up(self.keypairfile):
+                # Invalidate the existing keypairfile so that the S3 resource cannot communicate with the S3 backend.
+                with open(self.keypairfile, 'w') as f:
+                    f.write('{}\n{}'.format(access_key, secret_key))
+
+                # Replicate the data object to the compound resource hierarchy. The replica in the cache should be good
+                # and the replica in the archive should be stale due to the invalid secret key.
+                self.user0.assert_icommand(['irepl', logical_path], 'STDERR', 'S3_PUT_ERROR')
+                self.assertEqual(str(0), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # debugging
+            self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
+
+            # Now replicate with a good set of S3 keys and watch for success.
+            self.user0.assert_icommand(['irepl', logical_path])
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # debugging
+            self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
+
+        finally:
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            for replica_number in [0, 1]:
+                self.admin.run_icommand([
+                    'iadmin', 'modrepl',
+                    'logical_path', logical_path,
+                    'replica_number', str(replica_number),
+                    'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
+            lib.remove_resource(test_resc, self.admin)
+
+
+    def test_iput_and_icp_with_invalid_secret_key__issue_6154(self):
+        replica_number_in_s3 = 0
+        filename = 'test_iput_and_icp_with_invalid_secret_key__issue_6154'
+        original_logical_path = os.path.join(self.user0.session_collection, filename + '_orig')
+        logical_path = os.path.join(self.user0.session_collection, filename)
+        physical_path = os.path.join(self.user0.local_session_dir, filename)
+        file_size_in_bytes = 10
+        access_key = 'nopenopenopenope'
+        secret_key = 'wrongwrongwrong!'
+        test_resc = 'test_resc'
+
+        try:
+            lib.create_ufs_resource(test_resc, self.admin)
+
+            lib.make_file(physical_path, file_size_in_bytes)
+
+            # Put the physical file to the test resource. The test will copy to S3.
+            self.user0.assert_icommand(['iput', '-R', test_resc, physical_path, original_logical_path])
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, os.path.basename(original_logical_path), 0))
+
+            with lib.file_backed_up(self.keypairfile):
+                # Invalidate the existing keypairfile so that the S3 resource cannot communicate with the S3 backend.
+                with open(self.keypairfile, 'w') as f:
+                    f.write('{}\n{}'.format(access_key, secret_key))
+
+                # Copy the physical file, which should fail, leaving a data object with a stale replica. The main
+                # purpose of this test is to ensure that the system is in a state from which it can recover.
+                self.user0.assert_icommand(['icp', original_logical_path, logical_path], 'STDERR', 'S3_PUT_ERROR')
+                self.assertEqual(str(0), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # debugging
+            self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
+
+            # Now overwrite the data object with wild success. This is here to ensure that things are back to normal.
+            self.user0.assert_icommand(['icp', '-f', original_logical_path, logical_path])
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+        finally:
+            self.user0.run_icommand(['irm', '-f', original_logical_path])
+            lib.remove_resource(test_resc, self.admin)
+
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            for replica_number in [0, 1]:
+                self.admin.run_icommand([
+                    'iadmin', 'modrepl',
+                    'logical_path', logical_path,
+                    'replica_number', str(replica_number),
+                    'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
+
+
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
     def __init__(self, *args, **kwargs):
