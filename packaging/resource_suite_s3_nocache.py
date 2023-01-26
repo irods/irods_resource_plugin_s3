@@ -1964,6 +1964,53 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
 
 
+    def test_itouch_nonexistent_file__issue_6479(self):
+        replica_number_in_s3 = 0
+        filename = 'test_itouch_nonexistent_file__issue_6479'
+        logical_path = os.path.join(self.user0.session_collection, filename)
+
+        try:
+            # Just itouch and ensure that the data object is created successfully.
+            self.user0.assert_icommand(['itouch', logical_path])
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # Ensure that the replica actually exists.
+            self.user0.assert_icommand(['iget', logical_path, '-'])
+
+        finally:
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            self.admin.run_icommand([
+                'iadmin', 'modrepl',
+                'logical_path', logical_path,
+                'replica_number', str(replica_number_in_s3),
+                'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
+
+
+    def test_istream_nonexistent_file__issue_6479(self):
+        replica_number_in_s3 = 0
+        filename = 'test_istream_nonexistent_file__issue_6479'
+        logical_path = os.path.join(self.user0.session_collection, filename)
+        content = 'streamin and screamin'
+
+        try:
+            # istream to a new data object and ensure that it is created successfully.
+            self.user0.assert_icommand(['istream', 'write', logical_path], input=content)
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # Ensure that the replica actually contains the contents streamed into it.
+            self.user0.assert_icommand(['iget', logical_path, '-'], 'STDOUT', content)
+
+        finally:
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            self.admin.run_icommand([
+                'iadmin', 'modrepl',
+                'logical_path', logical_path,
+                'replica_number', str(replica_number_in_s3),
+                'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
+
+
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
     def __init__(self, *args, **kwargs):
