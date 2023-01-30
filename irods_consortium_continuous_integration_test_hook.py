@@ -3,6 +3,7 @@ from __future__ import print_function
 import glob
 import optparse
 import os
+import pwd
 import random
 import shutil
 import stat
@@ -27,10 +28,14 @@ def download_and_start_minio_server():
 
     root_username = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
     root_password = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
+    keypair_path = '/var/lib/irods/minio.keypair'
 
-    with open('/var/lib/irods/minio.keypair', 'w') as f:
+    with open(keypair_path, 'w') as f:
         f.write('%s\n' % root_username)
         f.write('%s\n' % root_password)
+
+    irods_user_info = pwd.getpwnam('irods')
+    os.chown(keypair_path, irods_user_info.pw_uid, irods_user_info.pw_gid)
 
     os.environ['MINIO_ROOT_USER'] = root_username
     os.environ['MINIO_ROOT_PASSWORD'] = root_password
