@@ -56,10 +56,13 @@ def download_and_start_minio_server():
 
     root_username = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
     root_password = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
+    keypair_path = '/var/lib/irods/minio.keypair'
 
-    with open('/var/lib/irods/minio.keypair', 'w') as f:
+    with open(keypair_path, 'w') as f:
         f.write('%s\n' % root_username)
         f.write('%s\n' % root_password)
+
+    shutil.chown(keypair_path, user='irods', group='irods')
 
     os.environ['MINIO_ROOT_USER'] = root_username
     os.environ['MINIO_ROOT_PASSWORD'] = root_password
