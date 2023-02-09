@@ -1005,7 +1005,6 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
         _, _, rc2  = self.user0.run_icommand("iget -f {file2} {file2_get}".format(**locals()))
         return rc1 == 0 and rc2 == 0
 
-    @unittest.skip("wait for fix of irods issue 6502")
     def test_put_get_glacier_expedited_retrieval(self):
 
         # get original resource context
@@ -1037,23 +1036,22 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
             self.user0.assert_icommand("itrim -N 1 -n 0 {file1}".format(**locals()), 'STDOUT')
             self.user0.assert_icommand("itrim -N 1 -n 0 {file2}".format(**locals()), 'STDOUT')
 
-            # Once 6502 is fixed, revisit these assertions.  They may need to be changed to HIERARCHY_ERROR
             cmd = "iget -f {file1} {file1_get}".format(**locals())
             stdout, stderr, rc  = self.user0.run_icommand(cmd)
-            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('HIERARCHY_ERROR', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'HIERARCHY_ERROR', stderr))
             self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
 
             stdout, stderr, rc  = self.user0.run_icommand(cmd)
-            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('HIERARCHY_ERROR', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'HIERARCHY_ERROR', stderr))
             self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
 
             cmd = "iget -f {file2} {file2_get}".format(**locals())
             stdout, stderr, rc  = self.user0.run_icommand(cmd)
-            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('HIERARCHY_ERROR', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'HIERARCHY_ERROR', stderr))
             self.assertIn('Object is in GLACIER and has been queued for restoration', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and has been queued for restoration', stdout))
 
             stdout, stderr, rc  = self.user0.run_icommand(cmd)
-            self.assertIn('REPLICA_IS_BEING_STAGED', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'REPLICA_IS_BEING_STAGED', stderr))
+            self.assertIn('HIERARCHY_ERROR', stderr, '{0}: Expected stderr: "...{1}...", got: "{2}"'.format(cmd, 'HIERARCHY_ERROR', stderr))
             self.assertIn('Object is in GLACIER and is currently being restored', stdout, '{0}: Expected stdout: "...{1}...", got: "{2}"'.format(cmd, 'Object is in GLACIER and is currently being restored', stdout))
 
             # Wait for the file to be restored from glacier.  Try every 20 seconds.
