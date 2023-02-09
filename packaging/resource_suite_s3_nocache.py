@@ -2288,7 +2288,7 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
         if hasattr(self, 'static_bucket_name'):
             self.s3bucketname = self.static_bucket_name
         else:
-            distro_str = ''.join(platform.linux_distribution()[:2]).replace(' ','').replace('.', '')
+            distro_str = '{}-{}'.format(distro.id(), distro.version()).replace(' ', '').replace('.', '')
             self.s3bucketname = 'irods-ci-' + distro_str + datetime.datetime.utcnow().strftime('-%Y-%m-%d%H-%M-%S-%f-')
             self.s3bucketname += ''.join(random.choice(string.ascii_letters) for i in range(10))
             self.s3bucketname = self.s3bucketname[:63].lower() # bucket names can be no more than 63 characters long
