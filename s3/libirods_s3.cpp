@@ -1669,7 +1669,7 @@ irods::error s3PutCopyFile(
             if(data.status >= 0) {
                 msg += fmt::format(" - \"{}\"", S3_get_status_name((S3Status)data.status));
             }
-            ret = ERROR(S3_PUT_ERROR, msg);
+            result = ERROR(S3_PUT_ERROR, msg);
         }
 
         // Clear up the S3PutProperties, if it exists
