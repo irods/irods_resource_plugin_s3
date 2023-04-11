@@ -1080,3 +1080,174 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
             s3plugin_lib.remove_if_exists(file2)
             s3plugin_lib.remove_if_exists(file1_get)
             s3plugin_lib.remove_if_exists(file2_get)
+
+
+    def assert_permissions_on_data_object_for_user(self, username, logical_path, permission_value):
+        data_access_type = self.admin.run_icommand(['iquest', '%s',
+            'select DATA_ACCESS_TYPE where COLL_NAME = \'{}\' and DATA_NAME = \'{}\' and USER_NAME = \'{}\''.format(
+                os.path.dirname(logical_path), os.path.basename(logical_path), username)
+            ])[0].strip()
+
+        self.assertEqual(str(data_access_type), str(permission_value))
+
+
+    def test_iget_data_object_as_user_with_read_only_access_and_object_only_in_glacier__issue_6697(self):
+        compound_resource = 'demoResc'
+        cache_resource = 'cacheResc'
+        archive_resource = 'archiveResc'
+        cache_hierarchy = compound_resource + ';' + cache_resource
+        archive_hierarchy = compound_resource + ';' + archive_resource
+
+        owner_user = self.user0
+        readonly_user = self.user1
+        filename = 'foo'
+        contents = 'jimbo'
+        logical_path = os.path.join(owner_user.session_collection, filename)
+        READ_OBJECT = 1050
+
+        old_resource_context = self.get_resource_context(archive_resource)
+
+        try:
+            # Update resource context to Glacier class with Expedited storage tier for faster test.
+            new_resource_context = "{};S3_STORAGE_CLASS=Glacier;S3_RESTORATION_TIER=expedited".format(old_resource_context)
+
+            self.admin.assert_icommand(['iadmin', 'modresc', 'archiveResc', 'context', new_resource_context])
+
+            # Create a data object which should appear under the compound resource.
+            owner_user.assert_icommand(['istream', 'write', logical_path], input=contents)
+            self.assertTrue(lib.replica_exists_on_resource(owner_user, logical_path, cache_resource))
+            self.assertTrue(lib.replica_exists_on_resource(owner_user, logical_path, archive_resource))
+
+            # Grant read access to another user, ensuring that the other user can see the data object.
+            owner_user.assert_icommand(['ichmod', '-r', 'read', readonly_user.username, os.path.dirname(logical_path)])
+
+            # Ensure that the read-only user has read-only permission on the data object.
+            self.assert_permissions_on_data_object_for_user(readonly_user.username, logical_path, READ_OBJECT)
+
+            # Trim the replica on the cache resource so that only the replica in the archive remains. Replica 0 resides
+            # on the cache resource at this point.
+            owner_user.assert_icommand(['itrim', '-N1', '-n0', logical_path], 'STDOUT')
+            self.assertFalse(lib.replica_exists_on_resource(owner_user, logical_path, cache_resource))
+            self.assertTrue(lib.replica_exists_on_resource(owner_user, logical_path, archive_resource))
+
+            # As the user with read-only access, attempt to get the data object. The get should fail because the object
+            # only has a replica which resides on the archive resource which is configured to use the Glacier storage
+            # class. This means that the replica will not be immediately available for retrieval, but the act of
+            # requesting the object has triggered a staging operation which should result in the replica in the archive
+            # being available in 1-5 minutes. Make sure that the compound resource appropriately trimmed the replica on
+            # the cache resource after the failure because it knows that the replica is being staged.
+            out, err, rc = readonly_user.run_icommand(['iget', logical_path, '-'])
+            self.assertIn('HIERARCHY_ERROR', err)
+            self.assertIn('Object is in GLACIER and has been queued for restoration', out)
+            self.assertNotEqual(0, rc)
+            self.assertFalse(lib.replica_exists_on_resource(owner_user, logical_path, cache_resource))
+            self.assertTrue(lib.replica_exists_on_resource(owner_user, logical_path, archive_resource))
+            self.assertEqual(str(1), lib.get_replica_status(owner_user, os.path.basename(logical_path), 1))
+
+            # Now, wait for the file to be restored from glacier, trying every 20 seconds. Wait up to 6 minutes (should
+            # be done in less than 5).
+            lib.delayAssert(
+                lambda: readonly_user.run_icommand(['iget', logical_path, '-'])[2] == 0,
+                interval=20,
+                maxrep=10)
+
+            # Ensure that the contents are actually correct.
+            readonly_user.assert_icommand(['iget', logical_path, '-'], 'STDOUT', contents)
+
+            # Ensure that the user has the same permissions on the data object as before getting it.
+            self.assert_permissions_on_data_object_for_user(readonly_user.username, logical_path, READ_OBJECT)
+
+        finally:
+            self.admin.assert_icommand(['ils', '-Al', logical_path], 'STDOUT') # Debugging
+
+            # Restore old resource context
+            self.admin.assert_icommand(['iadmin', 'modresc', 'archiveResc', 'context', old_resource_context])
+
+            # Make sure that the data object can be removed by marking both replicas stale before removing.
+            self.admin.run_icommand(['ichmod', '-M', 'own', self.admin.username, logical_path])
+            self.admin.run_icommand(
+                ['iadmin', 'modrepl', 'logical_path', logical_path, 'resource_hierarchy', cache_hierarchy, 'DATA_REPL_STATUS', '0'])
+            self.admin.run_icommand(
+                ['iadmin', 'modrepl', 'logical_path', logical_path, 'resource_hierarchy', archive_hierarchy, 'DATA_REPL_STATUS', '0'])
+            self.admin.run_icommand(['irm', '-f', logical_path])
+
+
+    def test_append_to_data_object_as_user_with_write_access_and_object_only_in_glacier__issue_6697(self):
+        compound_resource = 'demoResc'
+        cache_resource = 'cacheResc'
+        archive_resource = 'archiveResc'
+        cache_hierarchy = compound_resource + ';' + cache_resource
+        archive_hierarchy = compound_resource + ';' + archive_resource
+
+        owner_user = self.user0
+        writeonly_user = self.user1
+        filename = 'foo'
+        contents = 'jimbo'
+        logical_path = os.path.join(owner_user.session_collection, filename)
+        MODIFY_OBJECT = 1120
+
+        old_resource_context = self.get_resource_context(archive_resource)
+
+        try:
+            # Update resource context to Glacier class with Expedited storage tier for faster test.
+            new_resource_context = "{};S3_STORAGE_CLASS=Glacier;S3_RESTORATION_TIER=expedited".format(old_resource_context)
+
+            self.admin.assert_icommand(['iadmin', 'modresc', 'archiveResc', 'context', new_resource_context])
+
+            # Create a data object which should appear under the compound resource.
+            owner_user.assert_icommand(['istream', 'write', logical_path], input=contents)
+            self.assertTrue(lib.replica_exists_on_resource(owner_user, logical_path, cache_resource))
+            self.assertTrue(lib.replica_exists_on_resource(owner_user, logical_path, archive_resource))
+
+            # Grant write access to another user, ensuring that the other user can write to the data object.
+            owner_user.assert_icommand(['ichmod', '-r', 'write', writeonly_user.username, os.path.dirname(logical_path)])
+
+            # Ensure that the read-only user has read-only permission on the data object.
+            self.assert_permissions_on_data_object_for_user(writeonly_user.username, logical_path, MODIFY_OBJECT)
+
+            # Trim the replica on the cache resource so that only the replica in the archive remains. Replica 0 resides
+            # on the cache resource at this point.
+            owner_user.assert_icommand(['itrim', '-N1', '-n0', logical_path], 'STDOUT')
+            self.assertFalse(lib.replica_exists_on_resource(owner_user, logical_path, cache_resource))
+            self.assertTrue(lib.replica_exists_on_resource(owner_user, logical_path, archive_resource))
+
+            # As the user with write-only access, attempt to append to the data object. This should fail because the
+            # object only has a replica which resides on the archive resource which is configured to use the Glacier
+            # storage class. This means that the replica will not be immediately available for retrieval (in order to
+            # append to it), but the act of requesting the object has triggered a staging operation which should result
+            # in the replica in the archive being available in 1-5 minutes. Make sure that the compound resource
+            # appropriately trimmed the replica on the cache resource after the failure because it knows that the
+            # replica is being staged.
+            out, err, rc = writeonly_user.run_icommand(['istream', 'write', '--append', logical_path], input=contents)
+            self.assertIn('Error: Cannot open data object.', err)
+            self.assertNotEqual(0, rc)
+            self.assertFalse(lib.replica_exists_on_resource(owner_user, logical_path, cache_resource))
+            self.assertTrue(lib.replica_exists_on_resource(owner_user, logical_path, archive_resource))
+            self.assertEqual(str(1), lib.get_replica_status(owner_user, os.path.basename(logical_path), 1))
+
+            # Now, wait for the file to be restored from glacier, trying every 20 seconds. Wait up to 6 minutes (should
+            # be done in less than 5).
+            lib.delayAssert(
+                lambda: writeonly_user.run_icommand(['istream', 'write', '--append', logical_path], input=contents)[2] == 0,
+                interval=20,
+                maxrep=10)
+
+            # Ensure that the contents are actually correct.
+            writeonly_user.assert_icommand(['iget', logical_path, '-'], 'STDOUT', contents * 2)
+
+            # Ensure that the user has the same permissions on the data object as before appending to/getting it.
+            self.assert_permissions_on_data_object_for_user(writeonly_user.username, logical_path, MODIFY_OBJECT)
+
+        finally:
+            self.admin.assert_icommand(['ils', '-Al', logical_path], 'STDOUT') # Debugging
+
+            # Restore old resource context
+            self.admin.assert_icommand(['iadmin', 'modresc', 'archiveResc', 'context', old_resource_context])
+
+            # Make sure that the data object can be removed by marking both replicas stale before removing.
+            self.admin.run_icommand(['ichmod', '-M', 'own', self.admin.username, logical_path])
+            self.admin.run_icommand(
+                ['iadmin', 'modrepl', 'logical_path', logical_path, 'resource_hierarchy', cache_hierarchy, 'DATA_REPL_STATUS', '0'])
+            self.admin.run_icommand(
+                ['iadmin', 'modrepl', 'logical_path', logical_path, 'resource_hierarchy', archive_hierarchy, 'DATA_REPL_STATUS', '0'])
+            self.admin.run_icommand(['irm', '-f', logical_path])
