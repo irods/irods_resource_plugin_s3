@@ -156,14 +156,15 @@ namespace irods_s3 {
 
         // default - object need not exist
         return false;
-    } // end operation_requires_that_object_exists 
+    } // end operation_requires_that_object_exists
 
     irods::error s3_file_stat_operation_with_flag_for_retry_on_not_found(irods::plugin_context& _ctx,
             struct stat* _statbuf, bool retry_on_not_found );
 
     // determines the data size and number of threads, stores them, and returns them
-    void get_number_of_threads_data_size_and_opr_type(irods::plugin_context& _ctx,
-        int& number_of_threads, int64_t& data_size, int& oprType, bool query_metadata = true) {
+    auto get_number_of_threads_data_size_and_opr_type(
+        irods::plugin_context &_ctx, int &number_of_threads, int64_t &data_size,
+        int &oprType, bool query_metadata = true) -> irods::error {
 
         unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
@@ -245,21 +246,59 @@ namespace irods_s3 {
             }
         }
 
-
-        // if this is a replication and we're the destination, get the data size from the source dataObjInfo
+        // special treatment for replication
+        // 1) data_size is only available from the REPLICATE_SRC entry so use that.
+        // 2) number_of_threads is available in REPLICATE_DEST entry so use that.
         if (oprType == REPLICATE_DEST) {
+            bool found_data_size = false;
+            bool found_number_of_threads = false;
 
             for (int i = 0; i < NUM_L1_DESC; ++i) {
+                const auto& l1d = L1desc[i];
+                const auto* dobj_input = l1d.dataObjInp;
+                const auto* dobj_info = l1d.dataObjInfo;
 
-                if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo
-                       && L1desc[i].dataObjInp->objPath == file_obj->logical_path()
-                       && L1desc[i].dataObjInp->oprType == REPLICATE_SRC ) {
+                if (!l1d.inuseFlag || !dobj_input || dobj_input->objPath != file_obj->logical_path()) {
+                    continue;
+                }
 
-                    data_size = L1desc[i].dataObjInfo->dataSize;
-                    rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
+                // get the data size from source dataObjInfo
+                if (!found_data_size && dobj_info && dobj_input->oprType == REPLICATE_SRC) {
+                    data_size = dobj_info->dataSize;
+                    rodsLog(developer_messages_log_level,
+                            "%s:%d (%s) [[%lu]] repl to s3 destination.  setting data_size to %zd\n",
+                            __FILE__,
+                            __LINE__,
+                            __FUNCTION__,
+                            thread_id,
+                            data_size);
+
+                    found_data_size = true;
+                }
+
+                // get the number_of_threads from destination dataObjInp
+                if (!found_number_of_threads && dobj_input->oprType == REPLICATE_DEST) {
+                    number_of_threads = dobj_input->numThreads;
+                    rodsLog(developer_messages_log_level,
+                            "%s:%d (%s) [[%lu]] repl to s3 destination.  setting number_of_threads to %d",
+                            __FILE__,
+                            __LINE__,
+                            __FUNCTION__,
+                            thread_id,
+                            number_of_threads);
+
+                    found_number_of_threads = true;
+                }
+
+                // once we have both pieces of information break out of for loop
+                if (found_data_size && found_number_of_threads) {
                     break;
                 }
+            }
+
+            if (!found_number_of_threads) {
+                return ERROR(SYS_INTERNAL_ERR, "Replicating from source to destination but was not able to find the replication "
+                        "destination in L1desc table.");
             }
         }
 
@@ -322,6 +361,7 @@ namespace irods_s3 {
             irods_s3::oprType = oprType;
         }
 
+        return SUCCESS();
     }
 
     // update and return the physical path in case of decoupled naming
@@ -487,7 +527,10 @@ namespace irods_s3 {
             return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
         }
 
-        get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType);
+        ret = get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType);
+        if(!ret.ok()) {
+            return std::make_tuple(PASS(ret), data.dstream_ptr, data.s3_transport_ptr);
+        }
 
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
         rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] data_size set to %ld\n", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
