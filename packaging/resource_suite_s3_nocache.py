@@ -2246,6 +2246,84 @@ OUTPUT ruleExecOut
                     'DATA_REPL_STATUS', '0'])
             self.user0.run_icommand(['irm', '-f', logical_path])
 
+    # Replication to an S3 resource failed for file sizes between [4MB, 32MB] due to not knowing the correct
+    # number of write threads being used.  Test the following conditions:
+    # 1) files just inside this range
+    # 2) files just outside the range
+    # 3) a couple of files in the middle of the range (8MB and 16MB)
+    # 4) a small file
+    # 5) a file one byte less than 32MB just in case
+    def test_s3_in_replication_node__issue_2102(self):
+        resc_prefix = 'issue_2101'
+        repl_resource_name = '%s_repl' % resc_prefix
+        s3_resc1_resource_name = '%s_s3_resc1' % resc_prefix
+        s3_resc2_resource_name = '%s_s3_resc2' % resc_prefix
+        s3_resc3_resource_name = '%s_s3_resc3' % resc_prefix
+        filename = '%s_file' % resc_prefix
+        hostname = lib.get_hostname()
+
+        try:
+
+            # set up resource tree
+            self.admin.assert_icommand("iadmin mkresc %s replication" % repl_resource_name, 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc %s s3 %s:/%s/%s %s" %
+                                   (s3_resc1_resource_name, hostname, self.s3bucketname, s3_resc1_resource_name, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc %s s3 %s:/%s/%s %s" %
+                                   (s3_resc2_resource_name, hostname, self.s3bucketname, s3_resc2_resource_name, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin mkresc %s s3 %s:/%s/%s %s" %
+                                   (s3_resc3_resource_name, hostname, self.s3bucketname, s3_resc3_resource_name, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+            self.admin.assert_icommand("iadmin addchildtoresc %s %s" % (repl_resource_name, s3_resc1_resource_name))
+            self.admin.assert_icommand("iadmin addchildtoresc %s %s" % (repl_resource_name, s3_resc2_resource_name))
+            self.admin.assert_icommand("iadmin addchildtoresc %s %s" % (repl_resource_name, s3_resc3_resource_name))
+
+            file_sizes = [
+                    100,
+                    4 * 1024 * 1024 - 1,
+                    4 * 1024 * 1024,
+                    8 * 1024 * 1024,
+                    16 * 1024 * 1024,
+                    32 * 1024 * 1024 - 1,
+                    32 * 1024 * 1024,
+                    32 * 1024 * 1024 + 1,
+                    ];
+
+            for file_size in file_sizes:
+                # create the file
+                lib.make_arbitrary_file(filename, file_size)
+
+                # put the file to repl_resource
+                self.user1.assert_icommand("iput -R %s %s" % (repl_resource_name, filename))
+
+                # debug
+                self.user1.assert_icommand("ils -l %s" % filename, 'STDOUT_SINGLELINE', filename)
+
+                # get each replica
+                self.user1.assert_icommand("iget -f -n 0 %s %s_get0" % (filename, filename))
+                self.user1.assert_icommand("diff %s %s_get0" % (filename, filename), 'EMPTY')
+                self.user1.assert_icommand("iget -f -n 1 %s %s_get1" % (filename, filename))
+                self.user1.assert_icommand("diff %s %s_get1" % (filename, filename), 'EMPTY')
+                self.user1.assert_icommand("iget -f -n 2 %s %s_get2" % (filename, filename))
+                self.user1.assert_icommand("diff %s %s_get2" % (filename, filename), 'EMPTY')
+
+                # cleanup before next loop
+                s3plugin_lib.remove_if_exists(filename)
+                s3plugin_lib.remove_if_exists("%s_get0" % filename)
+                s3plugin_lib.remove_if_exists("%s_get1" % filename)
+                s3plugin_lib.remove_if_exists("%s_get2" % filename)
+                self.user1.assert_icommand("irm -f %s" % (filename))
+
+        finally:
+            # clean up the file that was put in case it wasn't cleaned up
+            self.user1.assert_icommand("irm -f %s" % (filename))
+
+            # clean up resource tree
+            self.admin.assert_icommand("iadmin rmchildfromresc %s %s" % (repl_resource_name, s3_resc1_resource_name))
+            self.admin.assert_icommand("iadmin rmchildfromresc %s %s" % (repl_resource_name, s3_resc2_resource_name))
+            self.admin.assert_icommand("iadmin rmchildfromresc %s %s" % (repl_resource_name, s3_resc3_resource_name))
+            self.admin.assert_icommand("iadmin rmresc %s" % repl_resource_name)
+            self.admin.assert_icommand("iadmin rmresc %s" % s3_resc1_resource_name)
+            self.admin.assert_icommand("iadmin rmresc %s" % s3_resc2_resource_name)
+            self.admin.assert_icommand("iadmin rmresc %s" % s3_resc3_resource_name)
 
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
