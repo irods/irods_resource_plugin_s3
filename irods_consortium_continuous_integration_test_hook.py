@@ -14,6 +14,7 @@ import time
 import irods_python_ci_utilities
 
 def install_test_prerequisites():
+    irods_python_ci_utilities.subprocess_get_output(['sudo', 'python2', '-m', 'pip', 'install', '--upgrade', 'pip==20.3.4'], check_rc=True)
     irods_python_ci_utilities.subprocess_get_output(['sudo', 'python2', '-m', 'pip', 'install', 'boto3', '--upgrade'], check_rc=True)
     irods_python_ci_utilities.subprocess_get_output(['sudo', 'python2', '-m', 'pip', 'install', 'minio==6.0.2', '--upgrade'], check_rc=True)
     irods_python_ci_utilities.subprocess_get_output(['sudo', '-EH', 'python2', '-m', 'pip', 'install', 'unittest-xml-reporting==1.14.0'])
