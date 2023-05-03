@@ -67,7 +67,7 @@ def download_and_start_minio_server():
         procs.append(subprocess.Popen([path_to_minio, 'server',
                                        '--address', ':' + p["address"],
                                        '--console-address', ':' + p["console_address"],
-                                       '/data']))
+                                       '/data_%s' % p[minio_region_name_key]]))
 
     return procs
 
