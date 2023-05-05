@@ -1082,12 +1082,13 @@ namespace irods::experimental::io::s3_transport
 
                 initiate_multipart_upload();
 
-                irods::thread_pool cache_flush_threads{static_cast<int>(config_.number_of_cache_transfer_threads)};
-
                 unsigned int part_number = 1;
 
-                int64_t part_size_all_but_last_part = cache_file_size / number_of_parts;
+                std::int64_t part_size_all_but_last_part = cache_file_size / number_of_parts;
+
                 while (part_number <= number_of_parts) {
+
+                    irods::thread_pool cache_flush_threads{static_cast<int>(config_.number_of_cache_transfer_threads)};
 
                     // run number_of_cache_transfer_threads simultaneously
                     for (unsigned int i = 0; i < config_.number_of_cache_transfer_threads; ++i) {
