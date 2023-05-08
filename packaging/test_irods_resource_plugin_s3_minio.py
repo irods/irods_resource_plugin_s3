@@ -1,4 +1,5 @@
 from .resource_suite_s3_nocache import Test_S3_NoCache_Base
+from .resource_suite_s3_nocache import Test_S3_NoCache_Large_File_Tests_Base
 from .resource_suite_s3_cache import Test_S3_Cache_Base
 
 import psutil
@@ -31,7 +32,7 @@ class Test_Compound_With_S3_Resource_EU_Central_1(Test_S3_Cache_Base, unittest.T
         super(Test_Compound_With_S3_Resource_EU_Central_1, self).__init__(*args, **kwargs)
 
 
-class Test_S3_NoCache_V4(Test_S3_NoCache_Base, unittest.TestCase):
+class Test_S3_NoCache_V4(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCase):
 
     def __init__(self, *args, **kwargs):
         """Set up the test."""
