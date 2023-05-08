@@ -2325,6 +2325,47 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin rmresc %s" % s3_resc2_resource_name)
             self.admin.assert_icommand("iadmin rmresc %s" % s3_resc3_resource_name)
 
+# The tests in this class take a long time and do not need to run in every different test suite
+class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
+
+    @unittest.skipIf(psutil.disk_usage('/').free < 2 * (11*1024*1024*1024 + 2), "not enough free space for two 11 GiB files")
+    def test_upload_very_large_file_after_redirect_issues_2104_2114(self):
+
+        # in non-topology HOSTNAME_3 is just local host so it really doesn't test detached mode
+        # but in topology it will
+
+        file1 = "f1"
+        retrieved_file = "f1.get"
+        resource_host = test.settings.HOSTNAME_3
+        resource_name = "s3_resc_on_host3"
+
+        # create an S3 resource
+        # with S3_MPU_THREADS = 2 when testing in topology:
+        # - There will be a redirect and cache will be used.
+        # - There will only be 2 simultaneous part uploads but will require a third part to follow (issue 2114)
+        # - Each part will be roughly 3.67 MB in size.  This is greater than the 2^31 limit with the old libs3 (issue 2104)
+        s3_context = "%s;%s" % (self.s3_context, "S3_MPU_THREADS=2")
+        self.admin.assert_icommand("iadmin mkresc %s s3 %s:/%s/%s %s" % (resource_name, resource_host, self.s3bucketname, resource_name, s3_context), 'STDOUT_SINGLELINE', 's3')
+
+        try:
+            # create an 11 GB file 
+            lib.make_file(file1, 11*1024*1024*1024)
+
+            # put the 11 GB file 
+            self.user1.assert_icommand("iput %s" % file1)  # iput
+            self.user1.assert_icommand("iget %s %s" % (file1, retrieved_file))
+
+            assertTrue(filecmp.cmp(file1, retrieved_file))  # confirm retrieved is correct
+
+        finally:
+
+            # cleanup
+
+            self.user1.assert_icommand("irm -f %s" % file1)  # irm
+            self.admin.assert_icommand("iadmin rmresc %s" % resource_name)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(retrieved_file)
+
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
     def __init__(self, *args, **kwargs):
