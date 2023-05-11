@@ -1753,154 +1753,6 @@ OUTPUT ruleExecOut
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(file2)
 
-    # issue 2024
-    @unittest.skipIf(psutil.disk_usage('/').free < 2 * (4*1024*1024*1024 + 1), "not enough free space for two 4 GiB files")
-    def test_put_get_file_greater_than_4GiB_one_thread(self):
-
-        try:
-
-            hostname = lib.get_hostname()
-            hostuser = getpass.getuser()
-
-            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
-                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
-
-            file1 = "f1"
-            file2 = "f1.get"
-
-            file_size = 4*1024*1024*1024 + 1
-
-            # create and put file
-            s3plugin_lib.make_arbitrary_file(file1, file_size)
-
-            self.user0.assert_icommand("iput -N 1 -f -R s3resc1 {file1}".format(**locals()))  # iput
-
-            # make sure file is right size
-            self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))  # should be listed
-
-            # get file from first repl
-            self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
-
-            # make sure the file that was put and got are the same
-            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
-
-        finally:
-
-            # cleanup
-
-            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
-            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
-
-            s3plugin_lib.remove_if_exists(file1)
-            s3plugin_lib.remove_if_exists(file2)
-
-    # issue 2024
-    @unittest.skipIf(psutil.disk_usage('/').free < 2 * (8*1024*1024*1024 + 2), "not enough free space for two 8 GiB files")
-    def test_put_get_file_greater_than_8GiB_two_threads(self):
-
-        try:
-
-            hostname = lib.get_hostname()
-            hostuser = getpass.getuser()
-
-            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
-                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
-
-            file1 = "f1"
-            file2 = "f1.get"
-
-            file_size = 8*1024*1024*1024 + 2
-
-            # create and put file
-            s3plugin_lib.make_arbitrary_file(file1, file_size)
-
-            if self.s3EnableMPU == False:
-                # iput will fail because file is too big for single part upload
-                self.user0.assert_icommand("iput -N 2 -f -R s3resc1 {file1}".format(**locals()), 'STDERR_SINGLELINE', 'ERROR') # iput
-
-            else:
-                self.user0.assert_icommand("iput -N 2 -f -R s3resc1 {file1}".format(**locals()))  # iput
-
-                # make sure file is right size
-                self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))  # should be listed
-
-                # get file from first repl
-                self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
-
-                # make sure the file that was put and got are the same
-                self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
-
-        finally:
-
-            # cleanup
-
-            if self.s3EnableMPU == False:
-                # after failure data remains locked in 4.2.11, must unlock
-                self.admin.assert_icommand("iadmin modrepl logical_path %s/%s replica_number 0 DATA_REPL_STATUS 0" % (self.user0.session_collection, file1))
-
-            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
-            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
-
-            s3plugin_lib.remove_if_exists(file1)
-            s3plugin_lib.remove_if_exists(file2)
-
-    # issue 2024
-    def test_large_file_put_repl_node(self):
-
-        try:
-
-            hostname = lib.get_hostname()
-            hostuser = getpass.getuser()
-
-            self.admin.assert_icommand("iadmin mkresc replresc replication", 'STDOUT_SINGLELINE', "Creating")
-
-            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
-                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
-
-            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/%s/s3resc1 %s" %
-                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
-
-            self.admin.assert_icommand("iadmin addchildtoresc replresc s3resc1", 'EMPTY')
-            self.admin.assert_icommand("iadmin addchildtoresc replresc s3resc2", 'EMPTY')
-
-            file1 = "f1"
-            file2 = "f1.get"
-
-            file_size = 1024*1024*1024;
-
-
-            # create and put file
-            s3plugin_lib.make_arbitrary_file(file1, file_size)
-            self.user0.assert_icommand("iput -f -R replresc {file1}".format(**locals()))  # iput
-
-            # make sure file is right size
-            self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))  # should be listed
-
-            # get file from first repl
-            self.user0.assert_icommand("iget -n0 -f %s %s" % (file1, file2))  # iput
-
-            # make sure the file that was put and got are the same
-            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
-
-            # get file from second repl
-            self.user0.assert_icommand("iget -n1 -f %s %s" % (file1, file2))  # iput
-
-            # make sure the file that was put and got are the same
-            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
-
-        finally:
-
-            # cleanup
-            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
-            self.admin.assert_icommand("iadmin rmchildfromresc replresc s3resc1", 'EMPTY')
-            self.admin.assert_icommand("iadmin rmchildfromresc replresc s3resc2", 'EMPTY')
-            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
-            self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
-            self.admin.assert_icommand("iadmin rmresc replresc", 'EMPTY')
-
-            s3plugin_lib.remove_if_exists(file1)
-            s3plugin_lib.remove_if_exists(file2)
-
     def test_rm_without_force(self):
 
         try:
@@ -2279,6 +2131,154 @@ OUTPUT ruleExecOut
 
 # The tests in this class take a long time and do not need to run in every different test suite
 class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
+
+    # issue 2024
+    @unittest.skipIf(psutil.disk_usage('/').free < 2 * (4*1024*1024*1024 + 1), "not enough free space for two 4 GiB files")
+    def test_put_get_file_greater_than_4GiB_one_thread(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            file1 = "f1"
+            file2 = "f1.get"
+
+            file_size = 4*1024*1024*1024 + 1  # +1 - make sure one thread handles more than 4 GiB
+
+            # create and put file
+            s3plugin_lib.make_arbitrary_file(file1, file_size)
+
+            self.user0.assert_icommand("iput -N 1 -f -R s3resc1 {file1}".format(**locals()))  # iput
+
+            # make sure file is right size
+            self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))  # should be listed
+
+            # get file from first repl
+            self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+
+    # issue 2024
+    @unittest.skipIf(psutil.disk_usage('/').free < 2 * (8*1024*1024*1024 + 2), "not enough free space for two 8 GiB files")
+    def test_put_get_file_greater_than_8GiB_two_threads(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            file1 = "f1"
+            file2 = "f1.get"
+
+            file_size = 8*1024*1024*1024 + 2  # +2 - make sure each thread handles more than 4 GiB
+
+            # create and put file
+            s3plugin_lib.make_arbitrary_file(file1, file_size)
+
+            if self.s3EnableMPU == False:
+                # iput will fail because file is too big for single part upload
+                self.user0.assert_icommand("iput -N 2 -f -R s3resc1 {file1}".format(**locals()), 'STDERR_SINGLELINE', 'ERROR') # iput
+
+            else:
+                self.user0.assert_icommand("iput -N 2 -f -R s3resc1 {file1}".format(**locals()))  # iput
+
+                # make sure file is right size
+                self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))  # should be listed
+
+                # get file from first repl
+                self.user0.assert_icommand("iget -f %s %s" % (file1, file2))  # iput
+
+                # make sure the file that was put and got are the same
+                self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+
+            if self.s3EnableMPU == False:
+                # after failure data remains locked in 4.2.11, must unlock
+                self.admin.assert_icommand("iadmin modrepl logical_path %s/%s replica_number 0 DATA_REPL_STATUS 0" % (self.user0.session_collection, file1))
+
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+
+    # issue 2024
+    def test_large_file_put_repl_node(self):
+
+        try:
+
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+
+            self.admin.assert_icommand("iadmin mkresc replresc replication", 'STDOUT_SINGLELINE', "Creating")
+
+            self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            self.admin.assert_icommand("iadmin mkresc s3resc2 s3 %s:/%s/%s/s3resc1 %s" %
+                                   (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
+
+            self.admin.assert_icommand("iadmin addchildtoresc replresc s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin addchildtoresc replresc s3resc2", 'EMPTY')
+
+            file1 = "f1"
+            file2 = "f1.get"
+
+            file_size = 1024*1024*1024;
+
+
+            # create and put file
+            s3plugin_lib.make_arbitrary_file(file1, file_size)
+            self.user0.assert_icommand("iput -f -R replresc {file1}".format(**locals()))  # iput
+
+            # make sure file is right size
+            self.user0.assert_icommand("ils -L %s" % file1, 'STDOUT_SINGLELINE', str(file_size))  # should be listed
+
+            # get file from first repl
+            self.user0.assert_icommand("iget -n0 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+            # get file from second repl
+            self.user0.assert_icommand("iget -n1 -f %s %s" % (file1, file2))  # iput
+
+            # make sure the file that was put and got are the same
+            self.user0.assert_icommand("diff %s %s " % (file1, file2), 'EMPTY')
+
+        finally:
+
+            # cleanup
+            self.user0.assert_icommand("irm -f %s" % file1, 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc replresc s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmchildfromresc replresc s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc1", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc s3resc2", 'EMPTY')
+            self.admin.assert_icommand("iadmin rmresc replresc", 'EMPTY')
+
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
 
     @unittest.skipIf(psutil.disk_usage('/').free < 2 * (11*1024*1024*1024 + 2), "not enough free space for two 11 GiB files")
     def test_upload_very_large_file_after_redirect_issues_2104_2114(self):
