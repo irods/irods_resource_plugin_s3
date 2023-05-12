@@ -124,6 +124,7 @@ const std::string  s3_max_wait_time_sec{"S3_MAX_WAIT_TIME_SEC"};
 const std::string  s3_proto{"S3_PROTO"};
 const std::string  s3_stsdate{"S3_STSDATE"};
 const std::string  s3_max_upload_size{"S3_MAX_UPLOAD_SIZE"};
+const std::string  s3_max_upload_size_mb{"S3_MAX_UPLOAD_SIZE_MB"};
 const std::string  s3_enable_mpu{"S3_ENABLE_MPU"};
 const std::string  s3_mpu_chunk{"S3_MPU_CHUNK"};
 const std::string  s3_mpu_threads{"S3_MPU_THREADS"};
@@ -148,6 +149,9 @@ const size_t       S3_DEFAULT_RETRY_COUNT = 3;
 const int          S3_DEFAULT_CIRCULAR_BUFFER_SIZE = 4;
 const unsigned int S3_DEFAULT_CIRCULAR_BUFFER_TIMEOUT_SECONDS = 180;
 const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
+constexpr int64_t  LOWER_BOUND_MAX_UPLOAD_SIZE_MB = 5;
+constexpr int64_t  UPPER_BOUND_MAX_UPLOAD_SIZE_MB = 5 * 1024 * 1024;
+constexpr int64_t  DEFAULT_MAX_UPLOAD_SIZE_MB = 5 * 1024;
 
 const std::string  S3_STORAGE_CLASS_KW{"S3_STORAGE_CLASS"};
 
@@ -682,15 +686,44 @@ long s3GetMaxUploadSizeMB (irods::plugin_property_map& _prop_map)
     irods::error ret;
     std::string max_size_str;   // max size from context string, in MB
 
-    ret = _prop_map.get<std::string>(s3_max_upload_size, max_size_str);
+    std::int64_t max_megs = 0;
+
+    // try to read S3_MAX_UPLOAD_SIZE_MB
+    ret = _prop_map.get<std::string>(s3_max_upload_size_mb, max_size_str);
     if (ret.ok()) {
-        // should be between 5MB and 5TB
-        long max_megs = atol(max_size_str.c_str());
-        if ( max_megs >= 5 && max_megs <= 5L * 1024 * 1024 ) {
-            return max_megs;
+        try {
+            max_megs = boost::lexical_cast<std::int64_t>(max_size_str);
+        } catch ( const boost::bad_lexical_cast& ) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(LOG_ERROR,
+                "[resource_name=%s] failed to cast %s [%s] to a std::int64_t", resource_name.c_str(),
+                max_size_str.c_str(), s3_max_upload_size_mb.c_str());
+        }
+    } else {
+        // for backward compatibility, look for S3_MAX_UPLOAD_SIZE
+        ret = _prop_map.get<std::string>(s3_max_upload_size, max_size_str);
+        if (ret.ok()) {
+            std::string resource_name = get_resource_name(_prop_map);
+            rodsLog(LOG_WARNING, "[resource_name=%s - %s is deprecated.  Use %s",
+                    resource_name.c_str(), s3_max_upload_size.c_str(), s3_max_upload_size_mb.c_str());
+
+            try {
+                max_megs = boost::lexical_cast<std::int64_t>(max_size_str);
+            } catch ( const boost::bad_lexical_cast& ) {
+                std::string resource_name = get_resource_name(_prop_map);
+                rodsLog(LOG_ERROR,
+                    "[resource_name=%s] failed to cast %s [%s] to a std::int64_t", resource_name.c_str(),
+                    max_size_str.c_str(), s3_max_upload_size_mb.c_str());
+            }
         }
     }
-    return 5L * 1024;    // default to 5GB
+
+    // should be between 5MB and 5TB
+    if ( max_megs >= LOWER_BOUND_MAX_UPLOAD_SIZE_MB && max_megs <= UPPER_BOUND_MAX_UPLOAD_SIZE_MB ) {
+        return max_megs;
+    }
+
+    return DEFAULT_MAX_UPLOAD_SIZE_MB;    // default to 5GB
 }
 
 // returns the chunk size for multipart upload, in bytes

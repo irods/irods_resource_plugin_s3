@@ -72,7 +72,7 @@ S3_DEFAULT_HOSTNAME=s3.<bucket-region>.amazonaws.com
 To define S3 provider constraints and control multipart behavior:
 -   `S3_MPU_CHUNK` - This defines the minimum part size allowed (in MB).  The default is 5MB which is the minimum part size defined in AWS.
 -   `S3_ENABLE_MPU=0` disables multipart uploads.
--   `S3_MAX_UPLOAD_SIZE` - This defines the maximum upload size for non-multipart uploads (in MB), maximum part size, as well as the maximum size when using the CopyObject API.  The default is 5120MB (5GB).  This setting is ignored if MPU uploads are disabled.
+-   `S3_MAX_UPLOAD_SIZE_MB` - This defines the maximum upload size for non-multipart uploads (in MB), maximum part size, as well as the maximum size when using the CopyObject API.  The default is 5120MB (5GB).  This setting is ignored if MPU uploads are disabled.
 -   `S3_MPU_THREADS` is the number of parts to upload in parallel.
 -   `S3_URI_REQUEST_STYLE` - The path request style used.  This is either "path" or "virtualhost".  The default is "path".  See [path vs virtual hosted requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
 -   `S3_RESTORATION_DAYS` - The number of days an object is to be restored when restoring from Glacier.  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
