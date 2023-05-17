@@ -2307,7 +2307,7 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             self.user1.assert_icommand("iput %s" % file1)  # iput
             self.user1.assert_icommand("iget %s %s" % (file1, retrieved_file))
 
-            assertTrue(filecmp.cmp(file1, retrieved_file))  # confirm retrieved is correct
+            self.assertTrue(filecmp.cmp(file1, retrieved_file))  # confirm retrieved is correct
 
         finally:
 
