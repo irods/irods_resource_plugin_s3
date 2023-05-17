@@ -1067,59 +1067,97 @@ namespace irods::experimental::io::s3_transport
                 ? config_.number_of_cache_transfer_threads
                 : cache_file_size / minimum_part_size == 0 ? 1 : cache_file_size / minimum_part_size;
 
-            // Calculate the number of parts.  This is usually a one-to-one mapping to number of threads but if
-            // parts per thread > config_.max_single_part_upload_size then need to break it into more parts
-            unsigned int number_of_parts = config_.number_of_cache_transfer_threads;
-            if (cache_file_size > number_of_parts * config_.max_single_part_upload_size) {
-                number_of_parts
-                  = cache_file_size % config_.max_single_part_upload_size == 0
-                  ? cache_file_size / config_.max_single_part_upload_size
-                  : cache_file_size / config_.max_single_part_upload_size + 1;
-            }
+            // Preferred part size is the largest part size that will be attempted. At 1 GiB, that still allows the largest possible
+            // file size (1 TiB) to be uploaded within the 10,000 part limit imposed by AWS.
+            int64_t preferred_part_size = 1LL*1024*1024*1024;
 
-            if (config_.multipart_enabled && number_of_parts > 1) {
+            // Try the part uploads with the current preferred_part_size.  If we get timeouts uploading a part
+            // (Amazon has a 2 minute limit) loop again with a part size half the previous one.  Continue doing
+            // this on errors until we get a part size that is too small to transfer the file within the 10,000
+            // part count limit.  Break out and return success when the parts all complete successfully.
+            //
+            // While exit conditions:
+            // 1.  As we try different part sizes when flushing the file, if the part sizes get so small that
+            //     the file can't be flushed within the 10,000 part count limit, we break out with an error.
+            // 2.  If all part uploads are successful, we break out with a success code.
 
-                initiate_multipart_upload();
+            while (true) {
 
-                unsigned int part_number = 1;
-
-                std::int64_t part_size_all_but_last_part = cache_file_size / number_of_parts;
-
-                while (part_number <= number_of_parts) {
-
-                    irods::thread_pool cache_flush_threads{static_cast<int>(config_.number_of_cache_transfer_threads)};
-
-                    // run number_of_cache_transfer_threads simultaneously
-                    for (unsigned int i = 0; i < config_.number_of_cache_transfer_threads; ++i) {
-
-                        if (part_number > number_of_parts) {
-                            break;
-                        }
-
-                        std::int64_t part_size = part_size_all_but_last_part;
-
-                        // give extra bytes to last part
-                        if (part_number == number_of_parts) {
-                            part_size += cache_file_size % number_of_parts;
-                        }
-
-                        off_t offset = (part_number - 1) * part_size_all_but_last_part;
-
-                        irods::thread_pool::post(cache_flush_threads, [this, part_number, part_size, offset] () {
-                                    // upload part and read your part from cache file
-                                    s3_upload_part_worker_routine(true, part_number, part_size, offset);
-                        });
-
-                        ++part_number;
-                    }
-                    cache_flush_threads.join();
+                // Calculate the number of parts.
+                unsigned int number_of_parts = config_.number_of_cache_transfer_threads;
+                if (cache_file_size > number_of_parts * preferred_part_size) {
+                    number_of_parts
+                      = (cache_file_size % preferred_part_size == 0)
+                      ? (cache_file_size / preferred_part_size)
+                      : (cache_file_size / preferred_part_size + 1);
                 }
 
-                return_value = complete_multipart_upload();
+                if (number_of_parts > 10000) {
+                    logger::error("Multiple timeouts resulted in a part size that is too small to upload the {} size file.", cache_file_size);
+                    return_value = error_codes::UPLOAD_FILE_ERROR;
+                    break;
+                }
 
-            } else {
-                return_value = s3_upload_file(true);
-            }
+                if (config_.multipart_enabled && number_of_parts > 1) {
+
+                    initiate_multipart_upload();
+
+                    unsigned int part_number = 1;
+
+                    std::int64_t part_size_all_but_last_part = cache_file_size / number_of_parts;
+
+                    while (part_number <= number_of_parts) {
+
+                        irods::thread_pool cache_flush_threads{static_cast<int>(config_.number_of_cache_transfer_threads)};
+
+                        // run number_of_cache_transfer_threads simultaneously
+                        for (unsigned int i = 0; i < config_.number_of_cache_transfer_threads; ++i) {
+
+                            if (part_number > number_of_parts) {
+                                break;
+                            }
+
+                            std::int64_t part_size = part_size_all_but_last_part;
+
+                            // give extra bytes to last part
+                            if (part_number == number_of_parts) {
+                                part_size += (cache_file_size % number_of_parts);
+                            }
+
+                            off_t offset = (part_number - 1) * part_size_all_but_last_part;
+
+                            irods::thread_pool::post(cache_flush_threads, [this, part_number, part_size, offset] () {
+                                // upload part and read your part from cache file
+                                s3_upload_part_worker_routine(true, part_number, part_size, offset);
+                            });
+
+                            ++part_number;
+                        }
+                        cache_flush_threads.join();
+                    }
+
+                    return_value = complete_multipart_upload();
+
+                } else {
+                    return_value = s3_upload_file(true);
+                }
+
+                if (return_value == error_codes::UPLOAD_PART_TIMEOUT) {
+                    // reset saved errors
+                    shm_obj.atomic_exec([](auto& data) {
+                        data.last_error_code = error_codes::SUCCESS;
+                    });
+                    this->set_error(SUCCESS());
+
+                    // halve the preferred_part_size and try again
+                    preferred_part_size >>= 1;
+
+                    logger::warn("{}:{} ({}) [[{}]] error in flushing cache file.  Trying a part size of {}.",
+                        __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), preferred_part_size);
+                } else {
+                    break;
+                }
+            } // while
 
             // remove cache file
             logger::debug("{}:{} ({}) [[{}]] removing cache file {}",
@@ -1134,7 +1172,6 @@ namespace irods::experimental::io::s3_transport
             });
 
             return return_value;
-
         }
 
         bool is_full_upload() {
@@ -2082,9 +2119,15 @@ namespace irods::experimental::io::s3_transport
 
                     this->set_error(ERROR(S3_PUT_ERROR, "failed in S3_upload_part"));
 
-                    shm_obj.atomic_exec([](auto& data) {
-                        data.last_error_code = error_codes::UPLOAD_FILE_ERROR;
-                    });
+                    if (write_callback->status == libs3_types::status_request_timeout) {
+                        shm_obj.atomic_exec([](auto& data) {
+                            data.last_error_code = error_codes::UPLOAD_PART_TIMEOUT;
+                        });
+                    } else {
+                        shm_obj.atomic_exec([](auto& data) {
+                            data.last_error_code = error_codes::UPLOAD_FILE_ERROR;
+                        });
+                    }
                 }
                 write_callback->bytes_written = 0;
 

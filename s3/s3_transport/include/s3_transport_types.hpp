@@ -29,7 +29,8 @@ namespace irods::experimental::io::s3_transport
         INITIATE_MULTIPART_UPLOAD_ERROR,
         COMPLETE_MULTIPART_UPLOAD_ERROR,
         UPLOAD_FILE_ERROR,
-        DOWNLOAD_FILE_ERROR
+        DOWNLOAD_FILE_ERROR,
+        UPLOAD_PART_TIMEOUT
     };
 
     enum class cache_file_download_status
