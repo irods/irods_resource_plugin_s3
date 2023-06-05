@@ -25,6 +25,7 @@ import shutil
 import string
 import subprocess
 import urllib3
+import time
 
 from resource_suite_s3_nocache import Test_S3_NoCache_Base
 
@@ -793,6 +794,9 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
                 self.user0.assert_icommand(['irepl', logical_path], 'STDERR', 'S3_PUT_ERROR')
                 self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, 1))
                 self.assertEqual(str(0), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # issue 2121 workaround
+            time.sleep(2)
 
             # debugging
             self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
