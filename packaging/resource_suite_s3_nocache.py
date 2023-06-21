@@ -2108,7 +2108,9 @@ OUTPUT ruleExecOut
     # 3) a couple of files in the middle of the range (8MB and 16MB)
     # 4) a small file
     # 5) a file one byte less than 32MB just in case
-    def test_s3_in_replication_node__issue_2102(self):
+    #
+    # Added -k flag on iput to test issue 2122
+    def test_s3_in_replication_node__issues_2102_2122(self):
         resc_prefix = 'issue_2101'
         repl_resource_name = '%s_repl' % resc_prefix
         s3_resc1_resource_name = '%s_s3_resc1' % resc_prefix
@@ -2147,7 +2149,7 @@ OUTPUT ruleExecOut
                 lib.make_arbitrary_file(filename, file_size)
 
                 # put the file to repl_resource
-                self.user1.assert_icommand("iput -R %s %s" % (repl_resource_name, filename))
+                self.user1.assert_icommand("iput -k -R %s %s" % (repl_resource_name, filename))
 
                 # debug
                 self.user1.assert_icommand("ils -l %s" % filename, 'STDOUT_SINGLELINE', filename)
