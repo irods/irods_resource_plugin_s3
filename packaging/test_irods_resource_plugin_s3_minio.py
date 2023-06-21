@@ -100,6 +100,10 @@ class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Base, unittest.TestCase):
     def test_put_get_large_file_in_repl_node(self):
         pass
 
+    @unittest.skip('test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_s3_in_replication_node__issues_2102_2122(self):
+        pass
+
     # issue 2024
     @unittest.skip("File removal too slow with MinIO")
     def test_put_get_file_greater_than_8GiB_two_threads(self):
