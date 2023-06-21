@@ -998,6 +998,20 @@ namespace irods_s3 {
             //  do a stat with a retry if not found
             if (s3_transport_ptr->is_last_file_to_close() && result.ok()) {
 
+                // Reset global variables.  These cached values for these variables are no longer
+                // valid once the last close is performed on the data object.
+                //
+                // This change specifically addresses issue 2122 where upon opening an object for
+                // reading for checksum calculations after a replication, the saved oprType of
+                // replication was being read rather than reading the new/correct oprType from the
+                // L1desc[] table.
+                {
+                    std::lock_guard<std::mutex> lock(global_mutex);
+                    irods_s3::data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
+                    irods_s3::number_of_threads = 0;
+                    irods_s3::oprType = -1;
+                }
+
                 struct stat statbuf;
 
                 // do not return an error here as this is meant only as a delay until the stat is available
