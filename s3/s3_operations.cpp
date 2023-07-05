@@ -746,10 +746,23 @@ namespace irods_s3 {
             logger::debug("{}:{} ({}) [[{}]] oprType set to {}",
                     __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
 
-            // fix open mode
             ios_base::openmode open_mode;
-            if (oprType == PUT_OPR) {
-                open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY | O_TRUNC, __FUNCTION__);
+
+            // Update open_mode when oprType=PUT_OPR.  There are three scenarios to consider: 
+            //
+            //   1.  The mode is set to O_WRONLY.  This would not stream because the O_CREAT or
+            //       O_TRUNC flag are not set.  Update the open flag to O_WRONLY | O_CREAT | O_TRUNC 
+            //       as we know a PUT_OPR is always a full file write or overwrite.
+            //
+            //   2.  The mode is set to O_RDWR.  This happens when there is a write
+            //       which will be followed up by a read for the checksum.  This would not
+            //       allow streaming because the file is opened in read and write mode. 
+            //       As before, update the open flag to O_WRONLY | O_CREAT | O_TRUNC.
+            //
+            //   2.  The mode is set to O_RDONLY.  This is the read for checksum that follows the
+            //       write.   Leave the oprType alone in this scenario. 
+            if (oprType == PUT_OPR && (file_obj->flags() & O_WRONLY || file_obj->flags() & O_RDWR)) {
+                open_mode = translate_open_mode_posix_to_stream(O_WRONLY | O_CREAT | O_TRUNC, __FUNCTION__);
             } else {
                 open_mode = translate_open_mode_posix_to_stream(file_obj->flags(), __FUNCTION__);
             }
