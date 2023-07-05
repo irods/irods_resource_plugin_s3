@@ -2759,3 +2759,28 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             s3plugin_lib.remove_if_exists(file2)
             s3plugin_lib.remove_if_exists(file1_get)
             s3plugin_lib.remove_if_exists(file2_get)
+
+class Test_S3_NoCache_MPU_Disabled_Base(Test_S3_NoCache_Base):
+
+    def test_iput_large_file_with_checksum_issue_2124(self):
+
+        try:
+
+            file1 = "issue_2124_file"
+            file1_get = "issue_2124_file.get"
+            file1_size = 32*1024*1024 + 1
+
+            # create and put file
+            lib.make_arbitrary_file(file1, file1_size)
+
+            self.user0.assert_icommand("iput -K " + file1)  # iput
+            with open(file1, 'rb') as f:
+                checksum = base64.b64encode(hashlib.sha256(f.read()).digest()).decode()
+            self.user0.assert_icommand("ils -L", 'STDOUT_SINGLELINE', "sha2:" + checksum)  # check proper checksum
+
+        finally:
+
+            # cleanup
+            self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file1_get)

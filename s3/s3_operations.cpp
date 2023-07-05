@@ -78,6 +78,7 @@ namespace irods_s3 {
         std::ios_base::openmode open_mode;
         std::shared_ptr<dstream> dstream_ptr;
         std::shared_ptr<s3_transport> s3_transport_ptr;
+        bool checked_for_checksum_read_after_put;
     }; // end per_thread_data
 
     class fd_to_data_map {
@@ -751,9 +752,12 @@ namespace irods_s3 {
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] oprType set to %d\n",
                     __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
 
-            // fix open mode
             ios_base::openmode open_mode;
             if (oprType == PUT_OPR) {
+                // Fix open mode so we can stream
+                // The open mode is forced to O_CREAT, O_WRONLY, O_TRUNC
+                // If this follows with a read, then we are doing a read after write for checksum, the open_mode
+                // will be set back to the original value.
                 open_mode = translate_open_mode_posix_to_stream(O_CREAT | O_WRONLY | O_TRUNC, __FUNCTION__);
             } else {
                 open_mode = translate_open_mode_posix_to_stream(file_obj->flags(), __FUNCTION__);
@@ -844,6 +848,55 @@ namespace irods_s3 {
             rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
             irods::error result = SUCCESS();
+
+            irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+            // create entry for fd in per_thread_data if it doesn't exist
+            int fd = file_obj->file_descriptor();
+            per_thread_data data{};
+            if (fd_data.exists(fd)) {
+                data = fd_data.get(fd);
+            }
+
+            // Issue 2124 - On a PUT operation with checksum, the open_mode was forced to O_CREAT, O_WRONLY, O_TRUNC so that streaming
+            // would work.  We need to check if this was a PUT_OPR and if so we have moved on to the read-only portion of
+            // processing for checksum calculation.  If that is the case, the open_mode will be reset to O_RDONLY.
+            // So that this isn't done on every read call, a flag (checked_for_checksum_read_after_put) is set to indicate that we
+            // have already checked for this condition and adjusted the open_mode accordingly.
+            if (!data.checked_for_checksum_read_after_put) {
+
+                // Get oprType
+                int oprType = -1;
+                bool found = false;
+                for (int i = 0; i < NUM_L1_DESC; ++i) {
+                   if (L1desc[i].inuseFlag) {
+                       if (L1desc[i].dataObjInp && L1desc[i].dataObjInfo &&
+                               L1desc[i].dataObjInp->objPath == file_obj->logical_path()
+                               && L1desc[i].dataObjInfo->filePath == file_obj->physical_path()) {
+
+                           found = true;
+                           oprType = L1desc[i].dataObjInp->oprType;
+                       }
+                   } else if (found) {
+                       break;
+                   }
+                }
+                
+                data.checked_for_checksum_read_after_put = true;
+
+                // If oprType is PUT_OPR, adjust the open mode to O_RDONLY.
+                if (oprType == PUT_OPR) {
+
+                    std::ios_base::openmode open_mode;
+                    open_mode = translate_open_mode_posix_to_stream(O_RDONLY, __FUNCTION__);
+
+                    // set open_mode in per_thread_data
+                    data.open_mode = open_mode;
+                }
+                fd_data.set(fd, data);
+            }
+
+            // end changes for issue 2124 
 
             std::shared_ptr<dstream> dstream_ptr;
             std::shared_ptr<s3_transport> s3_transport_ptr;
