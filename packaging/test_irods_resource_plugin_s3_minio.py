@@ -1,5 +1,6 @@
 from .resource_suite_s3_nocache import Test_S3_NoCache_Base
 from .resource_suite_s3_nocache import Test_S3_NoCache_Large_File_Tests_Base
+from .resource_suite_s3_nocache import Test_S3_NoCache_MPU_Disabled_Base
 from .resource_suite_s3_cache import Test_S3_Cache_Base
 
 import psutil
@@ -53,7 +54,7 @@ class Test_S3_NoCache_V4(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCas
     def test_put_get_file_greater_than_4GiB_one_thread(self):
         Test_S3_NoCache_Large_File_Tests_Base.test_put_get_file_greater_than_4GiB_one_thread(self)
 
-class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_Base, unittest.TestCase):
+class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_MPU_Disabled_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         """Set up the test."""
         self.proto = 'HTTP'

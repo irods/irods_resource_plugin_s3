@@ -12,6 +12,7 @@ import urllib3
 from .resource_suite_s3_nocache import Test_S3_NoCache_Base
 from .resource_suite_s3_nocache import Test_S3_NoCache_Large_File_Tests_Base
 from .resource_suite_s3_nocache import Test_S3_NoCache_Glacier_Base
+from .resource_suite_s3_nocache import Test_S3_NoCache_MPU_Disabled_Base
 from .resource_suite_s3_cache import Test_S3_Cache_Base
 from .resource_suite_s3_cache import Test_S3_Cache_Glacier_Base
 
@@ -105,7 +106,7 @@ class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3EnableMPU=1
         super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
 
-class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_Base, unittest.TestCase):
+class Test_S3_NoCache_MPU_Disabled(Test_S3_NoCache_MPU_Disabled_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         """Set up the test."""
         self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
