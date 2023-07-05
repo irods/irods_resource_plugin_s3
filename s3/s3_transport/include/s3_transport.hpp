@@ -910,6 +910,8 @@ namespace irods::experimental::io::s3_transport
                 named_shared_memory_object& shm_obj,
                 int64_t s3_object_size)
         {
+            rodsLog(config_.developer_messages_log_level, "%s:%d (%s) [[%lu]] downloading object to cache\n",
+                                __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier());
 
             // shmem is already locked here
 
