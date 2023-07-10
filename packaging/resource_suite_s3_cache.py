@@ -772,7 +772,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         test_resc = 'test_resc'
 
         try:
-            lib.create_ufs_resource(test_resc, self.admin)
+            lib.create_ufs_resource(self.admin, test_resc)
 
             lib.make_file(physical_path, file_size_in_bytes)
 
@@ -817,7 +817,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
                     'replica_number', str(replica_number),
                     'DATA_REPL_STATUS', '0'])
             self.user0.run_icommand(['irm', '-f', logical_path])
-            lib.remove_resource(test_resc, self.admin)
+            lib.remove_resource(self.admin, test_resc)
 
 
     def test_iput_and_icp_with_invalid_secret_key__issue_6154(self):
@@ -832,7 +832,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         test_resc = 'test_resc'
 
         try:
-            lib.create_ufs_resource(test_resc, self.admin)
+            lib.create_ufs_resource(self.admin, test_resc)
 
             lib.make_file(physical_path, file_size_in_bytes)
 
@@ -861,7 +861,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
 
         finally:
             self.user0.run_icommand(['irm', '-f', original_logical_path])
-            lib.remove_resource(test_resc, self.admin)
+            lib.remove_resource(self.admin, test_resc)
 
             # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
             for replica_number in [0, 1]:
