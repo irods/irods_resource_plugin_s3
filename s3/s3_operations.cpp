@@ -1919,7 +1919,7 @@ namespace irods_s3 {
             return PASS(ret);
         }
 
-        if (object->size() > 0 && object->size() != static_cast<std::size_t>(object_size)) {
+        if (object->size() > 0 && object->size() != static_cast<rodsLong_t>(object_size)) {
             return ERROR(SYS_COPY_LEN_ERR, fmt::format(
                         "[resource_name={}] Error for file: \"{}\" inp data size: {} does not match stat size: {}.",
                         resource_name, object->physical_path(), object->size(), object_size));
