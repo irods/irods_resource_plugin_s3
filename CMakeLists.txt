@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.12.0 FATAL_ERROR)
 # CURL::libcurl and LibXml2::LibXml2 targets
 
-find_package(IRODS REQUIRED)
-set(IRODS_PLUGIN_REVISION "1")
+find_package(IRODS 4.3.1 EXACT REQUIRED)
+set(IRODS_PLUGIN_REVISION "0")
 set(IRODS_PLUGIN_VERSION "${IRODS_VERSION}.${IRODS_PLUGIN_REVISION}")
 
-set(IRODS_PACKAGE_REVISION "1")
+set(IRODS_PACKAGE_REVISION "0")
 
 include(IrodsExternals)
 
