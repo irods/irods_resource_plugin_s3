@@ -16,6 +16,7 @@ def update_local_package_repositories():
         'Centos': None,
         'Centos linux': None,
         'Almalinux': None,
+        'Rocky linux': None,
         'Opensuse ':  None,
         'Debian gnu_linux': ['sudo', 'apt-get', 'update']
     }
@@ -78,6 +79,7 @@ def install_os_specific_dependencies():
         'Centos': install_os_specific_dependencies_yum,
         'Centos linux': install_os_specific_dependencies_yum,
         'Almalinux': install_os_specific_dependencies_yum,
+        'Rocky linux': install_os_specific_dependencies_yum,
         'Opensuse ':  install_os_specific_dependencies_yum,
         'Debian gnu_linux': install_os_specific_dependencies_apt
     }
