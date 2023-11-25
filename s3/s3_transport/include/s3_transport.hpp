@@ -228,7 +228,7 @@ namespace irods::experimental::io::s3_transport
             , call_s3_download_part_flag_{true}
             , begin_part_upload_thread_ptr_{nullptr}
             , circular_buffer_{_config.circular_buffer_size, _config.circular_buffer_timeout_seconds}
-            , mode_{0}
+            , mode_{static_cast<std::ios_base::openmode>(0)}
             , file_offset_{0}
             , existing_object_size_{config::UNKNOWN_OBJECT_SIZE}
             , download_to_cache_{true}
