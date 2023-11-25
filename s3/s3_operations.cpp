@@ -431,7 +431,7 @@ namespace irods_s3 {
                 (oflag & O_ACCMODE) == O_WRONLY, (oflag & O_ACCMODE) == O_RDWR, (oflag & O_ACCMODE) == O_RDONLY,
                 (oflag & O_TRUNC) != 0, (oflag & O_CREAT) != 0, (oflag & O_APPEND) != 0);
 
-        ios_base::openmode mode = 0;
+        ios_base::openmode mode = static_cast<ios_base::openmode>(0);
 
         if ((oflag & O_ACCMODE) == O_WRONLY || (oflag & O_ACCMODE) == O_RDWR) {
             mode |= ios_base::out;
