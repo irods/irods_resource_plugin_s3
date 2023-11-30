@@ -2,7 +2,7 @@
 #define S3_TRANSPORT_TYPES_HPP
 
 #include "circular_buffer.hpp"
-#include <libs3.h>
+#include "libs3/libs3.h"
 
 namespace irods::experimental::io::s3_transport
 {

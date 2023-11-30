@@ -5,7 +5,7 @@
 
 // misc includes
 #include <nlohmann/json.hpp>
-#include <libs3.h>
+#include "libs3/libs3.h"
 #include <fmt/format.h>
 
 // stdlib and misc includes
