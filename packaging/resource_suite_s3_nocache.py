@@ -1910,6 +1910,41 @@ OUTPUT ruleExecOut
                 'DATA_REPL_STATUS', '0'])
             self.user0.run_icommand(['irm', '-f', logical_path])
 
+    def test_istream_append__issue_2153(self):
+        replica_number_in_s3 = 0
+        filename = 'test_istream_append__issue_2153.txt'
+        logical_path = os.path.join(self.user0.session_collection, filename)
+        content = 'this is the original file for istream'
+        content_append1 = '\nline1 appended to the file'
+        content_append2 = '\nline2 appended to the file'
+
+        try:
+            # istream to a new data object and ensure that it is created successfully.
+            self.user0.assert_icommand(['istream', 'write', logical_path], input=content)
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # append to the file
+            self.user0.assert_icommand(['istream', 'write', '-a', logical_path], input=f'{content_append1}')
+
+            # append to the file again
+            self.user0.assert_icommand(['istream', 'write', '-a', logical_path], input=f'{content_append2}')
+
+            # verify the file size and repl status in ils -l 
+            self.user0.assert_icommand(['ils', '-l', logical_path], 'STDOUT', str(len(content) + len(content_append1) + len(content_append2))) 
+            self.assertEqual(str(1), lib.get_replica_status(self.user0, filename, replica_number_in_s3))
+
+            # Ensure that the replica actually contains the contents streamed into it.
+            self.user0.assert_icommand(['istream', 'read', logical_path], 'STDOUT', [content, content_append1, content_append2])
+
+        finally:
+            # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
+            print(self.user0.run_icommand(['ils', '-l'])[0])   # just debug
+            self.admin.run_icommand([
+                'iadmin', 'modrepl',
+                'logical_path', logical_path,
+                'replica_number', str(replica_number_in_s3),
+                'DATA_REPL_STATUS', '0'])
+            self.user0.run_icommand(['irm', '-f', logical_path])
 
     def test_iput_with_invalid_secret_key_and_overwrite__issue_6154(self):
         replica_number_in_s3 = 0

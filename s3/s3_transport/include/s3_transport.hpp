@@ -449,7 +449,6 @@ namespace irods::experimental::io::s3_transport
                         last_file_to_close_, data.know_number_of_threads, data.threads_remaining_to_close);
 
                 // if a critical error occurred - do not flush cache file or complete multipart upload
-
                 if (!this->error_.ok()) {
 
                     return_value = false;
@@ -835,6 +834,30 @@ namespace irods::experimental::io::s3_transport
         std::int64_t get_existing_object_size() {
             return existing_object_size_;
         }
+
+        bool is_cache_file_open() {
+
+            if (!use_cache_) {
+                return false;
+            }
+
+            named_shared_memory_object shm_obj{shmem_key_,
+                config_.shared_memory_timeout_in_seconds,
+                constants::MAX_S3_SHMEM_SIZE};
+
+            return shm_obj.atomic_exec([](auto& data) -> bool
+            {
+                return !data.cache_file_flushed;
+            });
+
+        }
+
+        std::string get_cache_file_path() {
+            namespace bf = boost::filesystem;
+            bf::path cache_file =  bf::path(config_.cache_directory) / bf::path(object_key_ + "-cache");
+            return cache_file.string();
+        }
+
 
     private:
 
@@ -1400,6 +1423,7 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 if (object_status == object_s3_status::IN_S3 && this->download_to_cache_) {
+                    logger::debug("{}:{} ({}) [[{}]] Downloading object to cache", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier());
 
                     cache_file_download_status download_status = this->download_object_to_cache(shm_obj, s3_object_size);
 
@@ -1458,8 +1482,15 @@ namespace irods::experimental::io::s3_transport
                         }
 
                         if (!cache_fstream_ || !cache_fstream_.is_open()) {
-                            logger::error("{}:{} ({}) [[{}]] Failed to open cache file {}, error={}",
-                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), cache_file_path_.c_str(), strerror(errno));
+                            logger::error("{}:{} ({}) [[{}]] Failed to open cache file {}, error={} open_mode: [app={}][binary={}][in={}][out={}][trunc={}][ate={}]",
+                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), cache_file_path_.c_str(), strerror(errno),
+                                    (mode & std::ios::app) != 0,
+                                    (mode & std::ios::binary) != 0,
+                                    (mode & std::ios::in) != 0,
+                                    (mode & std::ios::out) != 0,
+                                    (mode & std::ios::trunc) != 0,
+                                    (mode & std::ios::ate) != 0
+                                    );
                             this->set_error(ERROR(UNIX_FILE_OPEN_ERR, "Failed to open S3 cache file"));
                             return_value = false;
                             return;
