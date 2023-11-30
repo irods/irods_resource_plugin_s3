@@ -12,7 +12,7 @@
 #include <irods/irods_lookup_table.hpp>
 #include <irods/irods_file_object.hpp>
 #include <irods/rcConnect.h>
-#include <libs3.h>
+#include "libs3/libs3.h"
 
 #define S3_AUTH_FILE "s3Auth"
 #define ARCHIVE_NAMING_POLICY_KW    "ARCHIVE_NAMING_POLICY"
