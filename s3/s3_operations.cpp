@@ -445,7 +445,7 @@ namespace irods_s3 {
             mode |= ios_base::in;
         }
 
-        if ((oflag & O_TRUNC) || (oflag & O_CREAT)) {
+        if ((oflag & O_TRUNC)) {
             mode |= ios_base::trunc;
         }
 
@@ -453,6 +453,19 @@ namespace irods_s3 {
             mode |= ios_base::app;
             mode &= ~ios_base::trunc;  // turn off trunc flag
         }
+
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] translated open mode is [app=%d][binary=%d][in=%d][out=%d][trunc=%d][ate=%d]",
+                __FILE__,
+                __LINE__,
+                __FUNCTION__,
+                thread_id, 
+                (mode & std::ios::app) != 0,
+                (mode & std::ios::binary) != 0,
+                (mode & std::ios::in) != 0,
+                (mode & std::ios::out) != 0,
+                (mode & std::ios::trunc) != 0,
+                (mode & std::ios::ate) != 0
+                );
 
         return mode;
 
@@ -1331,8 +1344,54 @@ namespace irods_s3 {
         irods::plugin_context& _ctx,
         struct stat* _statbuf )
     {
-        unsigned long thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]\n", __FILE__, __LINE__, __FUNCTION__, thread_id);
+        if (!is_cacheless_mode(_ctx.prop_map())) {
+            return s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, _statbuf, false);
+        }
+
+        // cacheless mode
+        std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]]", __FILE__, __LINE__, __FUNCTION__, thread_id);
+
+        // issue 2153 - Sometimes a stat is called before a close. In the case that we
+        // are in cacheless mode but using a local cache file, and that cache file has not yet
+        // been flushed, do a stat of that cache file instead of doing a HEAD to S3.
+        //
+        // We need the fd to get the transport object.  Unfortunately for some reason file_obj->file_descriptor()
+        // is not set at this point so we will have to search through the L1desc table for
+        // the objPath and get the fd from that. 
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+        int fd = 0;
+        for (int i = 0; i < NUM_L1_DESC; ++i) {
+            if (L1desc[i].inuseFlag && L1desc[i].dataObjInp && L1desc[i].dataObjInfo) {
+                if (L1desc[i].dataObjInp->objPath == file_obj->logical_path()) {
+                    fd = i;
+                    break;
+                }
+            }
+        }
+        
+        if (fd_data.exists(fd)) {
+            per_thread_data data = fd_data.get(fd);
+            if (data.dstream_ptr && data.s3_transport_ptr && data.s3_transport_ptr->is_cache_file_open()) {
+
+                // do a stat on the cache file, populate stat_buf, and return
+                std::string cache_file_physical_path = data.s3_transport_ptr->get_cache_file_path();
+                     
+                const int status = stat(cache_file_physical_path.c_str(), _statbuf );
+
+                // return an error if necessary
+                if (status < 0) {
+                    const int err_status = UNIX_FILE_STAT_ERR - errno;
+                    return ERROR(err_status, fmt::format(
+                                "Stat error for \"{}\", errno = \"{}\", status = {}.",
+                                cache_file_physical_path.c_str(), strerror(errno), err_status));
+                }
+
+                return CODE(status);
+            }
+        }
+
+        // there is not an open cache file, do the normal HEAD to S3 
         return s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, _statbuf, false);
     }
 
