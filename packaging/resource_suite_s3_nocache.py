@@ -2857,3 +2857,123 @@ class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
             self.admin.assert_icommand("iadmin rmresc %s" % resource_name)
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(retrieved_file)
+
+    # This verifies that once the file is written to the DB, whatever mode was used remains in effect as the DB always wins.
+    def test_resource_updated_from_consistent_to_decoupled_issue_2161(self):
+
+        file1 = "f1"
+        file1_size = 2*1024
+        file2 = "f2"
+        file2_size = 3*1024
+        retrieved_file = 'f.get'
+        hostname = lib.get_hostname()
+        resource_name = "s3_resc"
+
+        s3_context_consistent = self.s3_context.replace('ARCHIVE_NAMING_POLICY=decoupled', 'ARCHIVE_NAMING_POLICY=consistent')
+        s3_context_decoupled = self.s3_context
+
+        # create the S3 resource
+        self.admin.assert_icommand('iadmin mkresc %s s3 %s:/%s/%s %s' %
+                (resource_name, hostname, self.s3bucketname, resource_name, s3_context_consistent), 'STDOUT_SINGLELINE', 's3')
+
+        try:
+            # create file1 and file2
+            lib.make_arbitrary_file(file1, file1_size)
+            lib.make_arbitrary_file(file2, file2_size)
+
+            # put file1
+            self.user1.assert_icommand('iput -R %s %s' % (resource_name, file1))
+
+            # get and verify the file contents
+            self.user1.assert_icommand('iget %s %s' % (file1, retrieved_file))
+            self.assertTrue(filecmp.cmp(file1, retrieved_file))  # confirm retrieved is correct
+
+            # verify in the physical path that consistent mode was used
+            print(self.user1.run_icommand(['ils', '-l', file1])[0])   # just debug
+            self.user1.assert_icommand('ils -L %s' % file1, 'STDOUT_SINGLELINE', '/%s/%s/home/.+/%s' % (self.s3bucketname, resource_name, file1), use_regex=True)
+
+            # update the resource to decoupled mode
+            self.admin.run_icommand('iadmin modresc %s context %s' % (resource_name, s3_context_decoupled))
+
+            # get and verify the file contents
+            self.user1.assert_icommand('iget -f %s %s' % (file1, retrieved_file))
+            self.assertTrue(filecmp.cmp(file1, retrieved_file))  # confirm retrieved is correct with file1
+
+            # overwrite file1 with file2
+            self.user1.assert_icommand('iput -f -R %s %s %s' % (resource_name, file2, file1))
+
+            # verify the path remains in consistent mode (DB rules)
+            print(self.user1.run_icommand(['ils', '-l', file1])[0])   # just debug
+            self.user1.assert_icommand('ils -L %s' % file1, 'STDOUT_SINGLELINE', '/%s/%s/home/.+/%s' % (self.s3bucketname, resource_name, file1), use_regex=True)
+
+            # get and verify the file contents
+            self.user1.assert_icommand('iget -f %s %s' % (file1, retrieved_file))
+            self.assertTrue(filecmp.cmp(file2, retrieved_file))  # confirm retrieved is correct with file2
+
+        finally:
+            # cleanup
+            self.user1.assert_icommand("irm -f %s" % file1)  # irm
+            self.admin.assert_icommand("iadmin rmresc %s" % resource_name)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(retrieved_file)
+
+    # This verifies that once the file is written to the DB, whatever mode was used remains in effect as the DB always wins.
+    def test_resource_updated_from_decoupled_to_consistent_issue_2161(self):
+
+        file1 = "f1"
+        file1_size = 2*1024
+        file2 = "f2"
+        file2_size = 3*1024
+        retrieved_file = 'f.get'
+        hostname = lib.get_hostname()
+        resource_name = "s3_resc"
+
+        s3_context_consistent = self.s3_context.replace('ARCHIVE_NAMING_POLICY=decoupled', 'ARCHIVE_NAMING_POLICY=consistent')
+        s3_context_decoupled = self.s3_context
+
+        # create the S3 resource
+        self.admin.assert_icommand('iadmin mkresc %s s3 %s:/%s/%s %s' %
+                (resource_name, hostname, self.s3bucketname, resource_name, s3_context_decoupled), 'STDOUT_SINGLELINE', 's3')
+
+        try:
+            # create file1 and file2
+            lib.make_arbitrary_file(file1, file1_size)
+            lib.make_arbitrary_file(file2, file2_size)
+
+            # put file1
+            self.user1.assert_icommand('iput -R %s %s' % (resource_name, file1))
+
+            # get and verify the file contents
+            self.user1.assert_icommand('iget %s %s' % (file1, retrieved_file))
+            self.assertTrue(filecmp.cmp(file1, retrieved_file))  # confirm retrieved is correct
+
+            # verify in the physical path that decoupled mode was used
+            print(self.user1.run_icommand(['ils', '-l', file1])[0])   # just debug
+            self.user1.assert_icommand('ils -L %s' % file1, 'STDOUT_SINGLELINE', '/%s/[0-9]+/%s' % (self.s3bucketname, file1), use_regex=True)
+
+            # update the resource to consistent mode
+            self.admin.run_icommand('iadmin modresc %s context %s' % (resource_name, s3_context_consistent))
+
+            # get and verify the file contents
+            self.user1.assert_icommand('iget -f %s %s' % (file1, retrieved_file))
+            self.assertTrue(filecmp.cmp(file1, retrieved_file))  # confirm retrieved is correct with file1
+
+            # overwrite file1 with file2
+            self.user1.assert_icommand('iput -f -R %s %s %s' % (resource_name, file2, file1))
+
+            # verify the path remains in decoupled mode (DB rules)
+            print(self.user1.run_icommand(['ils', '-l', file1])[0])   # just debug
+            self.user1.assert_icommand('ils -L %s' % file1, 'STDOUT_SINGLELINE', '/%s/[0-9]+/%s' % (self.s3bucketname, file1), use_regex=True)
+
+            # get and verify the file contents
+            self.user1.assert_icommand('iget -f %s %s' % (file1, retrieved_file))
+            self.assertTrue(filecmp.cmp(file2, retrieved_file))  # confirm retrieved is correct with file2
+
+        finally:
+            # cleanup
+            self.user1.assert_icommand("irm -f %s" % file1)  # irm
+            self.admin.assert_icommand("iadmin rmresc %s" % resource_name)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file2)
+            s3plugin_lib.remove_if_exists(retrieved_file)
