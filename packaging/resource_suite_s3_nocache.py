@@ -115,8 +115,6 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         if hasattr(self, 's3sse'):
             self.s3_context += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
 
-        self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
-
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
         self.admin.assert_icommand("iadmin mkresc demoResc s3 " + hostname + ":/" + self.s3bucketname + "/demoResc " + self.s3_context, 'STDOUT_SINGLELINE', 's3')
@@ -2821,3 +2819,41 @@ class Test_S3_NoCache_MPU_Disabled_Base(Test_S3_NoCache_Base):
             self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(file1_get)
+
+class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
+
+    def test_decoupled_redirect_issue_2146(self):
+
+        file1 = "f1"
+        file1_size = 2*1024*1024
+        retrieved_file = "f1.get"
+        resource_host = test.settings.HOSTNAME_3
+        resource_name = "s3_resc_on_host3"
+
+        # create an S3 resource
+        self.admin.assert_icommand('iadmin mkresc %s s3 %s:/%s/%s %s' %
+                (resource_name, resource_host, self.s3bucketname, resource_name, self.s3_context),
+                'STDOUT_SINGLELINE', 's3')
+
+        try:
+            # create the file
+            lib.make_arbitrary_file(file1, file1_size)
+
+            # put the file
+            self.user1.assert_icommand('iput -R %s %s' % (resource_name, file1))  # iput
+
+            # get and verify the file contents
+            self.user1.assert_icommand('iget %s %s' % (file1, retrieved_file))
+
+            self.assertTrue(filecmp.cmp(file1, retrieved_file))  # confirm retrieved is correct
+
+            # verify in the physical path that decoupled mode was used
+            print(self.user1.run_icommand(['ils', '-l', file1])[0])   # just debug
+            self.user1.assert_icommand('ils -L %s' % file1, 'STDOUT_SINGLELINE', '/%s/[0-9]+/%s' % (self.s3bucketname, file1), use_regex=True)
+
+        finally:
+            # cleanup
+            self.user1.assert_icommand("irm -f %s" % file1)  # irm
+            self.admin.assert_icommand("iadmin rmresc %s" % resource_name)
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(retrieved_file)
