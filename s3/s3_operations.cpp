@@ -404,7 +404,21 @@ namespace irods_s3 {
                 }
             }
 
+            // On redirect there is not an entry in L1desc[]. The following rules explain the behavior in
+            // this instance.
+            //
+            //   1.  s3_notify_operation() gets called on the server the client is connected to.
+            //   2.  In s3_notify_operation(), this method gets called with a L1desc[] entry so that index > 0.
+            //       The L1desc[] entry is updated along with the object->physical_path() but only if
+            //       openType == CREATE. This part ensures the database gets updated with the proper physical path.
+            //   3.  On the redirected server, s3_file_create_operation() gets called which also calls
+            //       this method. In that case there is no L1desc[] entry but object->physical_path()
+            //       needs to be updated so the file is written to the correct location in S3. Do a
+            //       GenQuery to get the object_id and use this to set the object->physical_path().
+
             if (index > 0) {
+                // There is a corresponding L1desc[] entry. Look up the object_id in it. Reverse it
+                // for the key.  Write the physical_path to the L1desc[] entry as well as object->physical_path().
 
                 std::string obj_id = boost::lexical_cast<std::string>(L1desc[index].dataObjInfo->dataId);
                 std::reverse(obj_id.begin(), obj_id.end());
@@ -413,14 +427,34 @@ namespace irods_s3 {
                 std::ostringstream s3_key_name;
                 s3_key_name << "/" << bucket_name << "/" << obj_id << "/" << object_name;
 
-                // update physical path
-                rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] updating physical_path to %s\n",
-                        __FILE__, __LINE__, __FUNCTION__, thread_id, s3_key_name.str().c_str());
-                object->physical_path(s3_key_name.str());
-                strncpy(L1desc[index].dataObjInfo->filePath, s3_key_name.str().c_str(), MAX_NAME_LEN);
-                L1desc[index].dataObjInfo->filePath[MAX_NAME_LEN - 1] = '\0';
+                // Update physical path but only on first creation otherwise the policy that was in effect
+                // at the time the object was first created wins.
+                if (L1desc[index].openType == CREATE_TYPE) {
+                    rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] updating physical_path to %s\n",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, s3_key_name.str().c_str());
+                    object->physical_path(s3_key_name.str().c_str());
+                    strncpy(L1desc[index].dataObjInfo->filePath, s3_key_name.str().c_str(), MAX_NAME_LEN);
+                    L1desc[index].dataObjInfo->filePath[MAX_NAME_LEN - 1] = '\0';
+                }
             }
+            else {
+                // There is no L1desc[] entry. Look up the object_id via GenQuery. Reverse it
+                // for the key.  Write the physical_path to object->physical_path().
 
+                auto path(boost::filesystem::path(object->physical_path()));
+                std::string query_string = fmt::format("SELECT DATA_ID WHERE DATA_NAME = '{}' AND COLL_NAME = '{}'",
+                                                       path.filename().c_str(),
+                                                       path.parent_path().c_str());
+                for (const auto& row : irods::query<rsComm_t>{_ctx.comm(), query_string}) {
+                    std::string object_id = row[0];
+                    std::reverse(object_id.begin(), object_id.end());
+                    const auto s3_key_name = fmt::format("/{}/{}/{}", bucket_name, object_id, object_name);
+                    rodsLog(developer_messages_log_level, "%s:%d (%s) [[%lu]] updating physical_path to %s\n",
+                            __FILE__, __LINE__, __FUNCTION__, thread_id, s3_key_name.c_str());
+                    object->physical_path(s3_key_name.c_str());
+                    break; // data_id is the same for all replicas so we are done
+                }
+            }
         }
     }
 
@@ -2194,6 +2228,14 @@ namespace irods_s3 {
 
     irods::error s3_notify_operation( irods::plugin_context& _ctx,
         const std::string* str ) {
+        if (is_cacheless_mode(_ctx.prop_map())) {
+            // Must update the physical_path in the L1desc[] table for decoupled naming.
+            // In the case of a redirect, this runs on the original connected server and this
+            // is the server that updates the database. In update_physical_path_for_decoupled_naming,
+            // the update will only happen if it is a create. Anything else uses whatever was
+            // previously in the database.
+            update_physical_path_for_decoupled_naming(_ctx);
+        }
         return SUCCESS();
     } // s3_notify_operation
 
