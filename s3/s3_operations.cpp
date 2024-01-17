@@ -441,7 +441,7 @@ namespace irods_s3 {
                 // There is no L1desc[] entry. Look up the object_id via GenQuery. Reverse it
                 // for the key.  Write the physical_path to object->physical_path().
 
-                auto path(boost::filesystem::path(object->physical_path()));
+                auto path(boost::filesystem::path(object->logical_path()));
                 std::string query_string = fmt::format("SELECT DATA_ID WHERE DATA_NAME = '{}' AND COLL_NAME = '{}'",
                                                        path.filename().c_str(),
                                                        path.parent_path().c_str());
