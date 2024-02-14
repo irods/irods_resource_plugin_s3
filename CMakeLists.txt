@@ -37,8 +37,6 @@ endif()
 
 set(IRODS_BUILD_WITH_WERROR ${IRODS_BUILD_WITH_WERROR_DEFAULT} CACHE BOOL "Choose whether to compile with -Werror.")
 
-include(UseLibCXX)
-
 if (IRODS_BUILD_WITH_WERROR)
   add_compile_options(-Werror)
 endif()

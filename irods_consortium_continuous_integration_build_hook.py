@@ -36,19 +36,18 @@ def install_building_dependencies(externals_directory):
     # externals are being supplied via externals_directory, only the externals packages which exist in that directory
     # will be installed.
     externals_list = [
-        'irods-externals-avro1.11.0-2',
-        'irods-externals-boost1.81.0-0',
+        'irods-externals-avro1.11.0-3',
+        'irods-externals-boost1.81.0-1',
         'irods-externals-catch22.13.8-0',
-        'irods-externals-clang-runtime13.0.0-0',
-        'irods-externals-clang13.0.0-0',
+        'irods-externals-clang13.0.1-0',
         'irods-externals-cmake3.21.4-0',
         'irods-externals-cppzmq4.8.1-1',
-        'irods-externals-fmt8.1.1-0',
+        'irods-externals-fmt8.1.1-1',
         'irods-externals-json3.10.4-0',
         'irods-externals-libarchive3.5.2-0',
-        'irods-externals-nanodbc2.13.0-1',
-        'irods-externals-spdlog1.9.2-1',
-        'irods-externals-zeromq4-14.1.8-0'
+        'irods-externals-nanodbc2.13.0-2',
+        'irods-externals-spdlog1.9.2-2',
+        'irods-externals-zeromq4-14.1.8-1'
     ]
     if externals_directory == 'None' or externals_directory is None:
         irods_python_ci_utilities.install_irods_core_dev_repository()
