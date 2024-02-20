@@ -130,7 +130,6 @@ target_include_directories(
   ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
-  ${IRODS_EXTERNALS_FULLPATH_SPDLOG}/include
   )
 target_compile_definitions(
   irods_s3_plugin
