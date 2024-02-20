@@ -49,6 +49,8 @@ if (NOT DEFINED THREADS_PREFER_PTHREAD_FLAG)
 endif()
 find_package(Threads REQUIRED)
 find_package(nlohmann_json "3.6.1" REQUIRED)
+find_package(fmt "8.1.1"
+  HINTS "${IRODS_EXTERNALS_FULLPATH_FMT}")
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(LibXml2 REQUIRED)
@@ -116,9 +118,9 @@ target_link_libraries(
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_thread.so
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so
-  ${IRODS_EXTERNALS_FULLPATH_FMT}/lib/libfmt.so
   Threads::Threads
   nlohmann_json::nlohmann_json
+  fmt::fmt
   rt
   )
 target_include_directories(
@@ -127,7 +129,6 @@ target_include_directories(
   ${IRODS_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/s3/s3_transport/include
   ${IRODS_EXTERNALS_FULLPATH_BOOST}/include
-  ${IRODS_EXTERNALS_FULLPATH_FMT}/include
   ${IRODS_EXTERNALS_FULLPATH_S3}/include
   ${IRODS_EXTERNALS_FULLPATH_SPDLOG}/include
   )
