@@ -1,5 +1,5 @@
-#ifndef MANAGED_SHARED_MEMORY_OBJECT_HPP
-#define MANAGED_SHARED_MEMORY_OBJECT_HPP
+#ifndef S3_TRANSPORT_MANAGED_SHARED_MEMORY_OBJECT_HPP
+#define S3_TRANSPORT_MANAGED_SHARED_MEMORY_OBJECT_HPP
 
 #include <irods/rodsLog.h>
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <utility>
 
-#include "s3_transport_logging_category.hpp"
+#include "irods/private/s3_transport/logging_category.hpp"
 
 namespace irods::experimental::interprocess
 {
@@ -156,4 +156,4 @@ namespace irods::experimental::interprocess
     } // namespace shared_memory
 } // namespace irods::experimental::ipc
 
-#endif // MANAGED_SHARED_MEMORY_OBJECT_HPP
+#endif // S3_TRANSPORT_MANAGED_SHARED_MEMORY_OBJECT_HPP

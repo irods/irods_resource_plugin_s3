@@ -1,7 +1,7 @@
 #ifndef S3_TRANSPORT_UTIL_HPP
 #define S3_TRANSPORT_UTIL_HPP
 
-#include "circular_buffer.hpp"
+#include "irods/private/s3_transport/circular_buffer.hpp"
 
 // iRODS includes
 #include <irods/rcMisc.h>
@@ -38,9 +38,9 @@
 #include <boost/filesystem.hpp>
 
 // local includes
-#include "s3_multipart_shared_data.hpp"
+#include "irods/private/s3_transport/multipart_shared_data.hpp"
 
-#include "s3_transport_types.hpp"
+#include "irods/private/s3_transport/types.hpp"
 
 namespace irods::experimental::io::s3_transport
 {
