@@ -1,9 +1,9 @@
 // =-=-=-=-=-=-=-
 // local includes
-#include "s3_operations.hpp"
-#include "libirods_s3.hpp"
-#include "s3_transport.hpp"
-#include "s3_plugin_logging_category.hpp"
+#include "irods/private/s3_resource/s3_operations.hpp"
+#include "irods/private/s3_resource/s3_resource.hpp"
+#include "irods/private/s3_transport/s3_transport.hpp"
+#include "irods/private/s3_resource/s3_plugin_logging_category.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes

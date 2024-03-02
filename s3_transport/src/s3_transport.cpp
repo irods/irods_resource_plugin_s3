@@ -1,4 +1,4 @@
-#include "circular_buffer.hpp"
+#include "irods/private/s3_transport/circular_buffer.hpp"
 
 // iRODS includes
 #include <irods/transport/transport.hpp>
@@ -35,9 +35,9 @@
 #include <boost/filesystem.hpp>
 
 // local includes
-#include "s3_multipart_shared_data.hpp"
-#include "s3_transport.hpp"
-#include "s3_transport_logging_category.hpp"
+#include "irods/private/s3_transport/multipart_shared_data.hpp"
+#include "irods/private/s3_transport/s3_transport.hpp"
+#include "irods/private/s3_transport/logging_category.hpp"
 
 
 namespace irods::experimental::io::s3_transport

@@ -1,7 +1,7 @@
 /* -*- mode: c++; fill-column: 132; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
-#ifndef _LIBIRODS_S3_HPP_
-#define _LIBIRODS_S3_HPP_
+#ifndef IRODS_S3_RESOURCE_HPP
+#define IRODS_S3_RESOURCE_HPP
 
 // Needed to support pread with > 2GB offsets
 #define _USE_FILE_OFFSET64

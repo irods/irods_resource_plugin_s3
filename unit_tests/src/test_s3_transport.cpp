@@ -1,8 +1,8 @@
 #include <catch2/catch.hpp>
 
-#include "s3_transport.hpp"
-#include "s3_transport_util.hpp"
-#include "s3_multipart_shared_data.hpp"
+#include "irods/private/s3_transport/s3_transport.hpp"
+#include "irods/private/s3_transport/util.hpp"
+#include "irods/private/s3_transport/multipart_shared_data.hpp"
 #include <irods/filesystem/filesystem.hpp>
 #include <irods/dstream.hpp>
 #include <mutex>
@@ -19,7 +19,7 @@
 #include <string_view>
 #include <fmt/format.h>
 #include <irods/miscServerFunct.hpp>
-#include "../../include/s3_transport_logging_category.hpp"
+#include "irods/private/s3_transport/logging_category.hpp"
 
 // to run the following unit tests, the aws command line utility needs to be available in
 // the path and "aws configure" needs to be run to set up the keys
