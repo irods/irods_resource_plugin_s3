@@ -1,5 +1,5 @@
-#ifndef S3_MULTIPART_TEST_SHARED_DATA
-#define S3_MULTIPART_TEST_SHARED_DATA
+#ifndef S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
+#define S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
 
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/containers/map.hpp>
@@ -12,7 +12,7 @@
 #include <boost/container/scoped_allocator.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
 
-#include "s3_transport_types.hpp"
+#include "irods/private/s3_transport/types.hpp"
 
 namespace irods::experimental::io::s3_transport::shared_data
 {
@@ -94,4 +94,4 @@ namespace irods::experimental::io::s3_transport::shared_data
 
 
 
-#endif // S3_MULTIPART_TEST_SHARED_DATA
+#endif // S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP

@@ -2,7 +2,7 @@
 #define IRODS_RING_BUFFER_HPP
 
 #include <boost/circular_buffer.hpp>
-#include "lock_and_wait_strategy.hpp"
+#include "irods/private/s3_transport/lock_and_wait_strategy.hpp"
 #include <iterator>
 
 namespace irods {
