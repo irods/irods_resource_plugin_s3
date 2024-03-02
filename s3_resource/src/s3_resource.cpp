@@ -1,10 +1,10 @@
 // =-=-=-=-=-=-=-
 // local includes
-#include "libirods_s3.hpp"
-#include "s3_operations.hpp"
-#include "s3_plugin_logging_category.hpp"
-#include "s3_transport/include/s3_transport_logging_category.hpp"
-#include "s3_transport/include/s3_transport.hpp"
+#include "irods/private/s3_resource/s3_resource.hpp"
+#include "irods/private/s3_resource/s3_operations.hpp"
+#include "irods/private/s3_resource/s3_plugin_logging_category.hpp"
+#include "irods/private/s3_transport/logging_category.hpp"
+#include "irods/private/s3_transport/s3_transport.hpp"
 
 // =-=-=-=-=-=-=-
 // irods includes

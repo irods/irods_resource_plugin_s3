@@ -1,7 +1,7 @@
 #ifndef S3_TRANSPORT_HPP
 #define S3_TRANSPORT_HPP
 
-#include "circular_buffer.hpp"
+#include "irods/private/s3_transport/circular_buffer.hpp"
 
 // iRODS includes
 #include <irods/transport/transport.hpp>
@@ -44,11 +44,11 @@
 #include <boost/filesystem.hpp>
 
 // local includes
-#include "s3_multipart_shared_data.hpp"
-#include "s3_transport_types.hpp"
-#include "s3_transport_util.hpp"
-#include "s3_transport_callbacks.hpp"
-#include "s3_transport_logging_category.hpp"
+#include "irods/private/s3_transport/multipart_shared_data.hpp"
+#include "irods/private/s3_transport/types.hpp"
+#include "irods/private/s3_transport/util.hpp"
+#include "irods/private/s3_transport/callbacks.hpp"
+#include "irods/private/s3_transport/logging_category.hpp"
 
 extern const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS;
 
