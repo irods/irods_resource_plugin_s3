@@ -30,6 +30,7 @@
  *
  ************************************************************************** **/
 
+#include <alloca.h>
 #include <string.h>
 #include <stdlib.h>
 #include "libs3/libs3.h"
@@ -464,7 +465,7 @@ static S3Status make_list_bucket_callback(ListBucketData* lbData)
 	int isTruncated = (!strcmp(lbData->isTruncated, "true") || !strcmp(lbData->isTruncated, "1")) ? 1 : 0;
 
 	// Convert the contents
-	S3ListBucketContent contents[lbData->contentsCount];
+	S3ListBucketContent* contents = alloca(sizeof(S3ListBucketContent) * lbData->contentsCount);
 
 	int contentsCount = lbData->contentsCount;
 	for (i = 0; i < contentsCount; i++) {
@@ -480,7 +481,7 @@ static S3Status make_list_bucket_callback(ListBucketData* lbData)
 
 	// Make the common prefixes array
 	int commonPrefixesCount = lbData->commonPrefixesCount;
-	char* commonPrefixes[commonPrefixesCount];
+	char** commonPrefixes = alloca(sizeof(char*) * commonPrefixesCount);
 	for (i = 0; i < commonPrefixesCount; i++) {
 		commonPrefixes[i] = lbData->commonPrefixes[i];
 	}

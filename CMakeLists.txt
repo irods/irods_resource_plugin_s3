@@ -29,6 +29,9 @@ if (NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
   message(STATUS "Setting unspecified CMAKE_BUILD_TYPE to '${CMAKE_BUILD_TYPE}'")
 endif()
 
+include(CheckCCompilerFlag)
+include(CheckCXXCompilerFlag)
+
 if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
   set(IRODS_BUILD_WITH_WERROR_DEFAULT ON)
 else()
@@ -45,6 +48,17 @@ add_compile_options(-Wall -Wextra)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fpermissive>)
+endif()
+
+# Variable length arrays can crash clang (#2156), so let's turn on warnings for them.
+# -Wvla is not enabled by -Wall or -Wextra, so we have to do it manually.
+check_c_compiler_flag(-Wvla can_use_wvla_c)
+check_cxx_compiler_flag(-Wvla can_use_wvla_cxx)
+if (can_use_wvla_c)
+  add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wvla>)
+endif()
+if (can_use_wvla_cxx)
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wvla>)
 endif()
 
 if (NOT DEFINED THREADS_PREFER_PTHREAD_FLAG)
