@@ -33,6 +33,7 @@
 #ifndef REQUEST_CONTEXT_H
 #define REQUEST_CONTEXT_H
 
+#include <curl/curl.h>
 #include "libs3/libs3.h"
 
 typedef enum
