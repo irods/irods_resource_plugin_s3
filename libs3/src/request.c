@@ -30,6 +30,7 @@
  *
  ************************************************************************** **/
 
+#include <alloca.h>
 #include <ctype.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -821,7 +822,7 @@ static void sort_query_string(const char* queryString, char* result, unsigned in
 		tmp++;
 	}
 
-	const char* params[numParams];
+	const char** params = alloca(sizeof(const char*) * numParams);
 
 	// Where did strdup go?!??
 	int queryStringLen = strlen(queryString);
@@ -875,9 +876,10 @@ static void canonicalize_query_string(const char* queryParams,
 #define append(str) len += snprintf(&(buffer[len]), buffer_size - len, "%s", str)
 
 	if (queryParams && queryParams[0]) {
-		char sorted[strlen(queryParams) * 2];
+		const size_t sortedSize = sizeof(char) * strlen(queryParams) * 2;
+		char* sorted = alloca(sortedSize);
 		sorted[0] = '\0';
-		sort_query_string(queryParams, sorted, sizeof(sorted));
+		sort_query_string(queryParams, sorted, sortedSize);
 		append(sorted);
 	}
 
@@ -942,26 +944,32 @@ static const char* http_request_type_to_verb(HttpRequestType requestType)
 static S3Status compose_auth_header(const RequestParams* params, RequestComputedValues* values)
 {
 	const char* httpMethod = http_request_type_to_verb(params->httpRequestType);
-	int canonicalRequestLen = strlen(httpMethod) + 1 + strlen(values->canonicalURI) + 1 +
-	                          strlen(values->canonicalQueryString) + 1 + strlen(values->canonicalizedSignatureHeaders) +
-	                          1 + strlen(values->signedHeaders) + 1 + 2 * S3_SHA256_DIGEST_LENGTH +
-	                          1; // 2 hex digits for each byte
-
+	// clang-format off
+	int canonicalRequestLen = 
+		(
+			strlen(httpMethod) + 1 + 
+			strlen(values->canonicalURI) + 1 +
+			strlen(values->canonicalQueryString) + 1 +
+			strlen(values->canonicalizedSignatureHeaders) + 1 +
+			strlen(values->signedHeaders) + 1 +
+			2 * S3_SHA256_DIGEST_LENGTH + 1 // 2 hex digits for each byte
+		) * sizeof(char);
+	// clang-format on
 	int len = 0;
 
-	char canonicalRequest[canonicalRequestLen];
+	char* canonicalRequest = alloca(canonicalRequestLen);
 
-#define buf_append(buf, format, ...) len += snprintf(&(buf[len]), sizeof(buf) - len, format, __VA_ARGS__)
+#define buf_append(buf, bufLen, format, ...) len += snprintf(&(buf[len]), bufLen - len, format, __VA_ARGS__)
 
 	canonicalRequest[0] = '\0';
-	buf_append(canonicalRequest, "%s\n", httpMethod);
-	buf_append(canonicalRequest, "%s\n", values->canonicalURI);
-	buf_append(canonicalRequest, "%s\n", values->canonicalQueryString);
-	buf_append(canonicalRequest, "%s\n", values->canonicalizedSignatureHeaders);
-	buf_append(canonicalRequest, "%s\n", values->signedHeaders);
+	buf_append(canonicalRequest, canonicalRequestLen, "%s\n", httpMethod);
+	buf_append(canonicalRequest, canonicalRequestLen, "%s\n", values->canonicalURI);
+	buf_append(canonicalRequest, canonicalRequestLen, "%s\n", values->canonicalQueryString);
+	buf_append(canonicalRequest, canonicalRequestLen, "%s\n", values->canonicalizedSignatureHeaders);
+	buf_append(canonicalRequest, canonicalRequestLen, "%s\n", values->signedHeaders);
 
-	buf_append(canonicalRequest, "%s", values->payloadHash);
-	//buf_append(canonicalRequest, "%s", values->dateHeader);
+	buf_append(canonicalRequest, canonicalRequestLen, "%s", values->payloadHash);
+	//buf_append(canonicalRequest, canonicalRequestLen, "%s", values->dateHeader);
 
 #ifdef SIGNATURE_DEBUG
 	printf("--\nCanonical Request:\n%s\n", canonicalRequest);
@@ -979,7 +987,7 @@ static S3Status compose_auth_header(const RequestParams* params, RequestComputed
 	canonicalRequestHashHex[0] = '\0';
 	int i = 0;
 	for (; i < S3_SHA256_DIGEST_LENGTH; i++) {
-		buf_append(canonicalRequestHashHex, "%02x", canonicalRequestHash[i]);
+		buf_append(canonicalRequestHashHex, sizeof(canonicalRequestHashHex), "%02x", canonicalRequestHash[i]);
 	}
 
 	const char* awsRegion = S3_DEFAULT_REGION;
@@ -1003,8 +1011,9 @@ static S3Status compose_auth_header(const RequestParams* params, RequestComputed
 #endif
 
 	const char* secretAccessKey = params->bucketContext.secretAccessKey;
-	char accessKey[strlen(secretAccessKey) + 5];
-	snprintf(accessKey, sizeof(accessKey), "AWS4%s", secretAccessKey);
+	const size_t accessKeySize = sizeof(char) * (strlen(secretAccessKey) + 5);
+	char* accessKey = alloca(accessKeySize);
+	snprintf(accessKey, accessKeySize, "AWS4%s", secretAccessKey);
 
 #ifdef __APPLE__
 	unsigned char dateKey[S3_SHA256_DIGEST_LENGTH];
@@ -1059,7 +1068,7 @@ static S3Status compose_auth_header(const RequestParams* params, RequestComputed
 	len = 0;
 	values->requestSignatureHex[0] = '\0';
 	for (i = 0; i < S3_SHA256_DIGEST_LENGTH; i++) {
-		buf_append(values->requestSignatureHex, "%02x", finalSignature[i]);
+		buf_append(values->requestSignatureHex, sizeof(values->requestSignatureHex), "%02x", finalSignature[i]);
 	}
 
 	snprintf(values->authCredential,
