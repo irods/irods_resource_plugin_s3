@@ -360,7 +360,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
 
         try:
             self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
-            self.admin.assert_icommand("iput --purgec " + filename)  # put file
+            self.admin.assert_icommand("iput --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # put file
             # should not be listed (trimmed)
             self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
             # should be listed once - replica 1
@@ -369,7 +369,9 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
             self.admin.assert_icommand(['irm', '-f', filename])
 
             self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', filename)  # should not be listed
-            self.admin.assert_icommand(['iput', '-b', '--purgec', filename])  # put file... in bulk!
+            # put file... in bulk!
+            self.admin.assert_icommand(
+                ['iput', '-b', '--purgec', filename], 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')
             # should not be listed (trimmed)
             self.admin.assert_icommand_fail("ils -L " + filename, 'STDOUT_SINGLELINE', [" 0 ", filename])
             # should be listed once - replica 1
@@ -390,7 +392,8 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         # assertions
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
         self.admin.assert_icommand("iput "+filename) # put file
-        self.admin.assert_icommand("iget -f --purgec "+filename) # get file and purge 'cached' replica
+        # get file and purge 'cached' replica
+        self.admin.assert_icommand("iget -f --purgec " + filename, 'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 ",filename]) # should not be listed (trimmed)
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 ",filename]) # should be listed once
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should not be listed
@@ -409,7 +412,9 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         # assertions
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',filename) # should not be listed
         self.admin.assert_icommand("iput "+filename) # put file
-        self.admin.assert_icommand("irepl -R " + self.testresc + " --purgec " + filename)  # replicate to test resource
+        self.admin.assert_icommand(
+            "irepl -R " + self.testresc + " --purgec " + filename,
+            'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.')  # replicate to test resource
         self.admin.assert_icommand_fail("ils -L "+filename,'STDOUT_SINGLELINE',[" 0 ",filename]) # should not be listed (trimmed)
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 1 ",filename]) # should be listed twice - 2 of 3
         self.admin.assert_icommand("ils -L "+filename,'STDOUT_SINGLELINE',[" 2 ",filename]) # should be listed twice - 1 of 3
@@ -459,7 +464,9 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         session.assert_icommand("imv %s %s" % (filename, new_filename))
 
         # get and purge cache replica
-        session.assert_icommand("iget -f --purgec %s" % new_filename) # get file and purge 'cached' replica
+        session.assert_icommand(
+            "iget -f --purgec %s" % new_filename,
+            'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.') # get file and purge 'cached' replica
 
         # get again now that it is not in cache
         session.assert_icommand("iget -f %s" % new_filename) # get file
@@ -512,7 +519,9 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         session.assert_icommand("imv %s %s" % (filename, new_filename))
 
         # get and purge cache replica
-        session.assert_icommand("iget -f --purgec %s" % new_filename) # get file and purge 'cached' replica
+        session.assert_icommand(
+            "iget -f --purgec %s" % new_filename,
+            'STDOUT', 'Specifying a minimum number of replicas to keep is deprecated.') # get file and purge 'cached' replica
 
         # get again now that it is not in cache
         session.assert_icommand("iget -f %s" % new_filename) # get file
