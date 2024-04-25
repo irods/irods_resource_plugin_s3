@@ -1,4 +1,7 @@
+include(CheckLibraryExists)
 include(ObjectTargetHelpers)
+
+check_library_exists("rt" "shm_open" "" LIBRT_HAS_SHM_OPEN)
 
 add_library(
   s3_transport_obj
@@ -21,6 +24,14 @@ target_link_libraries(
   "${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_filesystem.so"
   "${IRODS_EXTERNALS_FULLPATH_BOOST}/lib/libboost_system.so"
 )
+if (LIBRT_HAS_SHM_OPEN)
+  target_link_libraries(
+    s3_transport_obj
+    PUBLIC
+    Threads::Threads
+    rt
+  )
+endif()
 target_include_directories(
   s3_transport_obj
   PUBLIC
