@@ -15,6 +15,8 @@ import string
 import io
 import psutil
 import subprocess
+import shutil
+from ..test.command import assert_command
 
 try:
     from minio import Minio
@@ -2355,6 +2357,84 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             self.admin.assert_icommand("iadmin rmresc %s" % resource_name)
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(retrieved_file)
+
+    def test_iput_with_N_flag__issue_2198(self):
+
+        filename = 'test_iput_with_N_flag__issue_2198' 
+        get_filename = '%s.get' % filename
+        try:
+            file_sizes = [
+                    100,
+                    32 * 1024 * 1024 - 1,
+                    32 * 1024 * 1024,
+                    32 * 1024 * 1024 + 1,
+                    100 * 1024 * 1024
+                    ];
+
+            for file_size in file_sizes:
+                # create the file
+                lib.make_arbitrary_file(filename, file_size)
+
+                # put the file
+                self.user1.assert_icommand('iput %s' % filename)
+                self.user1.assert_icommand('iget -f %s %s' % (filename, get_filename))
+                assert_command(['diff', '-q', filename, get_filename])
+
+                for n_value in [0, 1, 2, 3, 4, 8]:
+                    self.user1.assert_icommand('iput -f -N%d %s' % (n_value, filename))
+                    self.user1.assert_icommand('iget -f %s %s' % (filename, get_filename))
+                    assert_command(['diff', '-q', filename, get_filename])
+
+                # cleanup before next loop
+                s3plugin_lib.remove_if_exists(filename)
+                s3plugin_lib.remove_if_exists(get_filename)
+                self.user1.assert_icommand('irm -f %s' % filename)
+
+        finally:
+            # clean up anything that wasn't cleaned up earlier
+            s3plugin_lib.remove_if_exists(filename)
+            s3plugin_lib.remove_if_exists(get_filename)
+            self.user1.assert_icommand('irm -f %s' % filename)
+
+    def test_recursive_put_small_files_with_checksum_and_N_flag__issue_2198(self):
+
+        dirname = 'test_recursive_put_small_files_with_checksum_and_N_flag__issue_2198'
+        filename1 = '%s1' % dirname
+        get_filename1 = '%s.get' % filename1
+        filename2 = '%s2' % dirname
+        get_filename2 = '%s.get' % filename2
+        filename3 = '%s3' % dirname
+        get_filename3 = '%s.get' % filename3
+
+        try:
+            # create the local directory
+            os.mkdir(dirname)
+            # create the files
+            lib.make_arbitrary_file('%s/%s' % (dirname, filename1), 100)
+            lib.make_arbitrary_file('%s/%s' % (dirname, filename2), 100)
+            lib.make_arbitrary_file('%s/%s' % (dirname, filename3), 100)
+
+            # recursively put the directory
+            self.user1.assert_icommand('iput -r -N2 -K %s' % dirname, 'STDOUT_SINGLELINE', 'Running recursive pre-scan')
+
+            # verify the files are in iRODS
+            self.user1.assert_icommand('ils -l %s' % dirname, 'STDOUT_MULTILINE', [filename1, filename2, filename3])
+
+            # get and verify the file contents
+            self.user1.assert_icommand('iget %s/%s %s' % (dirname, filename1, get_filename1))
+            self.user1.assert_icommand('iget %s/%s %s' % (dirname, filename2, get_filename2))
+            self.user1.assert_icommand('iget %s/%s %s' % (dirname, filename3, get_filename3))
+            assert_command(['diff', '-q', '%s/%s' % (dirname, filename1), get_filename1])
+            assert_command(['diff', '-q', '%s/%s' % (dirname, filename2), get_filename2])
+            assert_command(['diff', '-q', '%s/%s' % (dirname, filename3), get_filename3])
+
+        finally:
+            # clean up whatever was not cleaned up
+            self.user1.assert_icommand('irm -rf %s' % dirname)
+            shutil.rmtree(dirname)
+            s3plugin_lib.remove_if_exists(get_filename1)
+            s3plugin_lib.remove_if_exists(get_filename2)
+            s3plugin_lib.remove_if_exists(get_filename3)
 
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 

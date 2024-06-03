@@ -330,7 +330,6 @@ namespace irods_s3 {
             if (number_of_threads == 0) {
 
                 const int single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
-                number_of_threads = requested_number_of_threads;
 
                 if (data_size > single_buff_sz && oprType != REPLICATE_DEST && oprType != COPY_DEST) {
 
