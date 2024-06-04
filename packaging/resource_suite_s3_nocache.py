@@ -15,6 +15,9 @@ import io
 import psutil
 import subprocess
 import distro
+import inspect
+import shutil
+from ..test.command import assert_command
 
 from .. import paths
 from ..configuration import IrodsConfig
@@ -2405,6 +2408,67 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             self.admin.assert_icommand("iadmin rmresc %s" % resource_name)
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(retrieved_file)
+
+    def test_iput_with_N_flag_issue_2198(self):
+
+        filename = f'{inspect.currentframe().f_code.co_name}'
+        get_filename = f'{filename}.get'
+        try:
+            file_sizes = [
+                    100,
+                    32 * 1024 * 1024 - 1,
+                    32 * 1024 * 1024,
+                    32 * 1024 * 1024 + 1,
+                    100 * 1024 * 1024
+                    ];
+
+            for file_size in file_sizes:
+                # create the file
+                lib.make_arbitrary_file(filename, file_size)
+
+                # put the file
+                self.user1.assert_icommand(f'iput {filename}')
+                self.user1.assert_icommand(f'iget -f {filename} {get_filename}')
+                assert_command(['diff', '-q', filename, get_filename])
+
+                for n_value in [0, 1, 2,3,4,8]:
+                    self.user1.assert_icommand(f'iput -f -N{n_value} {filename}')
+                    self.user1.assert_icommand(f'iget -f {filename} {get_filename}')
+                    assert_command(['diff', '-q', filename, get_filename])
+
+                # cleanup before next loop
+                s3plugin_lib.remove_if_exists(filename)
+                s3plugin_lib.remove_if_exists(get_filename)
+                self.user1.assert_icommand(f'irm -f {filename}')
+
+        finally:
+            # clean up the file that was put in case it wasn't cleaned up
+            self.user1.assert_icommand(f'irm -f {filename}')
+
+    def recursive_put_small_files_with_checksum_and_N_flag_issue_2198(self):
+
+        dirname = f'{inspect.currentframe().f_code.co_name}'
+        filename1 = f'{inspect.currentframe().f_code.co_name}1'
+        filename2 = f'{inspect.currentframe().f_code.co_name}1'
+        filename3 = f'{inspect.currentframe().f_code.co_name}3'
+        try:
+            # create the local directory
+            os.mkdir(dirname)
+            # create the files
+            lib.make_arbitrary_file(f'{dirname}/{filename1}', 100)
+            lib.make_arbitrary_file(f'{dirname}/{filename2}', 100)
+            lib.make_arbitrary_file(f'{dirname}/{filename3}', 100)
+
+            # recursively put the directory
+            self.user1.assert_icommand(f'iput -r -N2 -K {dirname}')
+
+            #verify the files are in iRODS 
+            self.user1.assert_icommand(f'ils -l {dirname}', 'STDOUT_MULTILINE', [filename1, filename2, filename3])
+
+        finally:
+            # clean up the file that was put in case it wasn't cleaned up
+            self.user1.assert_icommand(f'irm -rf {dirname}')
+            shutil.rmtree(dirname)
 
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
