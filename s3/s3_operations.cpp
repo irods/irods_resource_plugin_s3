@@ -326,12 +326,12 @@ namespace irods_s3 {
                     }
             }
 
-            // if number of threads was not successfully set above
+            // If number of threads was not successfully set above.
             if (number_of_threads == 0) {
 
                 const int single_buff_sz = irods::get_advanced_setting<const int>(irods::CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
 
-                if (data_size > single_buff_sz && oprType != REPLICATE_DEST && oprType != COPY_DEST) {
+                if (data_size > single_buff_sz && oprType != REPLICATE_DEST) {
 
                     number_of_threads = getNumThreads( _ctx.comm(),
                             data_size,
