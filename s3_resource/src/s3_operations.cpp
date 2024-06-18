@@ -327,24 +327,22 @@ namespace irods_s3 {
                     }
             }
 
-            // if number of threads was not successfully set above
-            if (number_of_threads == 0) {
+			// If number of threads was not successfully set above.
+			if (number_of_threads == 0) {
+				const int single_buff_sz = irods::get_advanced_setting<const int>(irods::KW_CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
 
-                const int single_buff_sz = irods::get_advanced_setting<const int>(irods::KW_CFG_MAX_SIZE_FOR_SINGLE_BUFFER) * 1024 * 1024;
+				if (data_size > single_buff_sz && oprType != REPLICATE_DEST) {
+					number_of_threads = getNumThreads(_ctx.comm(),
+					                                  data_size,
+					                                  requested_number_of_threads,
+					                                  const_cast<KeyValPair*>(&file_obj->cond_input()),
+					                                  nullptr, // destination resc hier
+					                                  nullptr, // source resc hier
+					                                  0);      // opr type - not used
+				}
+			}
 
-                if (data_size > single_buff_sz && oprType != REPLICATE_DEST && oprType != COPY_DEST) {
-
-                    number_of_threads = getNumThreads( _ctx.comm(),
-                            data_size,
-                            requested_number_of_threads,
-                            const_cast<KeyValPair*>(&file_obj->cond_input()),
-                            nullptr,                     // destination resc hier
-                            nullptr,                     // source resc hier
-                            0 );                         // opr type - not used
-                }
-            }
-
-            // If we still don't know the # of threads, set it to 1 unless the oprType is unknown in
+			// If we still don't know the # of threads, set it to 1 unless the oprType is unknown in
             // which case it will remain <= 0 which will force use of cache.
             if (number_of_threads <= 0 && oprType != -1) {
                 number_of_threads = 1;

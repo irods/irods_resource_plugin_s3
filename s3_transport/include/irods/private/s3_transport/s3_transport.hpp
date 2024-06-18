@@ -1322,8 +1322,24 @@ namespace irods::experimental::io::s3_transport
                 (_mode & std::ios_base::ate) == std::ios_base::ate,
                 (_mode & std::ios_base::binary) == std::ios_base::binary);
 
-            object_key_ = _p.string();
-            shmem_key_ = constants::SHARED_MEMORY_KEY_PREFIX +
+			// Issue 2204 - If this is read-only, we don't care about number_of_client_transfer_threads
+			// as there is no post-processing needed like flushing cache file or completing multipart except
+			// for deleting shared memory.
+			//
+			// In this case we can just use the open/close up/down counter. This is used to delete shared
+			// memory once the counter goes to zero. However, if the counter prematurely goes to zero (due to order of
+			// open/read/closes) and the shared memory is deleted it doesn't cause a problem in the read-only case.
+			//
+			// The number_of_client_transfer_threads is wrong when iRODS does a read after write for a checksum
+			// operation. At the point where we are determining the number of transfer threads it is not clear
+			// that we are doing a read after write as the open mode is not updated between the write and the read.
+			// By this point we have figured out we are doing the read after write and have updated the open flags.
+			if (!(_mode & std::ios_base::out)) {
+				this->config_.number_of_client_transfer_threads = -1;
+			}
+
+			object_key_ = _p.string();
+			shmem_key_ = constants::SHARED_MEMORY_KEY_PREFIX +
                 std::to_string(std::hash<std::string>{}(config_.resource_name + "/" + object_key_));
 
             upload_manager_.object_key = object_key_;

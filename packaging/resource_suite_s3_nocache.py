@@ -2488,6 +2488,120 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             s3plugin_lib.remove_if_exists(get_filename2)
             s3plugin_lib.remove_if_exists(get_filename3)
 
+    def test_multiple_irsync_to_s3__issue_2204(self):
+
+        filename1 = f'{inspect.currentframe().f_code.co_name}1'
+        get_filename1 = f'{filename1}.get'
+        filename2 = f'{inspect.currentframe().f_code.co_name}2'
+        get_filename2 = f'{filename2}.get'
+
+        try:
+            # create 
+            lib.make_arbitrary_file(f'{filename1}', 100*1024*1024)
+
+            # put filename1 
+            self.user1.assert_icommand(f'iput -K {filename1}')
+
+            # irsync to filename2
+            self.user1.assert_icommand(f'irsync -K i:{filename1} i:{filename2}')
+
+            # verify the files are in iRODS 
+            self.user1.assert_icommand(f'ils -l', 'STDOUT_MULTILINE', [filename1, filename2])
+
+            # get filename1 and filename2
+            self.user1.assert_icommand(f'iget {filename1} {get_filename1}')
+            self.user1.assert_icommand(f'iget {filename2} {get_filename2}')
+            
+            # verify the files are the same
+            assert_command(['diff', '-q', filename1, get_filename1])
+            assert_command(['diff', '-q', filename1, get_filename2])
+
+            # remove filename2 and the downloaded files
+            self.user1.assert_icommand(f'irm -f {filename2}')
+            s3plugin_lib.remove_if_exists(get_filename1)
+            s3plugin_lib.remove_if_exists(get_filename2)
+
+            # perform a second irsync to test that shmem is clean
+
+            # irsync to filename2
+            self.user1.assert_icommand(f'irsync -K i:{filename1} i:{filename2}')
+
+            # verify the files are in iRODS 
+            self.user1.assert_icommand(f'ils -l', 'STDOUT_MULTILINE', [filename1, filename2])
+
+            # get filename1 and filename2
+            self.user1.assert_icommand(f'iget {filename1} {get_filename1}')
+            self.user1.assert_icommand(f'iget {filename2} {get_filename2}')
+            
+            # verify the files are the same
+            assert_command(['diff', '-q', filename1, get_filename1])
+            assert_command(['diff', '-q', filename1, get_filename2])
+
+        finally:
+            # clean up the file that was put in case it wasn't cleaned up
+            self.user1.assert_icommand(f'irm -rf {filename1}')
+            self.user1.assert_icommand(f'irm -rf {filename2}')
+            s3plugin_lib.remove_if_exists(filename1)
+            s3plugin_lib.remove_if_exists(get_filename1)
+            s3plugin_lib.remove_if_exists(get_filename2)
+
+    def test_multiple_irsync_to_s3_with_N_flag__issue_2204(self):
+
+        filename1 = f'{inspect.currentframe().f_code.co_name}1'
+        get_filename1 = f'{filename1}.get'
+        filename2 = f'{inspect.currentframe().f_code.co_name}2'
+        get_filename2 = f'{filename2}.get'
+
+        try:
+            # create 
+            lib.make_arbitrary_file(f'{filename1}', 100*1024*1024)
+
+            # put filename1 
+            self.user1.assert_icommand(f'iput -K {filename1}')
+
+            # irsync to filename2
+            self.user1.assert_icommand(f'irsync -N3 -K i:{filename1} i:{filename2}')
+
+            # verify the files are in iRODS 
+            self.user1.assert_icommand(f'ils -l', 'STDOUT_MULTILINE', [filename1, filename2])
+
+            # get filename1 and filename2
+            self.user1.assert_icommand(f'iget {filename1} {get_filename1}')
+            self.user1.assert_icommand(f'iget {filename2} {get_filename2}')
+            
+            # verify the files are the same
+            assert_command(['diff', '-q', filename1, get_filename1])
+            assert_command(['diff', '-q', filename1, get_filename2])
+
+            # remove filename2 and the downloaded files
+            self.user1.assert_icommand(f'irm -f {filename2}')
+            s3plugin_lib.remove_if_exists(get_filename1)
+            s3plugin_lib.remove_if_exists(get_filename2)
+
+            # perform a second irsync to test that shmem is clean
+
+            # irsync to filename2
+            self.user1.assert_icommand(f'irsync -N3 -K i:{filename1} i:{filename2}')
+
+            # verify the files are in iRODS 
+            self.user1.assert_icommand(f'ils -l', 'STDOUT_MULTILINE', [filename1, filename2])
+
+            # get filename1 and filename2
+            self.user1.assert_icommand(f'iget {filename1} {get_filename1}')
+            self.user1.assert_icommand(f'iget {filename2} {get_filename2}')
+            
+            # verify the files are the same
+            assert_command(['diff', '-q', filename1, get_filename1])
+            assert_command(['diff', '-q', filename1, get_filename2])
+
+        finally:
+            # clean up the file that was put in case it wasn't cleaned up
+            self.user1.assert_icommand(f'irm -rf {filename1}')
+            self.user1.assert_icommand(f'irm -rf {filename2}')
+            s3plugin_lib.remove_if_exists(filename1)
+            s3plugin_lib.remove_if_exists(get_filename1)
+            s3plugin_lib.remove_if_exists(get_filename2)
+
 class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
     def __init__(self, *args, **kwargs):
