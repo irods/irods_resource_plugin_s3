@@ -1190,9 +1190,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
 
     def test_iput_large_file_over_smaller(self):
 
-        file1 = "f1"
-        file2 = "f2"
-        filename_get = "f3"
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+        file2 = f'{inspect.currentframe().f_code.co_name}_f2'
+        filename_get = f'{inspect.currentframe().f_code.co_name}_get'
 
         file1_size = pow(2,20)
         file2_size = 512*pow(2,20)
@@ -1227,9 +1227,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
 
     def test_iput_small_file_over_larger(self):
 
-        file1 = "f1"
-        file2 = "f2"
-        filename_get = "f3"
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+        file2 = f'{inspect.currentframe().f_code.co_name}_f2'
+        filename_get = f'{inspect.currentframe().f_code.co_name}_get'
 
         file1_size = 512*pow(2,20)
         file2_size = pow(2,20)
@@ -1453,7 +1453,7 @@ INPUT null
 OUTPUT ruleExecOut
         '''.format(**locals())
 
-        file1 = 'f1'
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         write_rule_file_path = 'test_small_write.r'
         read_rule_file_path = 'test_small_read.r'
 
@@ -1493,8 +1493,8 @@ OUTPUT ruleExecOut
     def test_detached_mode(self):
 
         try:
-            file1 = "f1"
-            file2 = "f2"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
             resource_host = "irods.org"
             resource_name = 's3resc1'
 
@@ -1547,7 +1547,7 @@ OUTPUT ruleExecOut
         # in non-topology HOSTNAME_3 is just local host so it really doesn't test detached mode
         # but in topology it will
 
-        file1 = "f1"
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         #resource_host = test.settings.HOSTNAME_3
         resource_host = "irods.org"
 
@@ -1608,8 +1608,8 @@ OUTPUT ruleExecOut
 
         try:
 
-            file1 = "f1"
-            file2 = "f2"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
             lib.make_file(file1, 128*1024*1024, 'arbitrary')
             self.user0.assert_icommand("iput {file1}".format(**locals()))  # iput
             self.user0.assert_icommand("imv {file1} {file2}".format(**locals()))  # imv
@@ -1640,9 +1640,9 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc3", 'EMPTY')
 
             # create and put file
-            file1 = "f1"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
             lib.make_file(file1, 1024, 'arbitrary')
-            file2 = "f1.get"
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
             self.user0.assert_icommand("iput -R s3repl {file1}".format(**locals()))  # iput
 
             # get file from first repl
@@ -1698,8 +1698,8 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin addchildtoresc s3repl s3resc3", 'EMPTY')
 
             # create and put file
-            file1 = "f1"
-            file2 = "f1.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
             lib.make_file(file1, 120*1024*1024)
             self.user0.assert_icommand("iput -R s3repl {file1}".format(**locals()))  # iput
 
@@ -1776,8 +1776,8 @@ OUTPUT ruleExecOut
                     320 * 1024 * 1024 + 1, # 16 threads, different sizes, multipart upload, three parts per thread
                     ];
 
-            file1 = "f1"
-            file2 = "f1.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
 
             for file_size in file_sizes:
 
@@ -1814,7 +1814,7 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            file1 = "f1"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
             file_size = 120*1024*1024;
 
             # create and put file
@@ -2235,8 +2235,8 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            file1 = "f1"
-            file2 = "f1.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
 
             file_size = 4*1024*1024*1024 + 1  # +1 - make sure one thread handles more than 4 GiB
 
@@ -2276,8 +2276,8 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, self.s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            file1 = "f1"
-            file2 = "f1.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
 
             file_size = 8*1024*1024*1024 + 2  # +2 - make sure each thread handles more than 4 GiB
 
@@ -2333,8 +2333,8 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             self.admin.assert_icommand("iadmin addchildtoresc replresc s3resc1", 'EMPTY')
             self.admin.assert_icommand("iadmin addchildtoresc replresc s3resc2", 'EMPTY')
 
-            file1 = "f1"
-            file2 = "f1.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
 
             file_size = 1024*1024*1024;
 
@@ -2377,8 +2377,8 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
         # in non-topology HOSTNAME_3 is just local host so it really doesn't test detached mode
         # but in topology it will
 
-        file1 = "f1"
-        retrieved_file = "f1.get"
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+        retrieved_file = f'{inspect.currentframe().f_code.co_name}_get'
         resource_host = test.settings.HOSTNAME_3
         resource_name = "s3_resc_on_host3"
 
@@ -2747,10 +2747,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            file1 = "f1"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
             file1_get = "f1.get"
-            file2 = "f2"
-            file2_get = "f2.get"
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
+            file2_get = f'{file2}_get'
 
             file1_size = 8*1024*1024
             file2_size = 32*1024*1024 + 1
@@ -2818,10 +2818,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            file1 = "f1"
-            file1_get = "f1.get"
-            file2 = "f2"
-            file2_get = "f2.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file1_get = f'{file1}_get'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
+            file2_get = f'{file2}_get'
 
             file1_size = 8*1024*1024
             file2_size = 32*1024*1024 + 1
@@ -2879,10 +2879,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            file1 = "f1"
-            file1_get = "f1.get"
-            file2 = "f2"
-            file2_get = "f2.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file1_get = f'{file1}_get'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
+            file2_get = f'{file2}_get'
 
             file1_size = 8*1024*1024
             file2_size = 32*1024*1024 + 1
@@ -2941,10 +2941,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            file1 = "f1"
-            file1_get = "f1.get"
-            file2 = "f2"
-            file2_get = "f2.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file1_get = f'{file1}_get'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
+            file2_get = f'{file2}_get'
 
             file1_size = 8*1024*1024
             file2_size = 32*1024*1024 + 1
@@ -3003,10 +3003,10 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
             self.admin.assert_icommand("iadmin mkresc s3resc1 s3 %s:/%s/%s/s3resc1 %s" %
                                    (hostname, self.s3bucketname, hostuser, s3_context), 'STDOUT_SINGLELINE', "Creating")
 
-            file1 = "f1"
-            file1_get = "f1.get"
-            file2 = "f2"
-            file2_get = "f2.get"
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file1_get = f'{file1}_get'
+            file2 = f'{inspect.currentframe().f_code.co_name}_f2'
+            file1_get = f'{file2}_get'
 
             file1_size = 8*1024*1024
             file2_size = 32*1024*1024 + 1
@@ -3070,9 +3070,9 @@ class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
 
     def test_decoupled_redirect_issue_2146(self):
 
-        file1 = "f1"
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         file1_size = 2*1024*1024
-        retrieved_file = "f1.get"
+        retrieved_file = f'{inspect.currentframe().f_code.co_name}_get'
         resource_host = test.settings.HOSTNAME_3
         resource_name = "s3_resc_on_host3"
 
@@ -3105,11 +3105,11 @@ class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
     # This verifies that once the file is written to the DB, whatever mode was used remains in effect as the DB always wins.
     def test_resource_updated_from_consistent_to_decoupled_issue_2161(self):
 
-        file1 = "f1"
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         file1_size = 2*1024
-        file2 = "f2"
+        file2 = f'{inspect.currentframe().f_code.co_name}_f2'
         file2_size = 3*1024
-        retrieved_file = 'f.get'
+        retrieved_file = f'{inspect.currentframe().f_code.co_name}_get'
         hostname = lib.get_hostname()
         resource_name = "s3_resc"
 
@@ -3164,11 +3164,11 @@ class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
     # This verifies that once the file is written to the DB, whatever mode was used remains in effect as the DB always wins.
     def test_resource_updated_from_decoupled_to_consistent_issue_2161(self):
 
-        file1 = "f1"
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         file1_size = 2*1024
-        file2 = "f2"
+        file2 = f'{inspect.currentframe().f_code.co_name}_f2'
         file2_size = 3*1024
-        retrieved_file = 'f.get'
+        retrieved_file = f'{inspect.currentframe().f_code.co_name}_get'
         hostname = lib.get_hostname()
         resource_name = "s3_resc"
 
