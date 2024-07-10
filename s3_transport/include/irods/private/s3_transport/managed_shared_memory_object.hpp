@@ -40,7 +40,7 @@ namespace irods::experimental::interprocess
                     , last_access_time_in_seconds(access_time)
                 {}
 
-                // T must have reset_fields() and ref_count and can_delete()
+                // T must have ref_count and can_delete()
                 T thing;
 
                 time_t last_access_time_in_seconds;
@@ -83,7 +83,7 @@ namespace irods::experimental::interprocess
 
                 if (shmem_has_expired) {
 
-                    logger::debug("{}:{} ({}) SHMEM_HAS_EXPIRED", __FILE__, __LINE__, __FUNCTION__);
+                    logger::debug("{}:{} ({}) SHMEM_HAS_EXPIRED", __FILE__, __LINE__, __func__);
 
                     // rebuild shmem object
                     shm_.destroy<ipc_object>(SHARED_DATA_NAME.c_str());
@@ -110,9 +110,12 @@ namespace irods::experimental::interprocess
 
                         object_->thing.~T();
                         object_ = nullptr;
-                        bi::shared_memory_object::remove(shm_name_.c_str());
-                        bi::named_mutex::remove(shm_name_.c_str());
-
+                        if (!bi::shared_memory_object::remove(shm_name_.c_str())) {
+                            logger::error("{}:{} ({}) removal of shared memory object [{}] failed", __FILE__, __LINE__, __func__, shm_name_);
+                        }
+                        if (!bi::named_mutex::remove(shm_name_.c_str())) {
+                            logger::error("{}:{} ({}) removal of mutex for shared memory object [{}] failed", __FILE__, __LINE__, __func__, shm_name_);
+                        }
                     }
                 }
             }

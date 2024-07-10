@@ -1,5 +1,5 @@
-#ifndef S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
-#define S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
+#ifndef IRODS_S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
+#define IRODS_S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
 
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/containers/map.hpp>
@@ -55,21 +55,6 @@ namespace irods::experimental::io::s3_transport::shared_data
             , know_number_of_threads{true}
         {}
 
-        void reset_fields()
-        {
-            threads_remaining_to_close = 0;
-            done_initiate_multipart = false;
-            upload_id = "";
-            etags.clear();
-            last_error_code = error_codes::SUCCESS;
-            cache_file_download_progress = cache_file_download_status::NOT_STARTED;
-            ref_count = 1;   // current object has reference so ref_count = 1
-            circular_buffer_read_timeout = false;
-            file_open_counter = 0;
-            cache_file_flushed = false;
-            know_number_of_threads = true;
-        }
-
         bool can_delete() {
             return know_number_of_threads
                    ? threads_remaining_to_close == 0
@@ -94,4 +79,4 @@ namespace irods::experimental::io::s3_transport::shared_data
 
 
 
-#endif // S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
+#endif // IRODS_S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
