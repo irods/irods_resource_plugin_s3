@@ -52,12 +52,18 @@ namespace irods::experimental::io::s3_transport
         static const std::int64_t            BYTES_PER_ETAG{112};  // 80 bytes for every string added, 32 bytes for the vector size,
                                                               // determined by testing
         static const std::int64_t            UPLOAD_ID_SIZE{128};
-        static const std::int64_t            MAX_S3_SHMEM_SIZE{sizeof(shared_data::multipart_shared_data) +
+
+        // See https://groups.google.com/g/boost-list/c/5ADnEPYg-ho for an explanation
+        // of why the 100*sizeof(void*) is used below.  Essentially, the shared memory
+        // must have enough space for the memory algorithm and reserved area but there is
+        // no way of knowing the size for these.  It is stated that 100*sizeof(void*) would
+        // be enough.
+        static constexpr std::int64_t        MAX_S3_SHMEM_SIZE{100*sizeof(void*) + sizeof(shared_data::multipart_shared_data) +
                                                           MAXIMUM_NUMBER_ETAGS_PER_UPLOAD * (BYTES_PER_ETAG + 1) +
                                                           UPLOAD_ID_SIZE + 1};
 
         static const int                DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS{900};
-        inline static const std::string SHARED_MEMORY_KEY_PREFIX{"irods_s3-shm-"};
+        inline static const std::string SHARED_MEMORY_KEY_PREFIX{"irods_s3_transport-shm-"};
     };
 
     void print_bucket_context( const libs3_types::bucket_context& bucket_context );
