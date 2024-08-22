@@ -33,7 +33,8 @@ def get_package_type():
     return pt
 
 def install_test_prerequisites():
-    irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', '--upgrade', 'pip>=20.3.4'], check_rc=True)
+    if distro.id() != "ubuntu" or int(distro.major_version()) < 24:
+        irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', '--upgrade', 'pip>=20.3.4'], check_rc=True)
     irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', 'boto3', '--upgrade'], check_rc=True)
 
     # Minio 7.1.17 imports the annontations module which only exists in Python 3.7 and beyond.
@@ -42,7 +43,6 @@ def install_test_prerequisites():
     minio_version = '==7.1.16' if sys.hexversion < 0x030700F0 else ''
     irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', 'minio' + minio_version, '--upgrade'], check_rc=True)
 
-    irods_python_ci_utilities.subprocess_get_output(['sudo', '-EH', 'python3', '-m', 'pip', 'install', 'unittest-xml-reporting==1.14.0'])
 
 def download_and_start_minio_server():
     path_to_minio = os.path.abspath('minio')
