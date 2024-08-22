@@ -1602,7 +1602,7 @@ OUTPUT ruleExecOut
 
         self.admin.assert_icommand("ireg -r /%s/basedir %s/basedir" % (self.s3bucketname, self.admin.session_collection))
         file_count = self.admin.run_icommand('''iquest "%s" "SELECT count(DATA_ID) where COLL_NAME like '%/basedir%'"''')[0]
-        self.assertEquals(file_count, u'9\n')
+        self.assertEqual(file_count, u'9\n')
 
     def test_copy_file_greater_than_chunk_size(self):
 
