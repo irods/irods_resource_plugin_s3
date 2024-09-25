@@ -229,6 +229,23 @@ To increase or decrease the logging level for the S3 plugin, add an `s3_resource
 },
 ```
 
+## Troubleshooting
+
+### Handling "Reduce Your Request Rate" Errors
+
+On operations that require calculating a checksum for an S3 object at rest, iRODS must read the object's data to calculate the checksum. The default buffer size for these reads is 1 MiB. Each of these read requests map to a separate GetObject request to S3 with a range of bytes. This can exceed the request rate that the S3 provider allows.
+
+To resolve this problem, the read buffer size can be increased by updating the `checksum_read_buffer_size_in_bytes` value in the `advanced_settings` stanza of server_config.json. This change should be made for all servers that can serve requests to that S3 resource.
+
+The following is an example of increasing this buffer size to 10 MiB:
+
+```
+    "advanced_settings": {
+        ...
+        "checksum_read_buffer_size_in_bytes": 10485760
+        ...
+```
+
 ## Using this plugin with Google Cloud Storage (GCS)
 
 This plugin has been manually tested to work with Google Cloud Storage, with some caveats.
