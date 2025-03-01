@@ -1559,7 +1559,7 @@ OUTPUT ruleExecOut
         try:
 
             # put small file
-            self.admin.assert_icommand("iput %s" % file1, 'STDERR_SINGLELINE', 'USER_SOCK_CONNECT_ERR')  # iput
+            self.admin.assert_icommand("iput %s" % file1, 'STDERR_SINGLELINE', 'USER_SOCK_CONNECT_TIMEDOUT')  # iput
 
         finally:
 
