@@ -1559,7 +1559,12 @@ OUTPUT ruleExecOut
         try:
 
             # put small file
-            self.admin.assert_icommand("iput %s" % file1, 'STDERR_SINGLELINE', 'USER_SOCK_CONNECT_TIMEDOUT')  # iput
+            ec, _, err = self.admin.assert_icommand("iput %s" % file1, 'STDERR')
+            self.assertNotEqual(ec, 0)
+
+            # Both are okay, since either case is possible when connecting to an invalid host.
+            # It depends on if the host rejects the connection or ignores it (i.e. a "stealth" port).
+            self.assertTrue('-347000 USER_SOCK_CONNECT_TIMEDOUT' in err or '-305000 USER_SOCK_CONNECT_ERR' in err)
 
         finally:
 
