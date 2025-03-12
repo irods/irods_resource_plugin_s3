@@ -1094,7 +1094,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
 
         homepath = self.user0.session_collection
         self.user0.assert_icommand("irepl -R " + self.testresc + " -r " + homepath, "EMPTY")  # creates replica
-        self.admin.assert_icommand("itrim -M -N1 -r " + homepath, 'STDOUT_SINGLELINE', "Total size trimmed = " + str(filesizeMB) +" MB. Number of files trimmed = 102.")
+        self.admin.assert_icommand("itrim -M -N1 -r " + homepath, 'STDOUT', "Total size trimmed = " + str(filesizeMB) +" MB. Number of data objects trimmed = 102.")
 
         #local file cleanup
         os.unlink(os.path.abspath("file.txt"))
@@ -1119,7 +1119,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         repl_count = self.admin.run_icommand('''iquest "%s" "SELECT count(DATA_ID) where COLL_NAME ='{collection}' and DATA_NAME ='{filename}'"'''.format(**locals()))[0]
 
         # try to trim down to repl_count
-        self.admin.assert_icommand("itrim -N {repl_count} {filename}".format(**locals()), 'STDOUT_SINGLELINE', "Total size trimmed = 0.000 MB. Number of files trimmed = 0.")
+        self.admin.assert_icommand("itrim -N {repl_count} {filename}".format(**locals()), 'STDOUT', "Total size trimmed = 0.000 MB. Number of data objects trimmed = 0.")
 
     def test_itrim_displays_incorrect_count__ticket_3531(self):
         filename = "itrimcountwrong.txt"
@@ -1146,7 +1146,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.user0.assert_icommand("ils -L", 'STDOUT_MULTILINE', [put_resource, repl_resource])
 
         # trim the file
-        self.user0.assert_icommand("itrim -N 1 -S {put_resource} {filename}".format(**locals()), 'STDOUT_SINGLELINE', "Total size trimmed = " + str(filesizeMB) +" MB. Number of files trimmed = 1.")
+        self.user0.assert_icommand("itrim -N 1 -S {put_resource} {filename}".format(**locals()), 'STDOUT', "Total size trimmed = " + str(filesizeMB) +" MB. Number of data objects trimmed = 1.")
 
         # local cleanup
         s3plugin_lib.remove_if_exists(filepath)
