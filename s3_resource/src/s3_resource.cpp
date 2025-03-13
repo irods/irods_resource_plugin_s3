@@ -2203,8 +2203,8 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
 
     irods::error ret;
 
-    namespace log = irods::experimental::log;
-    using transport_logger = log::logger<s3_transport_logging_category>;
+    using log_resource = irods::experimental::log::resource;
+    using transport_logger = irods::experimental::log::logger<s3_transport_logging_category>;
 
     const auto log_level = get_level_from_config(CFG_LOG_LEVEL_CATEGORY_S3_RESOURCE_PLUGIN_KW);
 
@@ -2246,7 +2246,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
         std::string resource_name;
         ret = _prop_map.get<std::string>(irods::RESOURCE_NAME, resource_name);
         if (!ret.ok()) {
-            logger::resource::warn(
+            log_resource::warn(
                 "Detached mode failed to set RESOURCE_HOST to {}."
                 "  Failed to get irods::RESOURCE_NAME property.",
                 local_hostname);
@@ -2264,7 +2264,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
         rodsServerHost_t* local_host = nullptr;
         const int resolve_host_return = resolveHost(&addr, &local_host);
         if (resolve_host_return < 0) {
-            logger::resource::warn(
+            log_resource::warn(
                 "[resource_name={}] Detached mode failed to set RESOURCE_HOST to {}."
                 "  Failed to call resolveHost.  Error returned is {}.",
                 resource_name,
