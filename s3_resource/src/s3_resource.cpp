@@ -16,6 +16,7 @@
 #include <irods/dataObjOpr.hpp>
 #include <irods/irods_stacktrace.hpp>
 #include <irods/irods_at_scope_exit.hpp>
+#include <irods/irods_server_properties.hpp>
 
 // =-=-=-=-=-=-=-
 // irods includes
@@ -2240,8 +2241,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
         // Note:  On error conditions below, detached mode will remain disabled and a warning
         // will be logged.
 
-        char local_hostname[MAX_NAME_LEN];
-        gethostname(local_hostname, MAX_NAME_LEN);
+        const auto local_hostname = irods::get_server_property<std::string>(irods::KW_CFG_HOST);
 
         std::string resource_name;
         ret = _prop_map.get<std::string>(irods::RESOURCE_NAME, resource_name);
@@ -2257,7 +2257,7 @@ irods:: error s3StartOperation(irods::plugin_property_map& _prop_map)
         // The rodsServerHost_t entry is shared throughout the code (not just used for this
         // resource) so you can't adjust the existing entry attached to the resource.
         rodsHostAddr_t addr{};
-        std::strncpy(addr.hostAddr, local_hostname, LONG_NAME_LEN);
+        std::strncpy(addr.hostAddr, local_hostname.c_str(), LONG_NAME_LEN);
         const auto& zone_name = irods::get_server_property<const std::string>(irods::KW_CFG_ZONE_NAME);
         std::strncpy(addr.zoneName, zone_name.c_str(), NAME_LEN);
 
