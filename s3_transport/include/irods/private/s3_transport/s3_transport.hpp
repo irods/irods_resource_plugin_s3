@@ -30,18 +30,21 @@
 
 // boost includes
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/interprocess/managed_shared_memory.hpp>
-#include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/vector.hpp>
-#include <boost/interprocess/containers/list.hpp>
-#include <boost/interprocess/allocators/allocator.hpp>
-#include <boost/interprocess/managed_shared_memory.hpp>
-#include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/sync/named_mutex.hpp>
 #include <boost/container/scoped_allocator.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#include <boost/interprocess/allocators/allocator.hpp>
+#include <boost/interprocess/containers/list.hpp>
+#include <boost/interprocess/containers/map.hpp>
+#include <boost/interprocess/containers/string.hpp>
+#include <boost/interprocess/managed_shared_memory.hpp>
+#pragma GCC diagnostic pop
 
 // local includes
 #include "irods/private/s3_transport/multipart_shared_data.hpp"
