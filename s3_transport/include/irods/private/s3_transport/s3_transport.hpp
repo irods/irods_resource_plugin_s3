@@ -1478,7 +1478,11 @@ namespace irods::experimental::io::s3_transport
                         // turn off trunc flag
                         std::ios_base::openmode mode;
                         bool trunc_flag = false;
-                        if (data.threads_remaining_to_close == 0) {
+
+                        // If we know the number of threads, use threads_remaining to close to determine if this is the first open.
+                        // If we do not know the number of threads, use file_open_counter.
+                        if ( (data.know_number_of_threads && data.threads_remaining_to_close == 0 ) ||
+                             ( !(data.know_number_of_threads) && data.file_open_counter == 0 ) ) {
                             trunc_flag = true;
                             mode = mode_;
                         } else {
