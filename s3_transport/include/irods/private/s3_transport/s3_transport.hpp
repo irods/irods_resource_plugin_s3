@@ -1478,14 +1478,20 @@ namespace irods::experimental::io::s3_transport
                         // turn off trunc flag
                         std::ios_base::openmode mode;
                         bool trunc_flag = false;
-                        if (data.threads_remaining_to_close == 0) {
-                            trunc_flag = true;
-                            mode = mode_;
-                        } else {
-                            mode = mode_ & ~std::ios_base::trunc;
-                        }
 
-                        // try opening for read and write, if it fails create then open for read/write
+						// If we know the number of threads, use threads_remaining_to_close to determine if this is the
+						// first open. If we do not know the number of threads, use file_open_counter.
+						if ((data.know_number_of_threads && 0 == data.threads_remaining_to_close) ||
+						    (!data.know_number_of_threads && 0 == data.file_open_counter))
+						{
+							trunc_flag = true;
+                            mode = mode_;
+						}
+						else {
+							mode = mode_ & ~std::ios_base::trunc;
+						}
+
+						// Try opening for read and write. If it fails, create the file then open for read/write.
                         cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::in | std::ios_base::out);
                         if (!cache_fstream_.is_open()) {
                             logger::debug("{}:{} ({}) [[{}]] opened cache file {} with create [trunc_flag={}]", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), cache_file_path_.c_str(), trunc_flag);
