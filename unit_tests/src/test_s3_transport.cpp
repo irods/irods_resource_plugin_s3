@@ -1,4 +1,4 @@
-#include <catch2/catch.hpp>
+#include <catch2/catch_all.hpp>
 
 #include "irods/private/s3_transport/s3_transport.hpp"
 #include "irods/private/s3_transport/util.hpp"
