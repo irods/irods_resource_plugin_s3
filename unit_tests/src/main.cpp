@@ -1,5 +1,5 @@
 #define CATCH_CONFIG_RUNNER
-#include <catch2/catch.hpp>
+#include <catch2/catch_all.hpp>
 
 extern std::string keyfile;
 extern std::string hostname;
@@ -13,7 +13,7 @@ int main( int argc, char* argv[] )
   // this is the preferred way to set them
 
   // Build a new parser on top of Catch's
-  using namespace Catch::clara;
+  using namespace Catch::Clara;
   auto cli
     = session.cli() // Get Catch's composite command line parser
     | Opt( hostname, "hostname" )
