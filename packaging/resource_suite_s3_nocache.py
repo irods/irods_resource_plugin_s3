@@ -2018,17 +2018,9 @@ OUTPUT ruleExecOut
                 # debugging
                 self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
 
-                # Attempt to remove the data object, which fails due to the invalid secret key.
+                # Attempt to remove the data object, which fails but the file will be unregistered.
                 self.user0.assert_icommand(['irm', '-f', logical_path], 'STDERR', 'S3_FILE_UNLINK_ERR')
-                self.assertTrue(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
-
-            # debugging
-            self.user0.assert_icommand(['ils', '-L', os.path.dirname(logical_path)], 'STDOUT', filename)
-
-            # Attempt to remove the data object, which succeeds because the S3 object doesn't exist anyway.
-            self.user0.assert_icommand(['irm', '-f', logical_path])
-            self.assertFalse(lib.replica_exists(self.user0, logical_path, 0))
-            self.assertFalse(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
+                self.assertFalse(lib.replica_exists(self.user0, logical_path, replica_number_in_s3))
 
         finally:
             # Set the replica status here so that we can remove the object even if it is stuck in the locked status.
