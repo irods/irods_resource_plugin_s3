@@ -51,6 +51,8 @@ from ..configuration import IrodsConfig
 from ..controller import IrodsController
 from . import session
 
+plugin_name = IrodsConfig().default_rule_engine_plugin
+
 class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], [('alice', 'apass'), ('bobby', 'bpass')])):
 
     def __init__(self, *args, **kwargs):
@@ -363,6 +365,8 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
     ###################
     # iput
     ###################
+    @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only run for native rule language')
+    @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
     def test_ssl_iput_with_rods_env(self):
         server_key_path = os.path.join(self.admin.local_session_dir, 'server.key')
         chain_pem_path = os.path.join(self.admin.local_session_dir, 'chain.pem')
@@ -387,16 +391,14 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
                 # prepend the new rulebase to the NREP's rulebase list.
                 nrep = config.server_config['plugin_configuration']['rule_engines'][0]
                 nrep['plugin_specific_configuration']['re_rulebase_set'].insert(0, connection_rulebase)
+                config.server_config["tls_server"] = {
+                    "certificate_chain_file": chain_pem_path,
+                    "certificate_key_file": server_key_path,
+                    "dh_params_file": dhparams_pem_path
+                }
                 lib.update_json_file_from_dict(config.server_config_path, config.server_config)
 
                 with lib.file_backed_up(config.client_environment_path):
-                    server_update = {
-                        'irods_ssl_certificate_chain_file': chain_pem_path,
-                        'irods_ssl_certificate_key_file': server_key_path,
-                        'irods_ssl_dh_params_file': dhparams_pem_path
-                    }
-                    lib.update_json_file_from_dict(config.client_environment_path, server_update)
-
                     client_update = {
                         'irods_client_server_policy': 'CS_NEG_REQUIRE',
                         'irods_ssl_verify_server': 'none'
@@ -406,7 +408,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
 
                     filename = 'encryptedfile.txt'
                     filepath = lib.create_local_testfile(filename)
-                    IrodsController().restart(test_mode=True)
+                    IrodsController().reload_configuration()
 
                     self.admin.assert_icommand('iinit', 'STDOUT_SINGLELINE',
                                                'Enter your current iRODS password:',
@@ -421,8 +423,9 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             except:
                 pass
 
-            IrodsController().restart(test_mode=True)
+            IrodsController().reload_configuration()
 
+    @unittest.skipUnless(plugin_name == 'irods_rule_engine_plugin-irods_rule_language', 'only run for native rule language')
     @unittest.skipIf(test.settings.RUN_IN_TOPOLOGY, "Skip for Topology Testing")
     def test_ssl_iput_small_and_large_files(self):
         # set up client and server side for ssl handshake
@@ -461,15 +464,15 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
                     # prepend the new rulebase to the NREP's rulebase list.
                     nrep = config.server_config['plugin_configuration']['rule_engines'][0]
                     nrep['plugin_specific_configuration']['re_rulebase_set'].insert(0, connection_rulebase)
+                    config.server_config["tls_server"] = {
+                        "certificate_chain_file": chain_pem_path,
+                        "certificate_key_file": server_key_path,
+                        "dh_params_file": dhparams_pem_path
+                    }
                     lib.update_json_file_from_dict(config.server_config_path, config.server_config)
 
-                    # server reboot with new server side environment variables
-                    IrodsController(IrodsConfig(
-                            injected_environment={
-                                'irodsSSLCertificateChainFile': chain_pem_path,
-                                'irodsSSLCertificateKeyFile': server_key_path,
-                                'irodsSSLDHParamsFile': dhparams_pem_path})
-                            ).restart(test_mode=True)
+                    # Reload server configuration for TLS configuration to take effect.
+                    IrodsController().reload_configuration()
 
                     # reinitialize
                     self.admin.assert_icommand('iinit', 'STDOUT_SINGLELINE',
@@ -503,8 +506,8 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
             except:
                 pass
 
-            # restart iRODS server without altered environment
-            IrodsController().restart(test_mode=True)
+            # Reload server configuration to put things back how they were.
+            IrodsController().reload_configuration()
 
     def test_local_iput_with_really_big_file__ticket_1623(self):
         filename = "reallybigfile.txt"
