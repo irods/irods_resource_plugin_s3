@@ -1103,16 +1103,27 @@ namespace irods_s3 {
 
             per_thread_data data = fd_data.get(fd);
 
-            // if dstream wasn't created we had no write
-            // just do an empty write which will cause the object
-            // to be created
-            if (!data.dstream_ptr) {
+            // Need to get the oprType to check if this was a write type of operation.
+            // If it was and no dstream_ptr was created, then that means there was never a
+            // a call to write presumably because the object is zero bytes.  In that case
+            // we need to call s3_file_write_operation() to make sure the object is written
+            // to S3.
+            int number_of_threads; // not used but needed for the following call
+            int64_t data_size;     // not used but needed for the following call
+            int oprType;
+            irods::error result = get_number_of_threads_data_size_and_opr_type(_ctx, number_of_threads, data_size, oprType);
+            if (!result.ok()) {
+                return result;
+            }
+            logger::debug("{}:{} ({}) [[{}]] oprType returned is = {}", __FILE__, __LINE__, __FUNCTION__, thread_id, oprType);
+
+            if (!data.dstream_ptr && oprType != REPLICATE_SRC && oprType != COPY_SRC && oprType != GET_OPR) {
                 char buff[1];
-				if (const auto err = s3_file_write_operation(_ctx, buff, 0); !err.ok()) {
-					return PASS(err);
-				}
-				data = fd_data.get(fd);
-			}
+			    if (const auto err = s3_file_write_operation(_ctx, buff, 0); !err.ok()) {
+			    	return PASS(err);
+			    }
+			    data = fd_data.get(fd);
+            }
 
             fd_data.remove(fd);
 
@@ -1123,7 +1134,9 @@ namespace irods_s3 {
                 dstream_ptr->close();
             }
 
-            irods::error result = s3_transport_ptr->get_error();
+            if (s3_transport_ptr) {
+                result = s3_transport_ptr->get_error();
+            }
 
             // Decrement the threads_remaining_to_close counter in shared memory.
             // Not necessary for GET_OPR as the shared memory is not created in that instance.
@@ -1143,7 +1156,7 @@ namespace irods_s3 {
 
             //  because s3 might not provide immediate consistency for subsequent stats,
             //  do a stat with a retry if not found
-            if (s3_transport_ptr->is_last_file_to_close() && result.ok()) {
+            if (s3_transport_ptr && s3_transport_ptr->is_last_file_to_close() && result.ok()) {
 
                 // Reset global variables.  These cached values for these variables are no longer
                 // valid once the last close is performed on the data object.
@@ -1473,7 +1486,7 @@ namespace irods_s3 {
         //
         // We need the fd to get the transport object.  Unfortunately for some reason file_obj->file_descriptor()
         // is not set at this point so we will have to search through the L1desc table for
-        // the objPath and get the fd from that. 
+        // the objPath and get the fd from that.
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
         int fd = 0;
         for (int i = 0; i < NUM_L1_DESC; ++i) {
@@ -1484,14 +1497,14 @@ namespace irods_s3 {
                 }
             }
         }
-        
+
         if (fd_data.exists(fd)) {
             per_thread_data data = fd_data.get(fd);
             if (data.dstream_ptr && data.s3_transport_ptr && data.s3_transport_ptr->is_cache_file_open()) {
 
                 // do a stat on the cache file, populate stat_buf, and return
                 std::string cache_file_physical_path = data.s3_transport_ptr->get_cache_file_path();
-                     
+
                 const int status = stat(cache_file_physical_path.c_str(), _statbuf );
 
                 // return an error if necessary
@@ -1506,7 +1519,7 @@ namespace irods_s3 {
             }
         }
 
-        // there is not an open cache file, do the normal HEAD to S3 
+        // there is not an open cache file, do the normal HEAD to S3
         return s3_file_stat_operation_with_flag_for_retry_on_not_found(_ctx, _statbuf, false);
     }
 
