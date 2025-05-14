@@ -1392,7 +1392,6 @@ namespace irods_s3 {
         S3ResponseHandler headObjectHandler = { &responsePropertiesCallback, &responseCompleteCallbackIgnoreLoggingNotFound};
         std::size_t retry_cnt = 0;
         do {
-            std::memset(&data, 0, sizeof(data));
             std::string&& hostname = s3GetHostname(_ctx.prop_map());
             bucketContext.hostName = hostname.c_str();
             data.pCtx = &bucketContext;

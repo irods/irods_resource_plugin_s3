@@ -90,6 +90,19 @@ typedef struct s3Stat
 
 typedef struct callback_data
 {
+    callback_data()
+        : fd{0}
+        , offset{0}
+        , contentLength{0}
+        , originalContentLength{0}
+        , status{S3Status::S3StatusOK}
+        , keyCount{0}
+        , s3Stat{}
+        , pCtx{nullptr}
+        , prop_map_ptr{nullptr}
+        , x_amz_storage_class{}   // for glacier
+        , x_amz_restore{}         // for glacier
+    {}
     int fd;
     std::int64_t offset;       /* For multiple upload */
     rodsLong_t contentLength, originalContentLength;
@@ -120,6 +133,16 @@ typedef struct upload_manager
 
 typedef struct multipart_data
 {
+    multipart_data()
+        : seq{0}
+        , mode{0}
+        , pSrcCtx{nullptr}
+        , srcKey{nullptr}
+        , put_object_data{}
+        , manager{nullptr}
+        , status{S3Status::S3StatusOK}
+        , server_encrypt{false}
+    {}
     int seq;                       /* Sequence number, i.e. which part */
     int mode;                      /* PUT or COPY */
     S3BucketContext *pSrcCtx;      /* Source bucket context, ignored in a PUT */
@@ -133,6 +156,13 @@ typedef struct multipart_data
 
 typedef struct multirange_data
 {
+    multirange_data()
+        : seq{0}
+        , get_object_data{}
+        , status{S3Status::S3StatusOK}
+        , pCtx{nullptr}
+        , prop_map_ptr{nullptr}
+    {}
     int seq;
     callback_data get_object_data;
     S3Status status;
