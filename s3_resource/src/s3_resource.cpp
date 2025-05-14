@@ -1277,7 +1277,7 @@ irods::error s3GetFile(
 
         std::size_t retry_cnt = 0;
         do {
-            std::memset(&data, 0, sizeof(data));
+            data = {};
             data.prop_map_ptr = &_prop_map;
             data.fd = cache_fd;
             data.contentLength = data.originalContentLength = _fileSize;
@@ -1315,7 +1315,7 @@ irods::error s3GetFile(
     else {
 
         // Only the FD part of this will be constant
-        std::memset(&data, 0, sizeof(data));
+        data = {};
         data.prop_map_ptr = &_prop_map;
         data.fd = cache_fd;
         data.contentLength = data.originalContentLength = _fileSize;
@@ -1341,7 +1341,7 @@ irods::error s3GetFile(
         g_mrdLast = totalSeq;
         g_mrdKey = key.c_str();
         for(seq = 0; seq < totalSeq ; seq ++) {
-            memset(&rangeData, 0, sizeof(rangeData));
+            rangeData = {};
             rangeData.prop_map_ptr = &_prop_map;
             rangeData.seq = seq;
             rangeData.get_object_data = data;
@@ -1758,7 +1758,7 @@ irods::error s3PutCopyFile(
         };
 
         do {
-            std::memset(&data, 0, sizeof(data));
+            data = {};
             data.prop_map_ptr = &_prop_map;
             data.fd = cache_fd;
             data.contentLength = data.originalContentLength = _fileSize;
@@ -1812,7 +1812,7 @@ irods::error s3PutCopyFile(
         multipart_data_t partData;
         int partContentLength = 0;
 
-        std::memset(&data, 0, sizeof(data));
+        data = {};
         data.prop_map_ptr = &_prop_map;
         data.fd = cache_fd;
         data.contentLength = data.originalContentLength = _fileSize;
@@ -1829,7 +1829,7 @@ irods::error s3PutCopyFile(
             s3_logger::error( msg );
             return ERROR( SYS_MALLOC_ERR, msg );
         }
-        g_mpuData = (multipart_data_t*)calloc(totalSeq, sizeof(multipart_data_t));
+        g_mpuData = new multipart_data_t[totalSeq];
         if (!g_mpuData) {
             // Clear up the S3PutProperties, if it exists
             if (putProps) {
@@ -1849,7 +1849,7 @@ irods::error s3PutCopyFile(
                 if (putProps->md5) free( (char*)putProps->md5 );
                 free( putProps );
             }
-            free(g_mpuData);
+            delete[] g_mpuData;
             free(manager.etags);
             const auto msg = fmt::format("[resource_name={}] Out of memory error in S3 multipart XML allocation.", resource_name);
             s3_logger::error( msg );
@@ -1915,7 +1915,7 @@ irods::error s3PutCopyFile(
         g_mpuUploadId = manager.upload_id;
         g_mpuKey = key.c_str();
         for(seq = 1; seq <= totalSeq ; seq ++) {
-            memset(&partData, 0, sizeof(partData));
+            partData = {};
             partData.manager = &manager;
             partData.seq = seq;
             partData.mode = _mode;
@@ -2019,7 +2019,7 @@ irods::error s3PutCopyFile(
             if (manager.etags[i]) free(manager.etags[i]);
         }
         if (manager.etags) free(manager.etags);
-        if (g_mpuData) free(g_mpuData);
+        if (g_mpuData) delete[] g_mpuData;
         // Clear up the S3PutProperties, if it exists
         if (putProps) {
             if (putProps->md5) free( (char*)putProps->md5 );
@@ -2119,7 +2119,7 @@ irods::error s3CopyFile(
 
     std::size_t retry_cnt = 0;
     do {
-        std::memset(&data, 0, sizeof(data));
+        data = {};
         data.prop_map_ptr = &_src_ctx.prop_map();
         std::string&& hostname = s3GetHostname(_src_ctx.prop_map());
         bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
