@@ -193,6 +193,7 @@ namespace irods_s3 {
         std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+        number_of_threads = 0;
 
         // Open shared memory and see if we know the number of threads from another thread
         std::string shmem_key = get_shmem_key(_ctx, file_obj);
