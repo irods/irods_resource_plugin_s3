@@ -468,19 +468,15 @@ namespace irods_s3 {
                 // make S3 key name
                 const auto s3_key_name = fmt::format("/{}/{}/{}", bucket_name, obj_id, object_name);
 
-				// Update physical path but only on first creation otherwise the policy that was in effect
-				// at the time the object was first created wins.
-				if (L1desc[index].openType == CREATE_TYPE) {
-					logger::debug("{}:{} ({}) [[{}]] updating physical_path to {}",
-					              __FILE__,
-					              __LINE__,
-					              __FUNCTION__,
-					              thread_id,
-					              s3_key_name.c_str());
-					object->physical_path(s3_key_name);
-					strncpy(L1desc[index].dataObjInfo->filePath, s3_key_name.c_str(), MAX_NAME_LEN);
-					L1desc[index].dataObjInfo->filePath[MAX_NAME_LEN - 1] = '\0';
-				}
+				logger::debug("{}:{} ({}) [[{}]] updating physical_path to {}",
+				              __FILE__,
+				              __LINE__,
+				              __func__,
+				              thread_id,
+				              s3_key_name);
+				object->physical_path(s3_key_name);
+				strncpy(L1desc[index].dataObjInfo->filePath, s3_key_name.c_str(), MAX_NAME_LEN);
+				L1desc[index].dataObjInfo->filePath[MAX_NAME_LEN - 1] = '\0';
 			}
 			else {
 				// There is no L1desc[] entry. Look up the object_id via GenQuery. Reverse it
@@ -580,6 +576,10 @@ namespace irods_s3 {
             irods::plugin_context& _ctx,
             const std::string& call_from)
     {
+        // issue #2260
+        // For multiprocess file writes, s3_file_notify() is not being called.
+        // Try updating the physical path right now.
+        update_physical_path_for_decoupled_naming(_ctx);
 
         std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
