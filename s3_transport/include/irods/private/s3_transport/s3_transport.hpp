@@ -455,6 +455,9 @@ namespace irods::experimental::io::s3_transport
 
                 } else if (last_file_to_close_) {
 
+                    // reset flag indicating that a previous open had the trunc flag set
+                    data.first_open_has_trunc_flag = false;
+
                     if (this->use_cache_) {
 
                         rv = additional_processing_enum::DO_FLUSH_CACHE_FILE;
@@ -1389,6 +1392,18 @@ namespace irods::experimental::io::s3_transport
 
             shm_obj.atomic_exec([this, &return_value, &shm_obj](auto& data) {
 
+                // Issue #2261 - Store in shared memory a flag indicating that a previous open had
+                // the trunc flag set.  In that case subsequent opens without the trunc flag
+                // should not download the object from S3 to cache unless the object has already
+                // been closed and flushed to S3.
+                const auto m = mode_ & ~(std::ios_base::ate | std::ios_base::binary);
+                if ((std::ios_base::out | std::ios_base::trunc) == m) {
+                    data.first_open_has_trunc_flag = true;
+                }
+                else if (data.first_open_has_trunc_flag) {
+                    download_to_cache_ = false;
+                }
+
                 object_s3_status object_status = object_s3_status::DOES_NOT_EXIST;
 
                 std::int64_t s3_object_size = 0;
@@ -1406,7 +1421,6 @@ namespace irods::experimental::io::s3_transport
                 std::string storage_class;  // used if in archive
 
                 if (object_must_exist_ || download_to_cache_) {
-
 
                     // do a HEAD to get the object size, if a previous thread has already done one then
                     // just read the object size from shmem
