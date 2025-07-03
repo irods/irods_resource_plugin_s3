@@ -56,6 +56,7 @@ namespace irods::experimental::io::s3_transport::shared_data
             , file_open_counter{0}
             , cache_file_flushed{false}
             , know_number_of_threads{true}
+            , first_open_has_trunc_flag{false}
         {}
 
         bool can_delete() {
@@ -76,6 +77,10 @@ namespace irods::experimental::io::s3_transport::shared_data
         int                                   file_open_counter;
         bool                                  cache_file_flushed;
         bool                                  know_number_of_threads;
+
+        // this is set so that multiple processes that are used to write to the file don't download the file
+        // to cache if the trunc flag is not set.
+        bool                                  first_open_has_trunc_flag;
     };
 
 }
