@@ -107,6 +107,7 @@ install(
   "${CMAKE_CURRENT_SOURCE_DIR}/packaging/resource_suite_s3_nocache.py"
   "${CMAKE_CURRENT_SOURCE_DIR}/packaging/resource_suite_s3_cache.py"
   "${CMAKE_CURRENT_SOURCE_DIR}/packaging/s3plugin_lib.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/packaging/s3_prc_upload_issues_2260_2261.py"
   DESTINATION "${IRODS_HOME_DIRECTORY}/scripts/irods/test"
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
 )
