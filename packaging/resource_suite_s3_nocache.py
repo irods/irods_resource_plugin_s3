@@ -2218,6 +2218,37 @@ OUTPUT ruleExecOut
             self.admin.assert_icommand("iadmin rmresc %s" % s3_resc2_resource_name)
             self.admin.assert_icommand("iadmin rmresc %s" % s3_resc3_resource_name)
 
+    def test_large_file_put_via_prc__issue_2261(self):
+
+        try:
+
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+            file1_get = f'{file1}.get'
+
+            # use a file size that is large enough for parallel transfers
+            file1_size = 32*1024*1024 + 1
+
+            # create file
+            lib.make_arbitrary_file(file1, file1_size)
+
+            # Put the file via PRC.  This is done in a separate process to avoid package conflicts between
+            # PRC's "irods" package and the "scripts/irods" test package.
+            logical_path = f'{self.user0.session_collection}/{file1}'
+            assert_command(['python3', 'scripts/irods/test/s3_prc_upload_issues_2260_2261.py', self.user0.username, self.user0.password, self.admin.zone_name, file1, logical_path])
+
+            # get the file via iget
+            self.user0.assert_icommand(f'iget -f {file1} {file1_get}')
+
+            # verify the files are the same
+            assert_command(['diff', '-q', file1, file1_get])
+
+        finally:
+
+            # cleanup
+            self.user0.assert_icommand(f'irm -f {file1}', 'EMPTY')
+            s3plugin_lib.remove_if_exists(file1)
+            s3plugin_lib.remove_if_exists(file1_get)
+
 # The tests in this class take a long time and do not need to run in every different test suite
 class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
 

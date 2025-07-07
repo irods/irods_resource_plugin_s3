@@ -43,6 +43,9 @@ def install_test_prerequisites():
     minio_version = '==7.1.16' if sys.hexversion < 0x030700F0 else ''
     irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', 'minio' + minio_version, '--upgrade'], check_rc=True)
 
+    # install PRC
+    irods_python_ci_utilities.subprocess_get_output(['python3', '-m', 'pip', 'install', 'python-irodsclient'], check_rc=True)
+
 
 def download_and_start_minio_server():
     path_to_minio = os.path.abspath('minio')
