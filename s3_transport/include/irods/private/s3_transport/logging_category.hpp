@@ -1,7 +1,13 @@
 #ifndef S3_TRANSPORT_LOGGING_CATEGORY_HPP
 #define S3_TRANSPORT_LOGGING_CATEGORY_HPP
 
+#include "libs3/libs3.h"
+
 #include <irods/irods_logger.hpp>
+
+#include <fmt/format.h>
+
+#include <type_traits>
 
 // 1. Declare the custom category tag.
 //    This structure does not need to define a body.
@@ -30,5 +36,34 @@ namespace irods::experimental
     };
 } // namespace irods::experimental
 
+template <>
+struct fmt::formatter<S3Protocol> : fmt::formatter<std::underlying_type_t<S3Protocol>>
+{
+    constexpr auto format(const S3Protocol& e, format_context& ctx) const
+    {
+        return fmt::formatter<std::underlying_type_t<S3Protocol>>::format(
+            static_cast<std::underlying_type_t<S3Protocol>>(e), ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<S3UriStyle> : fmt::formatter<std::underlying_type_t<S3UriStyle>>
+{
+    constexpr auto format(const S3UriStyle& e, format_context& ctx) const
+    {
+        return fmt::formatter<std::underlying_type_t<S3UriStyle>>::format(
+            static_cast<std::underlying_type_t<S3UriStyle>>(e), ctx);
+    }
+};
+
+template <>
+struct fmt::formatter<S3STSDate> : fmt::formatter<std::underlying_type_t<S3STSDate>>
+{
+    constexpr auto format(const S3STSDate& e, format_context& ctx) const
+    {
+        return fmt::formatter<std::underlying_type_t<S3STSDate>>::format(
+            static_cast<std::underlying_type_t<S3STSDate>>(e), ctx);
+    }
+};
 
 #endif //S3_TRANSPORT_LOGGING_CATEGORY_HPP
