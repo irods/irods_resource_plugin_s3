@@ -1,8 +1,13 @@
 #ifndef IRODS_S3_RESOURCE_PLUGIN_LOGGING_CATEGORY_HPP
 #define IRODS_S3_RESOURCE_PLUGIN_LOGGING_CATEGORY_HPP
 
+#include "libs3/libs3.h"
 
 #include <irods/irods_logger.hpp>
+
+#include <fmt/format.h>
+
+#include <type_traits>
 
 // 1. Declare the custom category tag.
 //    This structure does not need to define a body.
@@ -40,5 +45,14 @@ namespace irods::experimental
     };
 } // namespace irods::experimental
 
+template <>
+struct fmt::formatter<S3Status> : fmt::formatter<std::underlying_type_t<S3Status>>
+{
+    constexpr auto format(const S3Status& e, format_context& ctx) const
+    {
+        return fmt::formatter<std::underlying_type_t<S3Status>>::format(
+            static_cast<std::underlying_type_t<S3Status>>(e), ctx);
+    }
+};
 
 #endif //IRODS_S3_RESOURCE_PLUGIN_LOGGING_CATEGORY_HPP

@@ -19,6 +19,7 @@
 #include <thread>
 #include <vector>
 #include <cstdio>
+#include <ios>
 #include <iostream>
 #include <mutex>
 #include <condition_variable>
@@ -552,12 +553,12 @@ namespace irods::experimental::io::s3_transport
 
                 return shm_obj.atomic_exec([this, _buffer, _buffer_size](auto& data) {
 
-                    auto position_before_write = this->cache_fstream_.tellp();
+                    std::streamoff position_before_write = this->cache_fstream_.tellp();
                     this->cache_fstream_.write(_buffer, _buffer_size);
                     this->cache_fstream_.flush();
 
                     // calculate the new size of the file
-                    auto current_position = this->cache_fstream_.tellp();
+                    std::streamoff current_position = this->cache_fstream_.tellp();
 
                     const auto msg = fmt::format("send() position={} size={} position_after_write=", position_before_write, _buffer_size, current_position);
                     logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), msg.c_str());
