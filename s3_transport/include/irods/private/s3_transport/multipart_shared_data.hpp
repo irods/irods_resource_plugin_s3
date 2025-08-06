@@ -17,6 +17,8 @@
 
 #include "irods/private/s3_transport/types.hpp"
 
+#include <fmt/format.h>
+
 namespace irods::experimental::io::s3_transport::shared_data
 {
 
@@ -85,6 +87,18 @@ namespace irods::experimental::io::s3_transport::shared_data
 
 }
 
-
+#if FMT_VERSION >= 100000 && FMT_VERSION < 110000
+template <class CharT, class Traits, class Allocator>
+struct fmt::formatter<boost::interprocess::basic_string<CharT, Traits, Allocator>>
+    : fmt::formatter<std::basic_string_view<CharT, Traits>>
+{
+    constexpr auto format(const boost::interprocess::basic_string<CharT, Traits, Allocator>& _str,
+                          format_context& ctx) const
+    {
+        return fmt::formatter<std::basic_string_view<CharT, Traits>>::format(
+            static_cast<std::basic_string_view<CharT, Traits>>(_str), ctx);
+    }
+};
+#endif
 
 #endif // IRODS_S3_TRANSPORT_MULTIPART_SHARED_DATA_HPP
