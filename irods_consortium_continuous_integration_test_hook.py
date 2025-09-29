@@ -33,7 +33,10 @@ def get_package_type():
     return pt
 
 def install_test_prerequisites():
-    if distro.id() != "ubuntu" or int(distro.major_version()) < 24:
+    distro_major_version = int(distro.major_version())
+    ub24_or_later = (distro.id() == "ubuntu" and distro_major_version >= 24)
+    deb13_or_later = (distro.id() == 'debian' and distro_major_version >= 13)
+    if not any([ub24_or_later, deb13_or_later]):
         irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', '--upgrade', 'pip>=20.3.4'], check_rc=True)
     irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', 'boto3', '--upgrade'], check_rc=True)
 
