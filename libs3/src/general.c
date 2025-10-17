@@ -198,6 +198,9 @@ const char* S3_get_status_name(S3Status status)
 		handlecase(HttpErrorNotFound);
 		handlecase(HttpErrorConflict);
 		handlecase(HttpErrorUnknown);
+		handlecase(ChunkEncodingError);
+		handlecase(TrailingHeadersError);
+		handlecase(InvalidChunkCallback);
 	}
 
 	return "Unknown";

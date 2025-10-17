@@ -156,7 +156,8 @@ void S3_get_acl(const S3BucketContext* bucketContext,
 		&getAclCompleteCallback,         // completeCallback
 		gaData,                          // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -353,7 +354,8 @@ void S3_set_acl(const S3BucketContext* bucketContext,
 		&setXmlCompleteCallback,         // completeCallback
 		data,                            // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -455,7 +457,8 @@ void S3_get_lifecycle(const S3BucketContext* bucketContext,
 		&getLifecycleCompleteCallback,   // completeCallback
 		gaData,                          // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -545,7 +548,11 @@ void S3_set_lifecycle(const S3BucketContext* bucketContext,
 		0,         // metaDataCount
 		0,         // metaData
 		0,         // useServerSideEncryption
-		0          // xAmzStorageClass
+		0,         // xAmzStorageClass
+        0,         // xAmzChecksumAlgorithm
+        0,         // xAmzChecksumType
+        0,         // xAmzTrailer
+        -1         // xAmzDecodedContentLength (-1 = unknown)
 	};
 
 	// Set up the RequestParams
@@ -576,7 +583,8 @@ void S3_set_lifecycle(const S3BucketContext* bucketContext,
 		&setXmlCompleteCallback,         // completeCallback
 		data,                            // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
