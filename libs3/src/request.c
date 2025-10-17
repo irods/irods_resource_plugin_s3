@@ -40,6 +40,7 @@
 #include "libs3/request.h"
 #include "libs3/request_context.h"
 #include "libs3/response_headers_handler.h"
+#include "libs3/libs3_chunked.h"
 
 #ifdef __APPLE__
 #  include <CommonCrypto/CommonHMAC.h>
@@ -214,29 +215,41 @@ static size_t curl_read_func(void* ptr, size_t size, size_t nmemb, void* data)
 		return CURL_READFUNC_ABORT;
 	}
 
-	// If there is no data callback, or the data callback has already returned
-	// contentLength bytes, return 0;
-	if (!request->toS3Callback || !request->toS3CallbackBytesRemaining) {
+	// If there is no data callback, return 0
+	if (!request->toS3Callback) {
 		return 0;
 	}
 
-	// Don't tell the callback that we are willing to accept more data than we
-	// really are
-	if (len > request->toS3CallbackBytesRemaining) {
+	// Check for chunked encoding mode (toS3CallbackBytesRemaining == -1)
+	// In chunked mode, we don't know the total size, so we keep reading until callback returns 0
+	int is_chunked = (request->toS3CallbackBytesRemaining < 0);
+
+	// For non-chunked mode, if we've sent all bytes, return 0
+	if (!is_chunked && !request->toS3CallbackBytesRemaining) {
+		return 0;
+	}
+
+	// For non-chunked mode, don't request more data than we need
+	if (!is_chunked && (len > request->toS3CallbackBytesRemaining)) {
 		len = request->toS3CallbackBytesRemaining;
 	}
 
-	// Otherwise, make the data callback
+	// Make the data callback
 	int ret = (*(request->toS3Callback))(len, (char*) ptr, request->callbackData);
 	if (ret < 0) {
 		request->status = S3StatusAbortedByCallback;
 		return CURL_READFUNC_ABORT;
 	}
 	else {
-		if (ret > request->toS3CallbackBytesRemaining) {
-			ret = request->toS3CallbackBytesRemaining;
+		// For non-chunked mode, track bytes remaining
+		if (!is_chunked) {
+			if (ret > request->toS3CallbackBytesRemaining) {
+				ret = request->toS3CallbackBytesRemaining;
+			}
+			request->toS3CallbackBytesRemaining -= ret;
 		}
-		request->toS3CallbackBytesRemaining -= ret;
+		// For chunked mode, return 0 when callback returns 0 (EOF)
+		// Otherwise return the number of bytes read
 		return ret;
 	}
 }
@@ -372,6 +385,26 @@ static S3Status compose_amz_headers(const RequestParams* params,
 		if (properties->xAmzStorageClass) {
 			append_amz_header(values, 0, "x-amz-storage-class", properties->xAmzStorageClass);
 		}
+
+        if (properties->xAmzChecksumAlgorithm) {
+                append_amz_header(values, 0, "x-amz-checksum-algorithm", properties->xAmzChecksumAlgorithm);
+        }
+
+        if (properties->xAmzChecksumType) {
+                append_amz_header(values, 0, "x-amz-checksum-type", properties->xAmzChecksumType);
+        }
+
+        if (properties->xAmzTrailer) {
+                append_amz_header(values, 0, "x-amz-trailer", properties->xAmzTrailer);
+                // DON'T add x-amz-sdk-checksum-algorithm - let trailers handle checksums
+        }
+
+        if (properties->xAmzDecodedContentLength >= 0) {
+                char decoded_length_str[32];
+                snprintf(decoded_length_str, sizeof(decoded_length_str), "%lld",
+                        (long long)properties->xAmzDecodedContentLength);
+                append_amz_header(values, 0, "x-amz-decoded-content-length", decoded_length_str);
+        }
 	}
 
 	// Add the x-amz-date header
@@ -445,8 +478,13 @@ static S3Status compose_amz_headers(const RequestParams* params,
 		}
 	}
 	else {
-		// TODO: figure out how to manage signed payloads
-		strcpy(values->payloadHash, "UNSIGNED-PAYLOAD");
+		// For chunked uploads with trailing checksums, use special payload signature
+		if (properties && properties->xAmzTrailer && params->toS3CallbackTotalSize < 0) {
+			strcpy(values->payloadHash, "STREAMING-UNSIGNED-PAYLOAD-TRAILER");
+		}
+		else {
+			strcpy(values->payloadHash, "UNSIGNED-PAYLOAD");
+		}
 	}
 
 	append_amz_header(values, 0, "x-amz-content-sha256", values->payloadHash);
@@ -707,6 +745,9 @@ static void canonicalize_signature_headers(RequestComputedValues* values)
 	int headerCount = values->amzHeadersCount;
 	if (values->contentTypeHeader[0]) {
 		sortedHeaders[headerCount++] = values->contentTypeHeader;
+	}
+	if (values->contentEncodingHeader[0]) {
+		sortedHeaders[headerCount++] = values->contentEncodingHeader;
 	}
 	if (values->hostHeader[0]) {
 		sortedHeaders[headerCount++] = values->hostHeader;
@@ -1094,6 +1135,18 @@ static S3Status compose_auth_header(const RequestParams* params, RequestComputed
 	printf("--\nAuthorization Header:\n%s\n", values->authorizationHeader);
 #endif
 
+	/* If using chunked encoding with trailing headers, pass signature info to chunked state */
+	if (params->chunkedState) {
+		ChunkedRequestState *chunkedState = (ChunkedRequestState *)params->chunkedState;
+		chunked_set_signature_info(
+			chunkedState,
+			values->requestSignatureHex,  /* Seed signature */
+			values->requestDateISO8601,   /* Timestamp */
+			scope,                        /* Credential scope */
+			signingKey                    /* Signing key */
+		);
+	}
+
 	return S3StatusOK;
 
 #undef buf_append
@@ -1168,7 +1221,7 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 	}
 
 	// Debugging only
-	// curl_easy_setopt_safe(CURLOPT_VERBOSE, 1);
+	//curl_easy_setopt_safe(CURLOPT_VERBOSE, 1);
 
 	// Set private data to request for the benefit of S3RequestContext
 	curl_easy_setopt_safe(CURLOPT_PRIVATE, request);
@@ -1248,10 +1301,19 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 	if ((params->httpRequestType == HttpRequestTypePUT) || (params->httpRequestType == HttpRequestTypePOST) ||
 	    params->httpRequestType == HttpRequestTypeCOPY)
 	{
-		char header[256];
-		snprintf(header, sizeof(header), "Content-Length: %llu", (unsigned long long) params->toS3CallbackTotalSize);
-		request->headers = curl_slist_append(request->headers, header);
-		request->headers = curl_slist_append(request->headers, "Transfer-Encoding:");
+		// Check if we're using chunked encoding (toS3CallbackTotalSize == -1)
+		if (params->toS3CallbackTotalSize < 0) {
+			// Chunked encoding - do NOT set Content-Length
+			// Explicitly set Transfer-Encoding: chunked for S3-compatible servers like MinIO
+			request->headers = curl_slist_append(request->headers, "Transfer-Encoding: chunked");
+		} else {
+			// Normal PUT with known size - set Content-Length
+			char header[256];
+			snprintf(header, sizeof(header), "Content-Length: %llu", (unsigned long long) params->toS3CallbackTotalSize);
+			request->headers = curl_slist_append(request->headers, header);
+			// Explicitly disable Transfer-Encoding (we're using Content-Length)
+			request->headers = curl_slist_append(request->headers, "Transfer-Encoding:");
+		}
 	}
 
 	append_standard_header(hostHeader);
@@ -1273,6 +1335,16 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 	int i;
 	for (i = 0; i < values->amzHeadersCount; i++) {
 		request->headers = curl_slist_append(request->headers, values->amzHeaders[i]);
+	}
+
+	// Add HTTP Trailer header if using trailing headers (HTTP/1.1 RFC 7230)
+	if (params->putProperties && params->putProperties->xAmzTrailer) {
+		char trailer_header[256];
+		// Extract just the header name from x-amz-trailer value
+		// Format: "Trailer: x-amz-checksum-crc64nvme"
+		snprintf(trailer_header, sizeof(trailer_header), "Trailer: %s",
+		         params->putProperties->xAmzTrailer);
+		request->headers = curl_slist_append(request->headers, trailer_header);
 	}
 
 	// Set the HTTP headers
@@ -1300,6 +1372,17 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 			break;
 		default: // HttpRequestTypeGET
 			break;
+	}
+
+	// If chunked state is provided, setup chunked encoding with trailing headers
+	if (params->chunkedState) {
+		S3Status chunkedStatus = request_setup_chunked_encoding(
+			request->curl,
+			(ChunkedRequestState *)params->chunkedState
+		);
+		if (chunkedStatus != S3StatusOK) {
+			return chunkedStatus;
+		}
 	}
 
 	return S3StatusOK;
@@ -1762,6 +1845,7 @@ S3Status S3_generate_authenticated_query_string(char* buffer,
 	                        NULL,
 	                        NULL,
 	                        0,
+                            0,
                             0};
 
 	RequestComputedValues computed;

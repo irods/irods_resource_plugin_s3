@@ -690,6 +690,7 @@ namespace irods_s3 {
         s3_config.max_single_part_upload_size = s3GetMaxUploadSizeMB(_ctx.prop_map()) * 1024 * 1024;
         s3_config.non_data_transfer_timeout_seconds = get_non_data_transfer_timeout_seconds(_ctx.prop_map());
         s3_config.s3_storage_class = s3_get_storage_class_from_configuration(_ctx.prop_map());
+        s3_config.trailing_checksum_on_upload_enabled = s3_trailing_checksum_on_upload_enabled(_ctx.prop_map());
 
         auto sts_date_setting = s3GetSTSDate(_ctx.prop_map());
         s3_config.s3_sts_date_str = sts_date_setting == S3STSAmzOnly ? "amz" : sts_date_setting == S3STSAmzAndDate ? "both" : "date";
@@ -2557,13 +2558,15 @@ namespace irods_s3 {
                 );
 
 		logger::debug("{}:{} ({}) checksum_crc64_nvme = [{}] checksum_sha1 = [{}] "
-                "checksum_sha256 = [{}] checksum_type = [{}]",
+                "checksum_sha256 = [{}] checksum_crc32 = [{}] checksum_crc32c = [{}] checksum_type = [{}]",
                 __FILE__,
                 __LINE__,
                 __func__,
                 get_object_attributes_data.checksum_crc64_nvme,
                 get_object_attributes_data.checksum_sha1,
                 get_object_attributes_data.checksum_sha256,
+                get_object_attributes_data.checksum_crc32,
+                get_object_attributes_data.checksum_crc32c,
                 get_object_attributes_data.checksum_type);
 
 

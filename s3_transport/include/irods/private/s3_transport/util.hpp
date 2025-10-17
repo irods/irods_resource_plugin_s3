@@ -6,6 +6,7 @@
 // iRODS includes
 #include <irods/rcMisc.h>
 #include <irods/transport/transport.hpp>
+#include <irods/rodsDef.h>
 
 // misc includes
 #include <nlohmann/json.hpp>
@@ -58,9 +59,13 @@ namespace irods::experimental::io::s3_transport
         // must have enough space for the memory algorithm and reserved area but there is
         // no way of knowing the size for these.  It is stated that 100*sizeof(void*) would
         // be enough.
-        static constexpr std::int64_t        MAX_S3_SHMEM_SIZE{100*sizeof(void*) + sizeof(shared_data::multipart_shared_data) +
-                                                          MAXIMUM_NUMBER_ETAGS_PER_UPLOAD * (BYTES_PER_ETAG + 1) +
-                                                          UPLOAD_ID_SIZE + 1};
+        //
+        // Each part (maximum count of MAXIMUM_NUMBER_ETAGS_PER_UPLOAD) can have an ETAG, 8 bytes for part size,
+		// and 8 bytes for CRC64/NVME checksum
+        static constexpr std::int64_t  MAX_S3_SHMEM_SIZE{100*sizeof(void*) +
+			sizeof(shared_data::multipart_shared_data) +
+			MAXIMUM_NUMBER_ETAGS_PER_UPLOAD * (BYTES_PER_ETAG + 16 + 1) +
+			UPLOAD_ID_SIZE + 1};
 
         static const int                DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS{900};
         inline static const std::string SHARED_MEMORY_KEY_PREFIX{"irods_s3_transport-shm-"};
@@ -98,8 +103,8 @@ namespace irods::experimental::io::s3_transport
         /* Below used for the upload completion command, need to send in XML */
         std::string              xml;
 
-        std::int64_t                  remaining;
-        std::int64_t                  offset;
+        std::int64_t             remaining;
+        std::int64_t             offset;
         libs3_types::status      status;            /* status returned by libs3 */
         std::string              object_key;
         std::string              shmem_key;

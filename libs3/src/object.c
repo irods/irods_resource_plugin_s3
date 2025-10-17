@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
+#include <strings.h>
 #include "libs3/libs3.h"
 #include "libs3/request.h"
 
@@ -75,7 +76,8 @@ void S3_put_object(const S3BucketContext* bucketContext,
 		handler->responseHandler.completeCallback,   // completeCallback
 		callbackData,                                // callbackData
 		timeoutMs,                                   // timeoutMs
-		0                                            // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -271,7 +273,8 @@ void S3_copy_object_range(const S3BucketContext* bucketContext,
 		&copyObjectCompleteCallback,                                        // completeCallback
 		data,                                                               // callbackData
 		timeoutMs,                                                          // timeoutMs
-		0                                                                   // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -318,7 +321,8 @@ void S3_get_object(const S3BucketContext* bucketContext,
 		handler->responseHandler.completeCallback,   // completeCallback
 		callbackData,                                // callbackData
 		timeoutMs,                                   // timeoutMs
-		0                                            // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -362,7 +366,8 @@ void S3_head_object(const S3BucketContext* bucketContext,
 		handler->completeCallback,       // completeCallback
 		callbackData,                    // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -406,7 +411,8 @@ void S3_delete_object(const S3BucketContext* bucketContext,
 		handler->completeCallback,       // completeCallback
 		callbackData,                    // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -504,7 +510,8 @@ void S3_restore_object(S3BucketContext* bucketContext,
 		restoreObjectCompleteCallback,   // completeCallback
 		data,                            // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	request_perform(&params, requestContext);
@@ -570,29 +577,31 @@ static S3Status getObjectAttributesXmlCallback(const char* elementPath, const ch
 		return S3StatusOK;
 	}
 
-    // Note that elementPath is a 512 character array
-    if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC32", 511)) {
+    // Note that elementPath is a 512 character array.
+    // Use strncasecmp because MinIO returns <getObjectAttributesResponse> (lowercase 'g')
+    // while AWS returns <GetObjectAttributesResponse> (uppercase 'G').
+    if (0 == strncasecmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC32", 511)) {
         string_buffer_append(goaData->checksumCRC32, data, dataLen, fit);
     }
-    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC32C", 511)) {
+    else if (0 == strncasecmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC32C", 511)) {
         string_buffer_append(goaData->checksumCRC32C, data, dataLen, fit);
     }
-    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC64NVME", 511)) {
+    else if (0 == strncasecmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC64NVME", 511)) {
         string_buffer_append(goaData->checksumCRC64NVME, data, dataLen, fit);
     }
-    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumSHA1", 511)) {
+    else if (0 == strncasecmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumSHA1", 511)) {
         string_buffer_append(goaData->checksumSHA1, data, dataLen, fit);
     }
-    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumSHA256", 511)) {
+    else if (0 == strncasecmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumSHA256", 511)) {
         string_buffer_append(goaData->checksumSHA256, data, dataLen, fit);
     }
-    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumType", 511)) {
+    else if (0 == strncasecmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumType", 511)) {
         string_buffer_append(goaData->checksumType, data, dataLen, fit);
     }
-    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/StorageClass", 511)) {
+    else if (0 == strncasecmp(elementPath, "GetObjectAttributesResponse/StorageClass", 511)) {
         string_buffer_append(goaData->storageClass, data, dataLen, fit);
     }
-    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/ObjectSize", 511)) {
+    else if (0 == strncasecmp(elementPath, "GetObjectAttributesResponse/ObjectSize", 511)) {
         // Keep this as a string.  User can parse it as a long long if desired.
         string_buffer_append(goaData->objectSize, data, dataLen, fit);
     }
@@ -658,7 +667,8 @@ void S3_get_object_attributes(S3BucketContext* bucketContext,
 		GetObjectAttributesCompleteCallback,   // completeCallback
 		goaData,                               // callbackData
 		timeoutMs,                             // timeoutMs
-		xAmzObjectAttributes                   // xAmzObjectAttributes
+		xAmzObjectAttributes,                  // xAmzObjectAttributes
+		0                                      // chunkedState
 	};
 
 	// Perform the request

@@ -177,7 +177,8 @@ void S3_list_service(S3Protocol protocol,
 		&completeCallback,   // completeCallback
 		data,                // callbackData
 		timeoutMs,           // timeoutMs
-		0                    // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request

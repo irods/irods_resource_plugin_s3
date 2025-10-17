@@ -51,22 +51,13 @@ def install_test_prerequisites():
 
 
 def download_and_start_minio_server():
-    path_to_minio = os.path.abspath('minio')
 
-    # Only download the executable if it's not already here
-    if not os.path.isfile(path_to_minio):
-        if get_package_type() == 'deb':
-            minio_package_file = 'minio_20220526054841.0.0_amd64.deb'
-            subprocess.check_output(['wget', '-q', '--no-check-certificate', 'https://dl.min.io/server/minio/release/linux-amd64/archive/{}'.format(minio_package_file)])
-            subprocess.check_output(['dpkg', '-i', minio_package_file])
-        elif get_package_type() == 'rpm':
-            minio_package_file = 'minio-20220526054841.0.0.x86_64.rpm'
-            subprocess.check_output(['wget', '-q', '--no-check-certificate', 'https://dl.min.io/server/minio/release/linux-amd64/archive/{}'.format(minio_package_file)])
-            subprocess.check_output(['rpm', '--force', '-i', minio_package_file])
-        else:
-            raise Exception('Unknown or invalid OS type.  Can not install minio.')
+    path_to_minio = '/minio'
 
-        path_to_minio = 'minio'
+    #Download the latest MinIO binary directly (supports aws-chunked encoding with trailing checksums)
+    subprocess.check_output(['wget', '-q', '--no-check-certificate', '-O', path_to_minio,
+                             'https://dl.min.io/server/minio/release/linux-amd64/minio'])
+    os.chmod(path_to_minio, os.stat(path_to_minio).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     root_username = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
     root_password = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))

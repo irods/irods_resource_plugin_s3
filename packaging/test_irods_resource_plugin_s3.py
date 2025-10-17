@@ -176,3 +176,17 @@ class Test_S3_Cache_Glacier(Test_S3_Cache_Glacier_Base, unittest.TestCase):
         self.s3EnableMPU=1
         self.s3stsdate=''
         super(Test_S3_Cache_Glacier, self).__init__(*args, **kwargs)
+
+class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Base, unittest.TestCase):
+    '''
+    Tests S3 uploads with trailing checksums enabled (CRC64/NVME).
+    '''
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3EnableMPU=1
+        self.s3EnableTrailingChecksumOnUpload=1
+        self.s3EnableDirectChecksumRead=1
+        super(Test_S3_NoCache_Trailing_Checksum, self).__init__(*args, **kwargs)

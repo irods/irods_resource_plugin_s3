@@ -19,6 +19,8 @@
 
 #include <fmt/format.h>
 
+#include <cstdint>
+
 namespace irods::experimental::io::s3_transport::shared_data
 {
 
@@ -31,12 +33,13 @@ namespace irods::experimental::io::s3_transport::shared_data
         using void_allocator        = boost::container::scoped_allocator_adaptor
                                       <bi::allocator<void, segment_manager> >;
         using int_allocator         = bi::allocator<int, segment_manager>;
+        using uint64_t_allocator    = bi::allocator<uint64_t, segment_manager>;
         using char_allocator        = bi::allocator<char, segment_manager>;
-        using shm_int_vector        = bi::vector<int, int_allocator>;
         using shm_char_string       = bi::basic_string<char, std::char_traits<char>,
                                       char_allocator>;
         using char_string_allocator = bi::allocator<shm_char_string, segment_manager>;
         using shm_string_vector     = bi::vector<shm_char_string, char_string_allocator>;
+		using uint64_t_vector       = bi::vector<uint64_t, uint64_t_allocator>;
     }
 
     // data that needs to be shared among different processes
@@ -58,6 +61,8 @@ namespace irods::experimental::io::s3_transport::shared_data
             , file_open_counter{0}
             , cache_file_flushed{false}
             , know_number_of_threads{true}
+            , checksum_vector{allocator}
+			, part_size_vector{allocator}
             , first_open_has_trunc_flag{false}
         {}
 
@@ -79,6 +84,8 @@ namespace irods::experimental::io::s3_transport::shared_data
         int                                   file_open_counter;
         bool                                  cache_file_flushed;
         bool                                  know_number_of_threads;
+        interprocess_types::uint64_t_vector   checksum_vector;
+        interprocess_types::uint64_t_vector   part_size_vector;
 
         // this is set so that multiple processes that are used to write to the file don't download the file
         // to cache if the trunc flag is not set.

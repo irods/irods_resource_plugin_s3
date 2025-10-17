@@ -35,6 +35,8 @@
 #include "irods/private/s3_transport/multipart_shared_data.hpp"
 #include "irods/private/s3_transport/types.hpp"
 #include "irods/private/s3_transport/logging_category.hpp"
+#include "irods/irods_hasher_factory.hpp"
+#include "irods/CRC64NVMEStrategy.hpp"
 
 namespace irods::experimental::io::s3_transport
 {
@@ -266,7 +268,10 @@ namespace irods::experimental::io::s3_transport
                     , callback_counter{0}
                     , offset{0}
                     , transport_object_ptr{nullptr}
-                {}
+                    , calculate_crc64_nvme{false}
+                {
+                    irods::getHasher(irods::CRC64NVME_NAME.data(), hasher);
+                }
 
 
                 virtual int callback_implementation(int libs3_buffer_size,
@@ -342,7 +347,9 @@ namespace irods::experimental::io::s3_transport
                 int                          callback_counter;
                 std::int64_t                 offset;       /* For multiple upload */
                 s3_transport<CharT>*         transport_object_ptr;
-
+                bool                         calculate_crc64_nvme;
+                irods::Hasher                hasher;
+                std::string                  trailing_checksum_value;  // Stores checksum for trailing headers callback
         };
 
         template <typename CharT>
@@ -385,6 +392,11 @@ namespace irods::experimental::io::s3_transport
                     if (bytes_read_from_cache > 0) {
                         this->offset += bytes_read_from_cache;
                         this->bytes_written += bytes_read_from_cache;
+
+                        // Update hasher for trailing checksum calculation
+                        if (this->calculate_crc64_nvme) {
+                            this->hasher.update(std::string(libs3_buffer, bytes_read_from_cache));
+                        }
                     }
 
                     return bytes_read_from_cache;
@@ -486,6 +498,9 @@ namespace irods::experimental::io::s3_transport
                         return 0;
                     }
 
+                    if (this->calculate_crc64_nvme) {
+                        this->hasher.update(std::string(libs3_buffer, bytes_to_return));
+                    }
                     this->bytes_written += bytes_to_return;
 
                     return bytes_to_return;
@@ -569,7 +584,9 @@ namespace irods::experimental::io::s3_transport
                     , callback_counter{0}
                     , offset{0}
                     , transport_object_ptr{nullptr}
-                {}
+                {
+                    irods::getHasher(irods::CRC64NVME_NAME.data(), hasher);
+                }
 
 
                 virtual int callback_implementation(int libs3_buffer_size,
@@ -685,6 +702,9 @@ namespace irods::experimental::io::s3_transport
                 int                          callback_counter;
                 std::int64_t                 offset;
                 s3_transport<CharT>*         transport_object_ptr;
+                bool                         calculate_crc64_nvme{false};
+                irods::Hasher                hasher;
+                std::string                  trailing_checksum_value;  // Stores checksum for trailing headers callback
 
         };
 
@@ -728,6 +748,11 @@ namespace irods::experimental::io::s3_transport
                     if (bytes_read_from_cache > 0) {
                         this->offset += bytes_read_from_cache;
                         this->bytes_written += bytes_read_from_cache;
+
+                        // Update hasher for trailing checksum calculation
+                        if (this->calculate_crc64_nvme) {
+                            this->hasher.update(std::string(libs3_buffer, bytes_read_from_cache));
+                        }
                     }
 
 
@@ -835,6 +860,9 @@ namespace irods::experimental::io::s3_transport
 
                     }
 
+                    if (this->calculate_crc64_nvme) {
+                        this->hasher.update(std::string(libs3_buffer, bytes_to_return));
+                    }
                     this->bytes_written += bytes_to_return;
 
                     return bytes_to_return;

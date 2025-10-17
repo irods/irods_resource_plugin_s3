@@ -33,8 +33,14 @@ using s3_transport_config = irods::experimental::io::s3_transport::config;
 namespace fs = irods::experimental::filesystem;
 namespace io = irods::experimental::io;
 
-std::string keyfile = "/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair";
-std::string hostname = "s3.amazonaws.com";
+std::string keyfile = []() {
+    const char* env_keyfile = std::getenv("S3_TEST_KEYFILE");
+    return env_keyfile ? std::string(env_keyfile) : "/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair";
+}();
+std::string hostname = []() {
+    const char* env_hostname = std::getenv("S3_TEST_HOSTNAME");
+    return env_hostname ? std::string(env_hostname) : "s3.amazonaws.com";
+}();
 
 const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
 
@@ -189,7 +195,8 @@ void upload_part(const char* const hostname,
                  bool expected_cache_flag,
                  const std::string& s3_protocol_str = "http",
                  const std::string& s3_sts_date_str = "date",
-                 bool server_encrypt_flag = false)
+                 bool server_encrypt_flag = false,
+                 bool trailing_checksum_on_upload_enabled = false)
 {
 
     fmt::print("{}:{} ({}) open file={} put_repl_flag={}\n", __FILE__, __LINE__, __FUNCTION__, filename, put_repl_flag);
@@ -244,6 +251,7 @@ void upload_part(const char* const hostname,
     s3_config.put_repl_flag = put_repl_flag;
     s3_config.region_name = "us-east-1";
     s3_config.circular_buffer_size = 4 * s3_config.bytes_this_thread;
+    s3_config.trailing_checksum_on_upload_enabled = trailing_checksum_on_upload_enabled;
 
     s3_transport tp1{s3_config};
     odstream ds1{tp1, std::string(object_prefix)+filename};
@@ -549,7 +557,8 @@ void do_upload_thread(const std::string& bucket_name,
                       int thread_count,
                       const bool expected_cache_flag,
                       const std::string& s3_protocol_str = "http",
-                      const std::string& s3_sts_date_str = "date")
+                      const std::string& s3_sts_date_str = "date",
+                      bool trailing_checksum_on_upload_enabled = false)
 {
 
     std::string access_key, secret_access_key;
@@ -563,12 +572,12 @@ void do_upload_thread(const std::string& bucket_name,
 
         irods::thread_pool::post(writer_threads, [bucket_name, access_key,
                 secret_access_key, filename, object_prefix, thread_count, thread_number,
-                s3_protocol_str, s3_sts_date_str, expected_cache_flag] () {
+                s3_protocol_str, s3_sts_date_str, expected_cache_flag, trailing_checksum_on_upload_enabled] () {
 
 
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(), secret_access_key.c_str(),
                     filename.c_str(), object_prefix.c_str(), thread_count, thread_number, thread_count > 1, true, expected_cache_flag,
-                    s3_protocol_str, s3_sts_date_str, false);
+                    s3_protocol_str, s3_sts_date_str, false, trailing_checksum_on_upload_enabled);
         });
     }
 
@@ -929,6 +938,34 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
 
         do_upload_single_part(bucket_name, filename, object_prefix, keyfile, expected_cache_flag,
                 s3_protocol_str, s3_sts_date_str, server_encrypt_flag);
+    }
+
+    remove_bucket(bucket_name);
+}
+
+TEST_CASE("s3_transport_upload_trailing_checksum", "[upload][thread][trailing_checksum]")
+{
+
+    std::string bucket_name = create_bucket();
+
+    int thread_count = 2;
+    std::string filename = "medium_file";
+    std::string object_prefix = "dir1/dir2/";
+    bool expected_cache_flag = false;
+    bool trailing_checksum_on_upload_enabled = true;
+
+    SECTION("upload medium file with multiple threads and trailing checksum")
+    {
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
+                "https", "both", trailing_checksum_on_upload_enabled);
+    }
+
+    SECTION("upload large file with multiple threads and trailing checksum")
+    {
+        thread_count = 4;
+        filename = "large_file";
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
+                "https", "both", trailing_checksum_on_upload_enabled);
     }
 
     remove_bucket(bucket_name);
