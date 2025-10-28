@@ -1143,6 +1143,35 @@ typedef int(S3PutObjectDataCallback)(int bufferSize, char* buffer, void* callbac
 typedef S3Status(S3GetObjectDataCallback)(int bufferSize, const char* buffer, void* callbackData);
 
 /**
+ * This callback is made after the get object attributes operation.  The various
+ * XML responses are passed into this callback.
+ *
+ * @param checksumCRC32 is the CRC32 checksum (null string if not in the response).
+ * @param checksumCRC32C is the CRC32C checksum (null string if not in the response).
+ * @param checksumCRC64NVME is the CRC64/NVME checksum (null string if not in the response).
+ * @param checksumSHA1 is the SHA1 checksum (null string if not in the response).
+ * @param checksumSHA256 is the SHA256 checksum (null string if not in the response).
+ * @param checksumType is the type of the checksum (COMPOSITE or FULL_OBJECT).  The value is a
+ *        null string if it is not in the response.
+ * @param storageClass is the storage class for the object.  The value is a
+ *        null string if it is not in the response.
+ * @param objectSize is the int64_t parsed size of the object.  If this is not in the response
+ *        or the value can't be parsed as an int64_t, this value will be 0.
+ * @param callbackData is the callback data as specified when the request
+ *        was issued.
+ * @return S3StatusOK
+ **/
+typedef S3Status(S3GetObjectAttributesResponseCallback)(char* checksumCRC32,
+                char* checksumCRC32C,
+                char* checksumCRC64NVME,
+                char* checksumSHA1,
+                char* checksumSHA256,
+                char* checksumType,
+                char* storageClass,
+                char* objectSize,
+                void* callbackData);
+
+/**
  * This callback is made after initiation of a multipart upload operation.  It
  * indicates that the multi part upload has been created and provides the
  * id that can be used to associate multi upload parts with the multi upload
@@ -1328,6 +1357,20 @@ typedef struct S3ListBucketHandler
 	 **/
 	S3ListBucketCallback* listBucketCallback;
 } S3ListBucketHandler;
+
+/**
+ * An S3GetObjectAttributesHandler defines the callbacks which are made for
+ * get_object_attributes requests.
+ **/
+typedef struct S3GetObjectAttributesHandler
+{
+	/**
+	 * responseHandler provides the properties and complete callback
+	 **/
+	S3ResponseHandler responseHandler;
+
+	S3GetObjectAttributesResponseCallback* responseXmlCallback;
+} S3GetObjectAttributesHandler;
 
 /**
  * An S3PutObjectHandler defines the callbacks which are made for
@@ -2231,6 +2274,33 @@ void S3_head_object(const S3BucketContext* bucketContext,
                     int timeoutMs,
                     const S3ResponseHandler* handler,
                     void* callbackData);
+
+/**
+ * Gets the object attributes for the object, but not the object contents.
+ *
+ * @param bucketContext gives the bucket and associated parameters for this
+ *        request
+ * @param key is the key of the object to get the properties of
+ * @param putProperties optionally provides additional properties to apply to
+ *        the object that is being put to
+ * @param handler gives the callbacks to call as the request is processed and
+ *        completed
+ * @param requestContext if non-NULL, gives the S3RequestContext to add this
+ *        request to, and does not perform the request immediately.  If NULL,
+ *        performs the request immediately and synchronously.
+ * @param xAmzObjectAttributes defines the attributes to return in request
+ * @param timeoutMs if not 0 contains total request timeout in milliseconds
+ * @param callbackData will be passed in as the callbackData parameter to
+ *        all callbacks for this request
+ **/
+void S3_get_object_attributes(S3BucketContext* bucketContext,
+                           const char* key,
+                           S3PutProperties* putProperties,
+                           S3GetObjectAttributesHandler* handler,
+                           S3RequestContext* requestContext,
+                           const char *xAmzObjectAttributes,
+                           int timeoutMs,
+                           void* callbackData);
 
 /**
  * Deletes an object from S3.

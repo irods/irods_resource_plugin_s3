@@ -155,7 +155,8 @@ void S3_get_acl(const S3BucketContext* bucketContext,
 		&getAclDataCallback,             // fromS3Callback
 		&getAclCompleteCallback,         // completeCallback
 		gaData,                          // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -351,7 +352,8 @@ void S3_set_acl(const S3BucketContext* bucketContext,
 		0,                               // fromS3Callback
 		&setXmlCompleteCallback,         // completeCallback
 		data,                            // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -452,7 +454,8 @@ void S3_get_lifecycle(const S3BucketContext* bucketContext,
 		&getLifecycleDataCallback,       // fromS3Callback
 		&getLifecycleCompleteCallback,   // completeCallback
 		gaData,                          // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -572,7 +575,8 @@ void S3_set_lifecycle(const S3BucketContext* bucketContext,
 		0,                               // fromS3Callback
 		&setXmlCompleteCallback,         // completeCallback
 		data,                            // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
 	// Perform the request
