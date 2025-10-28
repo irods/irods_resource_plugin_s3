@@ -110,6 +110,11 @@ typedef struct RequestParams
 
 	// Request timeout. If 0, no timeout will be enforced
 	int timeoutMs;
+
+	/**
+	 * This optional field sets the list of object attributes for GetObjectAttributes.
+	 **/
+	const char* xAmzObjectAttributes;
 } RequestParams;
 
 // This is the stuff associated with a request that needs to be on the heap

@@ -139,7 +139,8 @@ void S3_initiate_multipart(S3BucketContext* bucketContext,
 		InitialMultipartCallback,           // fromS3Callback
 		InitialMultipartCompleteCallback,   // completeCallback
 		mdata,                              // callbackData
-		timeoutMs                           // timeoutMs
+		timeoutMs,                          // timeoutMs
+		0                                   // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -181,7 +182,8 @@ void S3_abort_multipart_upload(S3BucketContext* bucketContext,
 		0,                                           // fromS3Callback
 		AbortMultipartUploadCompleteCallback,        // completeCallback
 		0,                                           // callbackData
-		timeoutMs                                    // timeoutMs
+		timeoutMs,                                   // timeoutMs
+		0                                            // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -232,7 +234,8 @@ void S3_upload_part(S3BucketContext* bucketContext,
 		0,                                           // fromS3Callback
 		handler->responseHandler.completeCallback,   // completeCallback
 		callbackData,                                // callbackData
-		timeoutMs                                    // timeoutMs
+		timeoutMs,                                   // timeoutMs
+		0                                            // xAmzObjectAttributes
 	};
 
 	request_perform(&params, requestContext);
@@ -360,7 +363,8 @@ void S3_complete_multipart_upload(S3BucketContext* bucketContext,
 		commitMultipartCallback,           // fromS3Callback
 		commitMultipartCompleteCallback,   // completeCallback
 		data,                              // callbackData
-		timeoutMs                          // timeoutMs
+		timeoutMs,                         // timeoutMs
+		0                                  // xAmzObjectAttributes
 	};
 
 	request_perform(&params, requestContext);
@@ -891,7 +895,8 @@ void S3_list_multipart_uploads(S3BucketContext* bucketContext,
 		&listMultipartDataCallback,       // fromS3Callback
 		&listMultipartCompleteCallback,   // completeCallback
 		lmData,                           // callbackData
-		timeoutMs                         // timeoutMs
+		timeoutMs,                        // timeoutMs
+		0                                 // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -1008,7 +1013,8 @@ void S3_list_parts(S3BucketContext* bucketContext,
 		&listPartsDataCallback,           // fromS3Callback
 		&listPartsCompleteCallback,       // completeCallback
 		lpData,                           // callbackData
-		timeoutMs                         // timeoutMs
+		timeoutMs,                        // timeoutMs
+		0                                 // xAmzObjectAttributes
 	};
 
 	// Perform the request

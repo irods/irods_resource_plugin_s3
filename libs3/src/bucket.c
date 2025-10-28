@@ -157,7 +157,8 @@ void S3_test_bucket(S3Protocol protocol,
 		&testBucketDataCallback,       // fromS3Callback
 		&testBucketCompleteCallback,   // completeCallback
 		tbData,                        // callbackData
-		timeoutMs                      // timeoutMs
+		timeoutMs,                     // timeoutMs
+		0                              // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -308,7 +309,8 @@ void S3_create_bucket(S3Protocol protocol,
 		createBucketFromS3Callback,      // fromS3Callback
 		&createBucketCompleteCallback,   // completeCallback
 		cbData,                          // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -394,7 +396,8 @@ void S3_delete_bucket(S3Protocol protocol,
 		0,                               // fromS3Callback
 		&deleteBucketCompleteCallback,   // completeCallback
 		dbData,                          // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -721,7 +724,8 @@ void S3_list_bucket(const S3BucketContext* bucketContext,
 		&listBucketDataCallback,          // fromS3Callback
 		&listBucketCompleteCallback,      // completeCallback
 		lbData,                           // callbackData
-		timeoutMs                         // timeoutMs
+		timeoutMs,                        // timeoutMs
+		0                                 // xAmzObjectAttributes
 	};
 
 	// Perform the request

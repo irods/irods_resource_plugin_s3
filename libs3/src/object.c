@@ -31,6 +31,7 @@
  ************************************************************************** **/
 
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include "libs3/libs3.h"
 #include "libs3/request.h"
@@ -73,7 +74,8 @@ void S3_put_object(const S3BucketContext* bucketContext,
 		0,                                           // fromS3Callback
 		handler->responseHandler.completeCallback,   // completeCallback
 		callbackData,                                // callbackData
-		timeoutMs                                    // timeoutMs
+		timeoutMs,                                   // timeoutMs
+		0                                            // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -268,7 +270,8 @@ void S3_copy_object_range(const S3BucketContext* bucketContext,
 		&copyObjectDataCallback,                                            // fromS3Callback
 		&copyObjectCompleteCallback,                                        // completeCallback
 		data,                                                               // callbackData
-		timeoutMs                                                           // timeoutMs
+		timeoutMs,                                                          // timeoutMs
+		0                                                                   // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -314,7 +317,8 @@ void S3_get_object(const S3BucketContext* bucketContext,
 		handler->getObjectDataCallback,              // fromS3Callback
 		handler->responseHandler.completeCallback,   // completeCallback
 		callbackData,                                // callbackData
-		timeoutMs                                    // timeoutMs
+		timeoutMs,                                   // timeoutMs
+		0                                            // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -357,7 +361,8 @@ void S3_head_object(const S3BucketContext* bucketContext,
 		0,                               // fromS3Callback
 		handler->completeCallback,       // completeCallback
 		callbackData,                    // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -400,7 +405,8 @@ void S3_delete_object(const S3BucketContext* bucketContext,
 		0,                               // fromS3Callback
 		handler->completeCallback,       // completeCallback
 		callbackData,                    // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
 	// Perform the request
@@ -497,8 +503,164 @@ void S3_restore_object(S3BucketContext* bucketContext,
 		restoreObjectCallback,           // fromS3Callback
 		restoreObjectCompleteCallback,   // completeCallback
 		data,                            // callbackData
-		timeoutMs                        // timeoutMs
+		timeoutMs,                       // timeoutMs
+		0                                // xAmzObjectAttributes
 	};
 
+	request_perform(&params, requestContext);
+}
+
+// get object attributes ----------------------------------------------------------------
+typedef struct GetObjectAttributesData
+{
+	SimpleXml simpleXml;
+	S3GetObjectAttributesHandler* handler;
+
+    // 64 is longer than any of these need to be
+    string_buffer(checksumCRC32, 64);
+    string_buffer(checksumCRC32C, 64);
+    string_buffer(checksumCRC64NVME, 64);
+    string_buffer(checksumSHA1, 64);
+    string_buffer(checksumSHA256, 64);
+    string_buffer(checksumType, 64);
+    string_buffer(storageClass, 64);
+    string_buffer(objectSize, 64);
+	void* userdata;
+
+    // Part info not implemented
+} GetObjectAttributesData;
+
+static S3Status GetObjectAttributesCallback(int bufferSize, const char* buffer, void* callbackData)
+{
+	GetObjectAttributesData* goaData = (GetObjectAttributesData*) callbackData;
+	return simplexml_add(&(goaData->simpleXml), buffer, bufferSize);
+}
+
+static void GetObjectAttributesCompleteCallback(S3Status requestStatus,
+                                             const S3ErrorDetails* s3ErrorDetails,
+                                             void* callbackData)
+{
+	GetObjectAttributesData* goaData = (GetObjectAttributesData*) callbackData;
+
+	if (goaData->handler->responseHandler.completeCallback) {
+		(*goaData->handler->responseHandler.completeCallback)(requestStatus, s3ErrorDetails, goaData->userdata);
+	}
+
+	if (goaData->handler->responseXmlCallback) {
+		(*goaData->handler->responseXmlCallback)(goaData->checksumCRC32,
+                goaData->checksumCRC32C,
+                goaData->checksumCRC64NVME,
+                goaData->checksumSHA1,
+                goaData->checksumSHA256,
+                goaData->checksumType,
+                goaData->storageClass,
+                goaData->objectSize,
+                goaData->userdata);
+	}
+
+	simplexml_deinitialize(&(goaData->simpleXml));
+	free(goaData);
+}
+
+static S3Status getObjectAttributesXmlCallback(const char* elementPath, const char* data, int dataLen, void* callbackData)
+{
+	GetObjectAttributesData* goaData = (GetObjectAttributesData*) callbackData;
+	int fit = 1;
+	if (!data) {
+		return S3StatusOK;
+	}
+
+    // Note that elementPath is a 512 character array
+    if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC32", 511)) {
+        string_buffer_append(goaData->checksumCRC32, data, dataLen, fit);
+    }
+    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC32C", 511)) {
+        string_buffer_append(goaData->checksumCRC32C, data, dataLen, fit);
+    }
+    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumCRC64NVME", 511)) {
+        string_buffer_append(goaData->checksumCRC64NVME, data, dataLen, fit);
+    }
+    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumSHA1", 511)) {
+        string_buffer_append(goaData->checksumSHA1, data, dataLen, fit);
+    }
+    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumSHA256", 511)) {
+        string_buffer_append(goaData->checksumSHA256, data, dataLen, fit);
+    }
+    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/Checksum/ChecksumType", 511)) {
+        string_buffer_append(goaData->checksumType, data, dataLen, fit);
+    }
+    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/StorageClass", 511)) {
+        string_buffer_append(goaData->storageClass, data, dataLen, fit);
+    }
+    else if (0 == strncmp(elementPath, "GetObjectAttributesResponse/ObjectSize", 511)) {
+        // Keep this as a string.  User can parse it as a long long if desired.
+        string_buffer_append(goaData->objectSize, data, dataLen, fit);
+    }
+    // Note: not parsing/handling <ObjectParts> return values
+
+	(void) fit;
+	return S3StatusOK;
+}
+
+static S3Status GetObjectAttributesPropertiesCallback(const S3ResponseProperties* properties, void* callbackData)
+{
+	GetObjectAttributesData* goaData = (GetObjectAttributesData*) callbackData;
+	return goaData->handler->responseHandler.propertiesCallback(properties, goaData->userdata);
+}
+
+void S3_get_object_attributes(S3BucketContext* bucketContext,
+                           const char* key,
+                           S3PutProperties* putProperties,
+                           S3GetObjectAttributesHandler* handler,
+                           S3RequestContext* requestContext,
+                           const char *xAmzObjectAttributes,
+                           int timeoutMs,
+                           void* callbackData)
+{
+	GetObjectAttributesData* goaData = (GetObjectAttributesData*) malloc(sizeof(GetObjectAttributesData));
+	simplexml_initialize(&(goaData->simpleXml), &getObjectAttributesXmlCallback, goaData);
+	string_buffer_initialize(goaData->checksumCRC32);
+	string_buffer_initialize(goaData->checksumCRC32C);
+	string_buffer_initialize(goaData->checksumCRC64NVME);
+	string_buffer_initialize(goaData->checksumSHA1);
+	string_buffer_initialize(goaData->checksumSHA256);
+	string_buffer_initialize(goaData->checksumType);
+	string_buffer_initialize(goaData->storageClass);
+	string_buffer_initialize(goaData->objectSize);
+
+	goaData->handler = handler;
+	goaData->userdata = callbackData;
+
+	RequestParams params = {
+		HttpRequestTypeGET,                    // httpRequestType
+		{bucketContext->hostName,              // hostName
+	     bucketContext->bucketName,            // bucketName
+	     bucketContext->protocol,              // protocol
+	     bucketContext->uriStyle,              // uriStyle
+	     bucketContext->accessKeyId,           // accessKeyId
+	     bucketContext->secretAccessKey,       // secretAccessKey
+	     bucketContext->securityToken,         // securityToken
+	     bucketContext->authRegion,            // authRegion
+	     bucketContext->stsDate},              // stsDate
+		key,                                   // key
+		0,                                     // queryParams
+		"attributes",                          // subResource
+		0,                                     // copySourceBucketName
+		0,                                     // copySourceKey
+		0,                                     // getConditions
+		0,                                     // startByte
+		0,                                     // byteCount
+		putProperties,                         // putProperties
+		GetObjectAttributesPropertiesCallback, // propertiesCallback
+		0,                                     // toS3Callback
+		0,                                     // toS3CallbackTotalSize
+		GetObjectAttributesCallback,           // fromS3Callback
+		GetObjectAttributesCompleteCallback,   // completeCallback
+		goaData,                               // callbackData
+		timeoutMs,                             // timeoutMs
+		xAmzObjectAttributes                   // xAmzObjectAttributes
+	};
+
+	// Perform the request
 	request_perform(&params, requestContext);
 }

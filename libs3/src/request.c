@@ -389,6 +389,11 @@ static S3Status compose_amz_headers(const RequestParams* params,
 		values->dateHeader[0] = 0;
 	}
 
+    // Add x-amz-object-attributes header if necessary (only for S3_get_object_attributes)
+	if (params->xAmzObjectAttributes) {
+		append_amz_header(values, 0, "x-amz-object-attributes", params->xAmzObjectAttributes);
+	}
+
 	if (params->httpRequestType == HttpRequestTypeCOPY) {
 		// Add the x-amz-copy-source header
 		if (params->copySourceBucketName && params->copySourceBucketName[0] && params->copySourceKey &&
@@ -1756,7 +1761,8 @@ S3Status S3_generate_authenticated_query_string(char* buffer,
 	                        NULL,
 	                        NULL,
 	                        NULL,
-	                        0};
+	                        0,
+                            0};
 
 	RequestComputedValues computed;
 	S3Status status = setup_request(&params, &computed, 1);
