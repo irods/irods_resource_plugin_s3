@@ -120,6 +120,10 @@ namespace irods_s3 {
     irods::error s3_rebalance_operation( irods::plugin_context& _ctx );
 
     irods::error s3_notify_operation( irods::plugin_context& _ctx, const std::string* str );
+
+    irods::error s3_read_checksum_from_storage_device(irods::plugin_context& _ctx,
+            const std::string* checksum_scheme,
+            std::string* returned_checksum);
 }
 
 #endif

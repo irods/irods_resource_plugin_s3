@@ -92,6 +92,7 @@ To define S3 provider constraints and control multipart behavior:
 -   `S3_RESTORATION_DAYS` - The number of days an object is to be restored when restoring from Glacier.  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
 -   `S3_RESTORATION_TIER` - The data access tier option when restoring from Glacier.  Valid values are "Expedited", "Standard", and "Bulk".  The default is "Standard".  See [RestoreObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html).
 -   `S3_ENABLE_COPYOBJECT` - Some providers (such as Fujifilm) do not implement the CopyObject S3 API.  If S3_ENABLE_COPYOBJECT=0, the copy will be performed via a read from source and write to destination rather than calling CopyObject.  (Also see the note about GCS support.)
+-   `ENABLE_DIRECT_CHECKSUM_READ` - If this is set to 1, when iRODS needs to calculate the checksum on an object, it will attempt to read the checksum directly from S3 using the `GetObjectAttributes` API.  The default is 0 (off).  See [Enabling Direct Checksum Reads](#enabling-direct-checksum-reads-from-s3-provider) for more information.
 
 > Notes about virtual hosting:  When using virtual hosted request style, configure the resource path and S3_DEFAULT_HOSTNAME as you would for path request style.  Leave the bucket name in the path and do not put the bucket name in the S3_DEFAULT_HOSTNAME.  This is important to retain backward compatibility with objects already created using path request style. 
 
@@ -145,7 +146,7 @@ Some configuration settings have special meaning when the resource is in cachele
 -   When iRODS is using parallel transfer but each transfer part is less than S3_MPU_CHUNK, a cache file will be used
 -   The S3_MPU_THREADS setting is only used when flushing a cache file to S3.  In streaming mode iRODS controls the number of transfer threads that are used.
 
-### Cache Rules When Using Cacheless Mode
+#### Cache Rules When Using Cacheless Mode
 
 Care was taken to limit the use of a cache file when cacheless mode is enabled.  However, there are scenarios where a cache file is required.  The following explains when a cache file is required or when cacheless streaming is performed.
 
@@ -156,7 +157,7 @@ Care was taken to limit the use of a cache file when cacheless mode is enabled. 
 
 In the cases where a cache file must be used, the base directory for the cache files can be set using the `S3_CACHE_DIR` parameter in the context string.  If it is not set, a directory under `/tmp` will be created and used.  The cache files are transient and are removed once the data object is closed.
 
-#### Expectations on clients using the s3_transport/dstream directly when the put_repl_flag is set to true
+### Expectations on clients using the s3_transport/dstream directly when the put_repl_flag is set to true
 
 Clients using s3_transport/dstream must set the put_repl_flag to true to use cacheless streaming.  In this case, the s3_transport has some expectations on the behavior of the client.  If these are not followed the results are undefined and the transfers will likely fail.
 
@@ -184,6 +185,25 @@ irods@hostname $ ireg -R archiveResc /<s3BucketName>/full/path/in/bucket /full/l
 ```
 
 Note the use of the `cache` and `archive` contextStrings on the `addchildtoresc` commands.  These inform the parent compound resource which child is serving in which role.  The S3 resource is set to `archive` and a POSIX-capable resource must be set to `cache`.
+
+### Enabling Direct Checksum Reads from S3 Provider
+
+When iRODS needs to calculate a hash or checksum on an object, the default behavior is to read the full object for this calculation. Some S3 providers automatically calculate a hash or checksum on object upload. Reading this directly from the S3 provider can significantly improve performance.
+
+To take advantage of this feature, all of the following must be true:
+
+1. The S3 resource context string must include the `ENABLE_DIRECT_CHECKSUM_READ=1` option.
+2. The requested checksum must be returned in the `GetObjectAttributes` API call.
+3. The `ChecksumType` returned from `GetObjectAttributes` must be "FULL_OBJECT".
+
+If any of these conditions are not satisfied or an error occurs while attempting to read the checksum, iRODS will default to the normal behavior of reading the full object to calculate the checksum.
+
+AWS by default calculates and stores the CRC64/NVME checksum. To make sure that this is the checksum requested by iRODS, one of the following should be true:
+
+- If the client is validating the checksum (for example "iput -K") then the client should set the `irods_default_hash_scheme` to "crc64nvme".
+- If the client is not validating the checksum (for example "iput -k" or "ichksum") then the server's `default_hash_scheme` should be set to "crc64nvme".
+- Refer to [Checksum Configuration](https://docs.irods.org/5.0.2/system_overview/configuration/#checksum-configuration) for more detail on configuring checksums in iRODS.
+
 
 ### Example of a baseline resource configuration
 ```

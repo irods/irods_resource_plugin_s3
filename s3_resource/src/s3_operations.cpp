@@ -30,6 +30,7 @@
 #include <irods/get_file_descriptor_info.h>
 #include <irods/rsModAVUMetadata.hpp>
 #include <irods/irods_at_scope_exit.hpp>
+#include <irods/checksum.h>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -78,7 +79,7 @@ namespace irods_s3 {
     // must have enough space for the memory algorithm and reserved area but there is
     // no way of knowing the size for these.  It is stated that 100*sizeof(void*) would
     // be enough.
-    inline static constexpr std::int64_t SHMEM_SIZE{100*sizeof(void*) + sizeof(multipart_shared_data) }; 
+    inline static constexpr std::int64_t SHMEM_SIZE{100*sizeof(void*) + sizeof(multipart_shared_data)};
     namespace log  = irods::experimental::log;
     using logger = log::logger<s3_plugin_logging_category>;
 
@@ -2392,4 +2393,203 @@ namespace irods_s3 {
 		return SUCCESS();
 	} // s3_notify_operation
 
+    irods::error s3_read_checksum_from_storage_device(irods::plugin_context& _ctx,
+            const std::string* _checksum_scheme,
+            std::string* _returned_checksum) {
+
+        // validate inputs are not null
+        if (!_checksum_scheme || !_returned_checksum) {
+            return ERROR(SYS_INVALID_INPUT_PARAM, "Invalid input parameter. A null std::string* pointer encountered.");
+        }
+
+        irods::file_object_ptr file_obj = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
+
+        // create a generic not supported error for returns
+        irods::error generic_checksum_not_available_error =
+            ERROR(SYS_NOT_SUPPORTED,
+                    fmt::format("checksum scheme [{}] for [{}] is not available in S3",
+                    *_checksum_scheme,
+                    file_obj->logical_path()));
+
+        // if direct checksum read is not enabled, just return an error
+		if (!s3_direct_checksum_read_enabled(_ctx.prop_map())) {
+            return ERROR(SYS_NOT_SUPPORTED, fmt::format("direct checksum read is not enabled"));
+        }
+
+        logger::debug("{}:{} ({}) _checksum_scheme={}", __FILE__, __LINE__, __func__, *_checksum_scheme);
+
+        std::string checksum_scheme_lowercase = *_checksum_scheme;
+        boost::algorithm::to_lower(checksum_scheme_lowercase);
+
+        // only continue if S3 provides the checksum scheme
+        if (checksum_scheme_lowercase != "crc64nvme" &&
+               checksum_scheme_lowercase != "sha1" &&
+               checksum_scheme_lowercase != "sha256") {
+            return ERROR(SYS_NOT_SUPPORTED,
+                    fmt::format("checksum scheme [{}] not supported by S3", *_checksum_scheme));
+        }
+
+        // parse the S3 bucket and key from the physical path
+        std::string bucket;
+        std::string key;
+        irods::error ret = parseS3Path(file_obj->physical_path(), bucket, key, _ctx.prop_map());
+        if (!ret.ok()) {
+            return PASS(ret);
+        }
+
+        // get auth credentials
+        std::string key_id;
+        std::string access_key;
+        ret = s3GetAuthCredentials(_ctx.prop_map(), key_id, access_key);
+        if(!ret.ok()) {
+            return PASS(ret);
+        }
+
+        // set up the bucket context
+        S3BucketContext bucketContext = {};
+        bucketContext.bucketName = bucket.c_str();
+        bucketContext.protocol = s3GetProto(_ctx.prop_map());
+        bucketContext.stsDate = s3GetSTSDate(_ctx.prop_map());
+        bucketContext.uriStyle = s3_get_uri_request_style(_ctx.prop_map());
+        bucketContext.accessKeyId = key_id.c_str();
+        bucketContext.secretAccessKey = access_key.c_str();
+        std::string region_name = get_region_name(_ctx.prop_map());
+        bucketContext.authRegion = region_name.c_str();
+        std::string&& hostname = s3GetHostname(_ctx.prop_map());
+        bucketContext.hostName = hostname.c_str();
+
+        // set up callbacks for s3_get_object_attributes
+
+        struct data_for_get_object_attributes_callback
+        {
+            explicit data_for_get_object_attributes_callback(S3BucketContext* _bucket_context_ptr)
+                : checksum_crc32{}
+                , checksum_crc32c{}
+                , checksum_crc64_nvme{}
+                , checksum_sha1{}
+                , checksum_type{}
+                , storage_class{}
+                , object_size{}
+                , bucket_context_ptr{_bucket_context_ptr}
+            {}
+
+            std::string            checksum_crc32;
+            std::string            checksum_crc32c;
+            std::string            checksum_crc64_nvme;
+            std::string            checksum_sha1;
+            std::string            checksum_sha256;
+            std::string            checksum_type;
+            std::string            storage_class;
+            std::string            object_size;
+            S3BucketContext*       bucket_context_ptr;
+        };
+
+        data_for_get_object_attributes_callback get_object_attributes_data(&bucketContext);
+
+        std::string checksum_crc64_nvme;
+        S3GetObjectAttributesHandler get_object_attributes_handler = {
+            {
+                [](const S3ResponseProperties *properties, void *callback_data) -> S3Status {
+                    // response properties callback
+                    return S3StatusOK;
+                },
+                [](S3Status status, const S3ErrorDetails *error, void *callback_data) -> void {
+                    // response complete callback
+                    data_for_get_object_attributes_callback *data =
+                        (data_for_get_object_attributes_callback*)callback_data;
+
+                    StoreAndLogStatus( status, error, __func__, data->bucket_context_ptr, &status);
+                }
+            },
+            [](char* checksumCRC32, char* checksumCRC32C, char* checksumCRC64NVME,
+                        char* checksumSHA1, char* checksumSHA256, char* checksumType,
+                        char* storageClass, char* objectSize, void* callbackData) -> S3Status {
+
+                data_for_get_object_attributes_callback *cb_data =
+                    static_cast<data_for_get_object_attributes_callback*>(callbackData);
+
+                if (checksumCRC32) {
+                    cb_data->checksum_crc32 = checksumCRC32;
+                }
+                if (checksumCRC32C) {
+                    cb_data->checksum_crc32c = checksumCRC32C;
+                }
+                if (checksumCRC64NVME) {
+                    cb_data->checksum_crc64_nvme = checksumCRC64NVME;
+                }
+                if (checksumSHA1) {
+                    cb_data->checksum_sha1 = checksumSHA1;
+                }
+                if (checksumSHA256) {
+                    cb_data->checksum_sha256 = checksumSHA256;
+                }
+                if (checksumType) {
+                    cb_data->checksum_type = checksumType;
+                }
+                if (storageClass) {
+                    cb_data->storage_class = storageClass;
+                }
+                if (objectSize) {
+                    cb_data->object_size = objectSize;
+                }
+
+                return S3StatusOK;
+            }
+        };
+
+        // Call GetObjectAttributes to get checksum information
+        S3_get_object_attributes(&bucketContext, // S3BucketContext
+                key.c_str(),                     // key
+                0,                               // S3PutProperties
+                &get_object_attributes_handler,  // S3GetObjectAttributesHandler
+                0,                               // requestContext
+                "Checksum",                      // xAmzObjectAttributes
+                0,                               // timeout
+                &get_object_attributes_data      // callbackData
+                );
+
+		logger::debug("{}:{} ({}) checksum_crc64_nvme = [{}] checksum_sha1 = [{}] "
+                "checksum_sha256 = [{}] checksum_type = [{}]",
+                __FILE__,
+                __LINE__,
+                __func__,
+                get_object_attributes_data.checksum_crc64_nvme,
+                get_object_attributes_data.checksum_sha1,
+                get_object_attributes_data.checksum_sha256,
+                get_object_attributes_data.checksum_type);
+
+
+        // The checksum type must be "FULL_OBJECT" and not "COMPOSITE" for our purposes.
+        if ("FULL_OBJECT" != get_object_attributes_data.checksum_type) {
+            return generic_checksum_not_available_error;
+        }
+
+        if ("crc64nvme" == checksum_scheme_lowercase) {
+            if (get_object_attributes_data.checksum_crc64_nvme.empty()) {
+                return generic_checksum_not_available_error;
+            }
+            std::string prefix(CRC64NVME_CHKSUM_PREFIX);
+            *_returned_checksum = prefix + get_object_attributes_data.checksum_crc64_nvme;
+            return SUCCESS();
+        }
+        if ("sha256" == checksum_scheme_lowercase) {
+            if (get_object_attributes_data.checksum_sha256.empty()) {
+                return generic_checksum_not_available_error;
+            }
+            std::string prefix(SHA256_CHKSUM_PREFIX);
+            *_returned_checksum = prefix + get_object_attributes_data.checksum_sha256;
+            return SUCCESS();
+		}
+        if ("sha1" == checksum_scheme_lowercase) {
+            if (get_object_attributes_data.checksum_sha1.empty()) {
+                return generic_checksum_not_available_error;
+            }
+            std::string prefix(SHA1_CHKSUM_PREFIX);
+            *_returned_checksum = prefix + get_object_attributes_data.checksum_sha1;
+            return SUCCESS();
+        }
+
+        return generic_checksum_not_available_error;
+
+    } // s3_read_checksum
 }
