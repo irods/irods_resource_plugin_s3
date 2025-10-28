@@ -151,6 +151,7 @@ const std::string  s3_restoration_days{"S3_RESTORATION_DAYS"};          //  numb
 const std::string  s3_restoration_tier{"S3_RESTORATION_TIER"};          //  either "standard", "bulk", or "expedited"
 const std::string  s3_enable_copyobject{"S3_ENABLE_COPYOBJECT"};       //  If set to 0 the CopyObject API will not be used.  Default is to use CopyObject.
 const std::string  s3_non_data_transfer_timeout_seconds{"S3_NON_DATA_TRANSFER_TIMEOUT_SECONDS"};
+const std::string  enable_direct_checksum_read("ENABLE_DIRECT_CHECKSUM_READ");
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const std::size_t  S3_DEFAULT_RETRY_WAIT_SECONDS = 2;
@@ -1218,6 +1219,30 @@ bool s3_copyobject_disabled(irods::plugin_property_map& _prop_map)
     }
     return true;
 } // end s3_copyobject_disabled
+
+// s3_direct_checksum_read_enabled - default is false
+bool s3_direct_checksum_read_enabled(
+		irods::plugin_property_map& _prop_map )
+{
+	std::string enable_str;
+	bool enable_flag = false;
+
+	irods::error ret = _prop_map.get< std::string >(
+			enable_direct_checksum_read,
+			enable_str );
+	if (ret.ok()) {
+		// Only 0 = no, 1 = yes.
+		if ("0" != enable_str && "1" != enable_str) {
+			std::string resource_name = get_resource_name(_prop_map);
+			s3_logger::warn("[resource_name={}] Invalid value for {} of {}. The value should be 0 or 1. Defaulting to 0.",
+					resource_name, enable_direct_checksum_read, enable_str);
+		}
+		else if ("1" == enable_str) {
+			enable_flag = true;
+		}
+	}
+	return enable_flag;
+} // end s3_direct_checksum_read_enabled
 
 irods::error s3GetFile(
     const std::string& _filename,
@@ -2783,6 +2808,11 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
         irods::RESOURCE_OP_NOTIFY,
         std::function<irods::error(irods::plugin_context&, const std::string*)>(
             irods_s3::s3_notify_operation ) );
+
+    resc->add_operation(
+        irods::RESOURCE_OP_READ_CHECKSUM_FROM_STORAGE_DEVICE,
+        std::function<irods::error(irods::plugin_context&, const std::string*, std::string*)>(
+            irods_s3::s3_read_checksum_from_storage_device ) );
 
     // set some properties necessary for backporting to iRODS legacy code
     resc->set_property< int >( irods::RESOURCE_CHECK_PATH_PERM, DO_CHK_PATH_PERM );

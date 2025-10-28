@@ -70,6 +70,7 @@ unsigned int get_non_data_transfer_timeout_seconds(irods::plugin_property_map& _
 unsigned int s3_get_restoration_days(irods::plugin_property_map& _prop_map);
 std::string s3_get_restoration_tier(irods::plugin_property_map& _prop_map);
 std::string s3_get_storage_class_from_configuration(irods::plugin_property_map& _prop_map);
+bool s3_direct_checksum_read_enabled(irods::plugin_property_map& _prop_map);
 
 void StoreAndLogStatus(S3Status status, const S3ErrorDetails *error,
         const char *function, const S3BucketContext *pCtx, S3Status *pStatus,
