@@ -2249,6 +2249,114 @@ OUTPUT ruleExecOut
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(file1_get)
 
+    def test_ichksum_with_crc64nvme__issue_2271(self):
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+        file1_size = 2*1024
+
+        config = IrodsConfig()
+
+        try:
+            # create file1
+            lib.make_arbitrary_file(file1, file1_size)
+
+            with lib.file_backed_up(config.server_config_path):
+
+                config.server_config['default_hash_scheme'] = 'crc64nvme'
+                lib.update_json_file_from_dict(config.server_config_path, config.server_config)
+
+                with lib.file_backed_up(config.client_environment_path):
+                    client_update = {
+                        'irods_default_hash_scheme': 'crc64nvme',
+                    }
+                    session_env_backup = copy.deepcopy(self.admin.environment_file_contents)
+                    self.admin.environment_file_contents.update(client_update)
+
+                    IrodsController().reload_configuration()
+
+                    # calculate the crc64nvme checksum for comparison
+                    checksum_str = 'crc64nvme:'
+                    with open(file1, 'rb') as f:
+                        checksum_str += base64.b64encode(lib.calculate_crc64_nvme(f.read())).decode()
+
+                    self.admin.assert_icommand(['iput', file1])
+                    self.admin.assert_icommand(['ichksum', file1], 'STDOUT_SINGLELINE', checksum_str)
+        finally:
+            self.admin.assert_icommand(['irm', '-f', file1])
+            s3plugin_lib.remove_if_exists(file1)
+            IrodsController().reload_configuration()
+
+    def test_server_side_calculates_crc64nvme_checksum_on_put_operation__issue_2271(self):
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+        file1_size = 2*1024
+
+        config = IrodsConfig()
+
+        try:
+            # create file1
+            lib.make_arbitrary_file(file1, file1_size)
+
+            with lib.file_backed_up(config.server_config_path):
+
+                config.server_config['default_hash_scheme'] = 'crc64nvme'
+                lib.update_json_file_from_dict(config.server_config_path, config.server_config)
+
+                with lib.file_backed_up(config.client_environment_path):
+                    client_update = {
+                        'irods_default_hash_scheme': 'crc64nvme',
+                    }
+                    session_env_backup = copy.deepcopy(self.admin.environment_file_contents)
+                    self.admin.environment_file_contents.update(client_update)
+
+                    IrodsController().reload_configuration()
+
+                    # calculate the crc64nvme checksum for comparison
+                    checksum_str = 'crc64nvme:'
+                    with open(file1, 'rb') as f:
+                        checksum_str += base64.b64encode(lib.calculate_crc64_nvme(f.read())).decode()
+
+                    self.admin.assert_icommand(['iput', '-k', file1])
+                    self.admin.assert_icommand(['ils', '-L', file1], 'STDOUT_SINGLELINE', checksum_str)
+        finally:
+            self.admin.assert_icommand(['irm', '-f', file1])
+            s3plugin_lib.remove_if_exists(file1)
+            IrodsController().reload_configuration()
+
+    def test_client_side_and_server_side_verify_crc64nvme_checksums_on_put_operation__issue_2271(self):
+        file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+        file1_size = 2*1024
+
+        config = IrodsConfig()
+
+        try:
+            # create file1
+            lib.make_arbitrary_file(file1, file1_size)
+
+            with lib.file_backed_up(config.server_config_path):
+
+                config.server_config['default_hash_scheme'] = 'crc64nvme'
+                lib.update_json_file_from_dict(config.server_config_path, config.server_config)
+
+                with lib.file_backed_up(config.client_environment_path):
+                    client_update = {
+                        'irods_default_hash_scheme': 'crc64nvme',
+                    }
+                    session_env_backup = copy.deepcopy(self.admin.environment_file_contents)
+                    self.admin.environment_file_contents.update(client_update)
+
+                    IrodsController().reload_configuration()
+
+                    # calculate the crc64nvme checksum for comparison
+                    checksum_str = 'crc64nvme:'
+                    with open(file1, 'rb') as f:
+                        checksum_str += base64.b64encode(lib.calculate_crc64_nvme(f.read())).decode()
+
+                    self.admin.assert_icommand(['iput', '-K', file1])
+                    self.admin.assert_icommand(['ils', '-L', file1], 'STDOUT_SINGLELINE', checksum_str)
+        finally:
+            self.admin.assert_icommand(['irm', '-f', file1])
+            s3plugin_lib.remove_if_exists(file1)
+            IrodsController().reload_configuration()
+
 # The tests in this class take a long time and do not need to run in every different test suite
 class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
 
@@ -3093,7 +3201,6 @@ class Test_S3_NoCache_MPU_Disabled_Base(Test_S3_NoCache_Base):
             # cleanup
             self.user0.assert_icommand("irm -f {file1}".format(**locals()), 'EMPTY')
             s3plugin_lib.remove_if_exists(file1)
-            s3plugin_lib.remove_if_exists(file1_get)
 
 class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
 
