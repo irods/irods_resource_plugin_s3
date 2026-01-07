@@ -1,4 +1,3 @@
-from __future__ import print_function
 import base64
 import copy
 import datetime
@@ -13,6 +12,7 @@ import random
 import string
 import io
 import psutil
+import re
 import subprocess
 import distro
 import inspect
@@ -2247,6 +2247,79 @@ OUTPUT ruleExecOut
             self.user0.assert_icommand(f'irm -f {file1}', 'EMPTY')
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(file1_get)
+
+    def test_replica_not_created_on_standalone_resource_with_incorrect_host_mode__issue_8502(self):
+        # Stash away the original context so it can be restored later.
+        original_context = self.s3_context
+
+        # HOST_MODE string to replace.
+        right_host_mode = "HOST_MODE=cacheless_attached"
+
+        # Put a typo in the HOST_MODE configuration of the context string.
+        wrong_host_mode = "HOST_MODE=cacheless_atached"
+
+        # Resouce and data for test.
+        s3_resc = "demoResc"
+        data_object_name = "muhstuff"
+        logical_path = "/".join([self.user0.session_collection, data_object_name])
+        content = "muhtext"
+
+        try:
+            # Update the resource context string with the bad HOST_NAME configuration.
+            new_context = re.sub(right_host_mode, wrong_host_mode, original_context)
+            self.assertNotEqual(new_context, original_context)
+            self.admin.assert_icommand(["iadmin", "modresc", s3_resc, "context", new_context])
+
+            # Try to write to logical_path using the misconfigured S3 resource.
+            _, err, rc = self.user0.run_icommand(["istream", "-R", s3_resc, "write", logical_path], input=content)
+            self.assertEqual("Error: Cannot open data object.\n", err)
+            self.assertNotEqual(0, rc)
+
+            # Creating the data object should have failed.
+            self.assertFalse(lib.replica_exists_on_resource(self.user0, logical_path, s3_resc))
+
+        finally:
+            self.user0.assert_icommand(["ils", "-L", self.user0.session_collection], "STDOUT") # debugging
+
+            # Update the resource context string with the original value.
+            self.admin.run_icommand(["iadmin", "modresc", s3_resc, "context", original_context])
+
+    def test_replica_not_created_on_standalone_archive_attached_resource__issue_8502(self):
+        # Stash away the original context so it can be restored later.
+        original_context = self.s3_context
+
+        # HOST_MODE string to replace.
+        original_host_mode = "HOST_MODE=cacheless_attached"
+
+        # Resouce and data for test.
+        s3_resc = "demoResc"
+        data_object_name = "muhstuff"
+        logical_path = "/".join([self.user0.session_collection, data_object_name])
+        content = "muhtext"
+
+        # archive_attached is the default HOST_MODE if no HOST_MODE is specified, or it can be set explicitly.
+        for new_host_mode in ["", "HOST_MODE=archive_attached"]:
+            with self.subTest(new_host_mode):
+                try:
+                    # Update the resource context string with the archive_attached HOST_NAME configuration.
+                    new_context = re.sub(original_host_mode, new_host_mode, original_context)
+                    self.assertNotEqual(new_context, original_context)
+                    self.admin.assert_icommand(["iadmin", "modresc", s3_resc, "context", new_context])
+
+                    # Try to write to logical_path using the S3 resource.
+                    _, err, rc = self.user0.run_icommand(["istream", "-R", s3_resc, "write", logical_path], input=content)
+                    self.assertEqual("Error: Cannot open data object.\n", err)
+                    self.assertNotEqual(0, rc)
+
+                    # Creating the data object should have failed.
+                    self.assertFalse(lib.replica_exists_on_resource(self.user0, logical_path, s3_resc))
+
+                finally:
+                    self.user0.assert_icommand(["ils", "-L", self.user0.session_collection], "STDOUT") # debugging
+
+                    # Update the resource context string with the original value.
+                    self.admin.run_icommand(["iadmin", "modresc", s3_resc, "context", original_context])
+
 
 # The tests in this class take a long time and do not need to run in every different test suite
 class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
