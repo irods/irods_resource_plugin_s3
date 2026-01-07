@@ -2342,6 +2342,13 @@ namespace irods_s3 {
         logger::debug("{}:{} ({}) [[{}]] get_resource_name={}",
                 __FILE__, __LINE__, __FUNCTION__, thread_id, irods::get_resource_name(_ctx).c_str());
         _out_parser->add_child(irods::get_resource_name(_ctx));
+
+        // Create operations are not allowed for archives. Any data put into an archive will come through the
+        // "sync_to_arch" operation.
+        if (!is_cacheless_mode(_ctx.prop_map()) && irods::CREATE_OPERATION == *_opr) {
+            return ERROR(SYS_NOT_SUPPORTED, "Create operation not supported for an archive");
+        }
+
         *_out_vote = irv::vote::zero;
         try {
             *_out_vote = irv::calculate(*_opr, _ctx, *_curr_host, *_out_parser);
