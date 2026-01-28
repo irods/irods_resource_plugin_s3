@@ -9,6 +9,7 @@
 
 // =-=-=-=-=-=-=-
 // irods includes
+#include <irods/library_features.h>
 #include <irods/msParam.h>
 #include <irods/rcConnect.h>
 #include <irods/rodsErrorTable.h>
@@ -2575,7 +2576,11 @@ namespace irods_s3 {
             if (get_object_attributes_data.checksum_crc64_nvme.empty()) {
                 return generic_checksum_not_available_error;
             }
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
             std::string prefix(CRC64NVME_CHKSUM_PREFIX);
+#else
+            std::string prefix("crc64nvme:");
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
             *_returned_checksum = prefix + get_object_attributes_data.checksum_crc64_nvme;
             return SUCCESS();
         }
