@@ -8,6 +8,7 @@
 
 // =-=-=-=-=-=-=-
 // irods includes
+#include <irods/library_features.h>
 #include <irods/msParam.h>
 #include <irods/rcConnect.h>
 #include <irods/rodsErrorTable.h>
@@ -2810,7 +2811,11 @@ irods::resource* plugin_factory( const std::string& _inst_name, const std::strin
             irods_s3::s3_notify_operation ) );
 
     resc->add_operation(
+#ifdef IRODS_LIBRARY_FEATURE_RESOURCES_READ_CHECKSUM_FROM_STORAGE_DEVICE
         irods::RESOURCE_OP_READ_CHECKSUM_FROM_STORAGE_DEVICE,
+#else
+        "resource_read_checksum_from_storage_device",
+#endif // IRODS_LIBRARY_FEATURE_RESOURCES_READ_CHECKSUM_FROM_STORAGE_DEVICE
         std::function<irods::error(irods::plugin_context&, const std::string*, std::string*)>(
             irods_s3::s3_read_checksum_from_storage_device ) );
 
