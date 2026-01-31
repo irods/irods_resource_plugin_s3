@@ -38,6 +38,7 @@ except ImportError:
         print('Failed to import InvalidResponseError or ResponseError')
         exit()
 
+IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 
 if sys.version_info < (2, 7):
     import unittest2 as unittest
@@ -2249,6 +2250,7 @@ OUTPUT ruleExecOut
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(file1_get)
 
+    @unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
     def test_ichksum_with_crc64nvme__issue_2271(self):
         file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         file1_size = 2*1024
@@ -2285,6 +2287,7 @@ OUTPUT ruleExecOut
             s3plugin_lib.remove_if_exists(file1)
             IrodsController().reload_configuration()
 
+    @unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
     def test_server_side_calculates_crc64nvme_checksum_on_put_operation__issue_2271(self):
         file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         file1_size = 2*1024
@@ -2321,6 +2324,7 @@ OUTPUT ruleExecOut
             s3plugin_lib.remove_if_exists(file1)
             IrodsController().reload_configuration()
 
+    @unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
     def test_client_side_and_server_side_verify_crc64nvme_checksums_on_put_operation__issue_2271(self):
         file1 = f'{inspect.currentframe().f_code.co_name}_f1'
         file1_size = 2*1024
