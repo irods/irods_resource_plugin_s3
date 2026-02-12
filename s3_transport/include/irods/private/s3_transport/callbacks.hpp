@@ -36,7 +36,12 @@
 #include "irods/private/s3_transport/types.hpp"
 #include "irods/private/s3_transport/logging_category.hpp"
 #include "irods/irods_hasher_factory.hpp"
-#include "irods/CRC64NVMEStrategy.hpp"
+
+// iRODS includes
+#include <irods/library_features.h>
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+    #include <irods/CRC64NVMEStrategy.hpp>
+#endif
 
 namespace irods::experimental::io::s3_transport
 {
@@ -270,7 +275,9 @@ namespace irods::experimental::io::s3_transport
                     , transport_object_ptr{nullptr}
                     , calculate_crc64_nvme{false}
                 {
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                     irods::getHasher(irods::CRC64NVME_NAME.data(), hasher);
+#endif
                 }
 
 
@@ -585,7 +592,9 @@ namespace irods::experimental::io::s3_transport
                     , offset{0}
                     , transport_object_ptr{nullptr}
                 {
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                     irods::getHasher(irods::CRC64NVME_NAME.data(), hasher);
+#endif
                 }
 
 

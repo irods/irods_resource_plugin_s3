@@ -4,13 +4,17 @@
 #include "irods/private/s3_transport/circular_buffer.hpp"
 
 // iRODS includes
+#include <irods/library_features.h>
 #include <irods/transport/transport.hpp>
 #include <irods/thread_pool.hpp>
 #include <irods/rcMisc.h>
 #include <irods/rodsErrorTable.h>
 #include <irods/irods_error.hpp>
-#include <irods/CRC64NVMEStrategy.hpp>
 #include <irods/base64.hpp>
+
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+    #include <irods/CRC64NVMEStrategy.hpp>
+#endif
 
 // misc includes
 #include <nlohmann/json.hpp>
@@ -1597,6 +1601,7 @@ namespace irods::experimental::io::s3_transport
             put_props.md5 = nullptr;
             put_props.expires = -1;
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
             if (this->config_.trailing_checksum_on_upload_enabled) {
                 // For chunked uploads with trailing checksum:
                 // 1. Set xAmzChecksumAlgorithm to tell S3/MinIO this upload uses CRC64NVME checksums
@@ -1606,6 +1611,7 @@ namespace irods::experimental::io::s3_transport
                 put_props.xAmzChecksumType = nullptr;                // Not valid for chunked uploads
                 put_props.xAmzTrailer = "x-amz-checksum-crc64nvme";  // Declare the trailer
             }
+#endif
 
             upload_manager_.remaining = 0;
             upload_manager_.offset  = 0;
@@ -1748,6 +1754,7 @@ namespace irods::experimental::io::s3_transport
                     auto xml = fmt::format("<CompleteMultipartUpload>\n");
                     for ( i = 0; i < data.etags.size() && !data.etags[i].empty(); i++ ) {
                         // Check if we have a checksum for this part
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                         if (this->config_.trailing_checksum_on_upload_enabled &&
                             i < data.checksum_vector.size() &&
                             data.checksum_vector[i] != 0) {
@@ -1768,9 +1775,13 @@ namespace irods::experimental::io::s3_transport
 
                             xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag><ChecksumCRC64NVME>{}</ChecksumCRC64NVME></Part>\n",
                                     i + 1, data.etags[i], checksum_b64);
+
                         } else {
+#endif
                             xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>\n", i + 1, data.etags[i]);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                         }
+#endif
                     }
                     xml += fmt::format("</CompleteMultipartUpload>\n");
 
@@ -2176,6 +2187,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                     // server encrypt flag not valid for part upload
                     put_props.useServerSideEncryption = false;
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                     if (config_.trailing_checksum_on_upload_enabled) {
                         write_callback->calculate_crc64_nvme = true;
 
@@ -2236,6 +2248,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                                 __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), part_number,
                                 S3_get_status_name(write_callback->status));
                     } else {
+#endif
                         logger::debug("{}:{} ({}) [[{}]] S3_upload_part (ctx, {}, props, handler, {}, "
                                "uploadId, {}, 0, partData) bytes_this_thread={}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                                object_key_.c_str(), part_number,
@@ -2248,7 +2261,9 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                         logger::debug("{}:{} ({}) [[{}]] S3_upload_part returned [part={}][status={}].",
                                 __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), part_number,
                                 S3_get_status_name(write_callback->status));
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                     }
+#endif
 
                     msg = fmt::format("Multipart:  -- END --");
                     logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
@@ -2282,9 +2297,11 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
 
                             // Reset bytes_written and hasher for retry
                             write_callback->bytes_written = 0;
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                             if (config_.trailing_checksum_on_upload_enabled) {
                                 irods::getHasher(irods::CRC64NVME_NAME.data(), write_callback->hasher);
                             }
+#endif
                         }
                     }
 
@@ -2318,6 +2335,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
 
                 // save the checksum
                 std::string checksum_str;
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                 write_callback->hasher.digest(checksum_str);
                 logger::debug("{}:{} ({}) checksum_str=[{}]", __FILE__, __LINE__, __FUNCTION__, checksum_str);
 
@@ -2327,6 +2345,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                 } else {
                     checksum_str = "";
                 }
+#endif
 
                 // save the actual part size and decoded checksum to shared memory
                 auto actual_part_size = write_callback->content_length;
@@ -2361,10 +2380,12 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
 					}
                 });
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                 // Reset hasher for next part
                 if (config_.trailing_checksum_on_upload_enabled) {
                     irods::getHasher(irods::CRC64NVME_NAME.data(), write_callback->hasher);
                 }
+#endif
 
             } // for
 
@@ -2442,6 +2463,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                 // zero out bytes_written in case of failure and re-run
                 write_callback->bytes_written = 0;
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                 if (config_.trailing_checksum_on_upload_enabled) {
                     write_callback->calculate_crc64_nvme = true;
 
@@ -2502,6 +2524,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                             S3_get_status_name(write_callback->status));
                 } else {
+#endif
                     // Standard upload without trailing checksum
                     logger::debug("{}:{} ({}) [[{}]] S3_put_object(ctx, {}, "
                            "{}, put_props, 0, &putObjectHandler, &data)",
@@ -2515,7 +2538,9 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                     logger::debug("{}:{} ({}) [[{}]] S3_put_object returned [status={}].",
                             __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                             S3_get_status_name(write_callback->status));
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                 }
+#endif
 
                 if (write_callback->status != libs3_types::status_ok) {
 

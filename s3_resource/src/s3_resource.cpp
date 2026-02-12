@@ -32,6 +32,7 @@
 #include <irods/irods_virtual_path.hpp>
 #include <irods/irods_resource_backport.hpp>
 #include <irods/irods_query.hpp>
+#include <irods/library_features.h>
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -1258,13 +1259,18 @@ bool s3_trailing_checksum_on_upload_enabled(
 			enable_str );
 	if (ret.ok()) {
 		// Only 0 = no, 1 = yes.
+		std::string resource_name = get_resource_name(_prop_map);
 		if ("0" != enable_str && "1" != enable_str) {
-			std::string resource_name = get_resource_name(_prop_map);
 			s3_logger::warn("[resource_name={}] Invalid value for {} of {}. The value should be 0 or 1. Defaulting to 0.",
 					resource_name, enable_trailing_checksum_on_upload, enable_str);
 		}
 		else if ("1" == enable_str) {
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
 			enable_flag = true;
+#else
+			s3_logger::warn("[resource_name={}] {} flag set to 1 but this version of iRODS does not support CRC64/NVME.  This feature is disabled.",
+					resource_name, enable_trailing_checksum_on_upload);
+#endif
 		}
 	}
 	return enable_flag;
