@@ -4,8 +4,6 @@
  * This header extends libs3.h with support for HTTP chunked transfer encoding
  * and trailing headers.
  *
- * Original Copyright 2008 Bryan Ischo <bryan@ischo.com>
- * Modifications for chunked encoding: 2024
  */
 
 #ifndef LIBS3_CHUNKED_H
@@ -22,7 +20,6 @@ extern "C" {
  * CHUNKED ENCODING STATUS CODES (additions to S3Status enum)
  * ======================================================================== */
 
-/* Note: These are defined in libs3.h starting at line 80 */
 #ifndef S3StatusChunkEncodingError
 #define S3StatusChunkEncodingError ((S3Status)79)
 #endif

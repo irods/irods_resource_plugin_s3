@@ -274,6 +274,7 @@ namespace irods::experimental::io::s3_transport
                     , offset{0}
                     , transport_object_ptr{nullptr}
                     , calculate_crc64_nvme{false}
+                    , trailing_checksum_value{}
                 {
 #ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                     irods::getHasher(irods::CRC64NVME_NAME.data(), hasher);
@@ -355,8 +356,8 @@ namespace irods::experimental::io::s3_transport
                 std::int64_t                 offset;       /* For multiple upload */
                 s3_transport<CharT>*         transport_object_ptr;
                 bool                         calculate_crc64_nvme;
-                irods::Hasher                hasher;
                 std::string                  trailing_checksum_value;  // Stores checksum for trailing headers callback
+                irods::Hasher                hasher;
         };
 
         template <typename CharT>
@@ -573,17 +574,15 @@ namespace irods::experimental::io::s3_transport
         class callback_for_write_to_s3_base
         {
 
-
             public:
 
                 callback_for_write_to_s3_base(libs3_types::bucket_context& _saved_bucket_context,
                                               upload_manager& _manager)
                     : enable_md5{false}
                     , thread_identifier{0}
-                    , shared_memory_timeout_in_seconds{constants::DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS}
                     , object_key{}
                     , shmem_key{}
-                    , sequence{0}
+                    , shared_memory_timeout_in_seconds{constants::DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS}
                     , content_length{0}
                     , saved_bucket_context{_saved_bucket_context}
                     , manager{_manager}
@@ -591,6 +590,8 @@ namespace irods::experimental::io::s3_transport
                     , callback_counter{0}
                     , offset{0}
                     , transport_object_ptr{nullptr}
+                    , calculate_crc64_nvme{false}
+                    , trailing_checksum_value{}
                 {
 #ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                     irods::getHasher(irods::CRC64NVME_NAME.data(), hasher);
@@ -693,9 +694,9 @@ namespace irods::experimental::io::s3_transport
                 libs3_types::status          status;
                 bool                         enable_md5;
                 std::uint64_t                thread_identifier;
-                time_t                       shared_memory_timeout_in_seconds;
                 std::string                  object_key;
                 std::string                  shmem_key;
+                time_t                       shared_memory_timeout_in_seconds;
 
                 std::uint64_t                sequence;
                 std::int64_t                 content_length;
@@ -711,9 +712,9 @@ namespace irods::experimental::io::s3_transport
                 int                          callback_counter;
                 std::int64_t                 offset;
                 s3_transport<CharT>*         transport_object_ptr;
-                bool                         calculate_crc64_nvme{false};
-                irods::Hasher                hasher;
+                bool                         calculate_crc64_nvme;
                 std::string                  trailing_checksum_value;  // Stores checksum for trailing headers callback
+                irods::Hasher                hasher;
 
         };
 

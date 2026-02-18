@@ -205,7 +205,7 @@ AWS by default calculates and stores the CRC64/NVME checksum. To make sure that 
 - Refer to [Checksum Configuration](https://docs.irods.org/5.0.2/system_overview/configuration/#checksum-configuration) for more detail on configuring checksums in iRODS.
 - If the CRC64/NVME checksum is not automatically calculated, try setting `ENABLE_TRAILING_CHECKSUM_ON_UPLOAD=1` in the context string. This will send the CRC64/NVME on uploads and may force the S3 appliance to save the checksum.
 
-Note that the `ENABLE_TRAILING_CHECKSUM_ON_UPLOAD` option requires that the S3 appliance supports chunked encoding.  This is a new feature has only been tested on AWS and MinIO and not every version of MinIO supports chunked encoding. It is suggested that uploads for single part and multipart uploads are thoroughly tested when this flag is enabled.
+Note that the `ENABLE_TRAILING_CHECKSUM_ON_UPLOAD` option requires that the S3 appliance supports chunked encoding.  This feature has only been tested on AWS and MinIO and not every version of MinIO supports chunked encoding. It is suggested that uploads for single part and multipart are thoroughly tested when this flag is enabled.
 
 
 ### Example of a baseline resource configuration

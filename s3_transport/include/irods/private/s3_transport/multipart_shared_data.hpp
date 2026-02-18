@@ -32,7 +32,6 @@ namespace irods::experimental::io::s3_transport::shared_data
         using segment_manager       = bi::managed_shared_memory::segment_manager;
         using void_allocator        = boost::container::scoped_allocator_adaptor
                                       <bi::allocator<void, segment_manager> >;
-        using int_allocator         = bi::allocator<int, segment_manager>;
         using uint64_t_allocator    = bi::allocator<uint64_t, segment_manager>;
         using char_allocator        = bi::allocator<char, segment_manager>;
         using shm_char_string       = bi::basic_string<char, std::char_traits<char>,

@@ -1785,6 +1785,9 @@ namespace irods::experimental::io::s3_transport
                     }
                     xml += fmt::format("</CompleteMultipartUpload>\n");
 
+                    logger::debug( "{}:{} ({}) [[{}]] [key={}] Request: {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                            object_key_.c_str(), xml.c_str() );
+
                     int manager_remaining = xml.size();
                     upload_manager_.offset = 0;
                     unsigned int retry_cnt = 0;
@@ -2106,8 +2109,8 @@ namespace irods::experimental::io::s3_transport
             });
 
             if (resize_error) {
-                logger::error("Error on reallocation of etags or checksum vectors in shared memory.");
-                this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags checksum vectors in shared memory."));
+                logger::error("Error on reallocation of etags, checksum, or part size vectors in shared memory.");
+                this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags, checksum, or part size vectors in shared memory."));
                 return;
             }
 
@@ -2353,7 +2356,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                     // save actual part size (not bytes_this_thread which is total for the thread)
                     data.part_size_vector[part_number-1] = actual_part_size;
 
-                    // decode checksum as int64_t and save it
+                    // decode checksum as uint64_t and save it
 			        if (!checksum_str.empty()) {
                         unsigned long out_len = 8;
 						unsigned char response[8]{};
