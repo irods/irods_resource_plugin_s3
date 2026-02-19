@@ -498,7 +498,7 @@ void do_upload_process(const std::string& bucket_name,
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(),
                     secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
                     process_count, process_number, true, true, expected_cache_flag);
-            return;
+            std::_Exit(0);
         }
 
         fmt::print("{}:{} ({}) [{}] started process {}\n", __FILE__, __LINE__, __FUNCTION__,
@@ -535,7 +535,7 @@ void do_download_process(const std::string& bucket_name,
                     secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
                     process_count, process_number, expected_cache_flag);
 
-            return;
+            std::_Exit(0);
         }
 
         fmt::print("{}:{} ({}) [{}] started process {}\n", __FILE__, __LINE__, __FUNCTION__,
@@ -789,8 +789,14 @@ TEST_CASE("shmem tests 2", "[shmem2]")
         };
 
         std::string object_key = "dir1/dir2/large_file";
+
         std::string shmem_key = constants::SHARED_MEMORY_KEY_PREFIX +
-                std::to_string(std::hash<std::string>{}(object_key));
+                std::to_string(std::hash<std::string>{}("/" + object_key));
+
+        // Remove any leftover shared memory from a previous run to avoid
+        // deadlocking on an abandoned interprocess mutex.
+        bi::shared_memory_object::remove(shmem_key.c_str());
+        bi::named_mutex::remove(shmem_key.c_str());
 
         const time_t now = time(0);
         bi::managed_shared_memory shm{bi::open_or_create, shmem_key.c_str(), constants::MAX_S3_SHMEM_SIZE};
@@ -800,17 +806,21 @@ TEST_CASE("shmem tests 2", "[shmem2]")
 
         // set some inconsistent state in the object in shared memory
         // including leaving the interprocess recursive mutex locked
-        // set access time to a value that is considered expired
+        // set access time to a value that is considered expired (must be > timeout, not ==)
         (object->thing.ref_count)++;
         (object->thing.threads_remaining_to_close)++;
         object->access_mutex.lock();
-        object->last_access_time_in_seconds = now - 20;
+        object->last_access_time_in_seconds = now - 21;
 
         int thread_count = 7;
         std::string filename = "large_file";
         std::string object_prefix = "dir1/dir2/";
         bool expected_cache_flag = false;
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
+
+        // Clean up shared memory to prevent stale state on next run
+        bi::shared_memory_object::remove(shmem_key.c_str());
+        bi::named_mutex::remove(shmem_key.c_str());
     }
 
     remove_bucket(bucket_name);
