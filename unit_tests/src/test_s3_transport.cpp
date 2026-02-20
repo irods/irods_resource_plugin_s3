@@ -525,6 +525,10 @@ void do_upload_process(const std::string& bucket_name,
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(),
                     secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
                     process_count, process_number, true, true, expected_cache_flag);
+
+            // This has to be an exit rather than a return.  The forked process continued when this was a return which caused
+            // unexpected results.  This needs to be the _exit() system call (std::_exit()) rather than exit() in the forked
+            // child process to ensure only the parent process performs standard I/O (stdio) cleanup and resource deallocation.
             std::_Exit(0);
         }
 
@@ -562,6 +566,9 @@ void do_download_process(const std::string& bucket_name,
                     secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
                     process_count, process_number, expected_cache_flag);
 
+            // This has to be an exit rather than a return.  The forked process continued when this was a return which caused
+            // unexpected results.  This needs to be the _exit() system call (std::_exit()) rather than exit() in the forked
+            // child process to ensure only the parent process performs standard I/O (stdio) cleanup and resource deallocation.
             std::_Exit(0);
         }
 
