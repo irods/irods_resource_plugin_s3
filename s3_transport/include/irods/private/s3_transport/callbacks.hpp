@@ -64,6 +64,7 @@ namespace irods::experimental::io::s3_transport
                 , shmem_key{}
                 , shared_memory_timeout_in_seconds{constants::DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS}
                 , callback_counter{0}
+                , status{libs3_types::status_ok}
             {}
 
             virtual libs3_types::status callback_implementation(int libs3_buffer_size,
@@ -261,7 +262,8 @@ namespace irods::experimental::io::s3_transport
 
                 callback_for_write_to_s3_base(libs3_types::bucket_context& _saved_bucket_context,
                                               upload_manager& _manager)
-                    : enable_md5{false}
+                    : status{libs3_types::status_ok}
+                    , enable_md5{false}
                     , thread_identifier{0}
                     , object_key{}
                     , shmem_key{}
@@ -578,11 +580,13 @@ namespace irods::experimental::io::s3_transport
 
                 callback_for_write_to_s3_base(libs3_types::bucket_context& _saved_bucket_context,
                                               upload_manager& _manager)
-                    : enable_md5{false}
+                    : status{libs3_types::status_ok}
+                    , enable_md5{false}
                     , thread_identifier{0}
                     , object_key{}
                     , shmem_key{}
                     , shared_memory_timeout_in_seconds{constants::DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS}
+                    , sequence{0}
                     , content_length{0}
                     , saved_bucket_context{_saved_bucket_context}
                     , manager{_manager}
