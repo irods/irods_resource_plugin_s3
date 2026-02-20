@@ -350,7 +350,8 @@ void S3_get_server_access_logging(const S3BucketContext* bucketContext,
 		&getBlsCompleteCallback,         // completeCallback
 		gsData,                          // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request
@@ -549,7 +550,8 @@ void S3_set_server_access_logging(const S3BucketContext* bucketContext,
 		&setSalCompleteCallback,         // completeCallback
 		data,                            // callbackData
 		timeoutMs,                       // timeoutMs
-		0                                // xAmzObjectAttributes
+		0,                               // xAmzObjectAttributes
+		0                                // chunkedState
 	};
 
 	// Perform the request

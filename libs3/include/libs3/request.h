@@ -115,6 +115,12 @@ typedef struct RequestParams
 	 * This optional field sets the list of object attributes for GetObjectAttributes.
 	 **/
 	const char* xAmzObjectAttributes;
+
+	/**
+	 * Opaque pointer to chunked request state for chunked encoding with trailing headers.
+	 * When set, enables chunked transfer encoding with trailing header support.
+	 **/
+	void* chunkedState;
 } RequestParams;
 
 // This is the stuff associated with a request that needs to be on the heap

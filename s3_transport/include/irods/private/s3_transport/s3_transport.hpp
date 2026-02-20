@@ -4,15 +4,22 @@
 #include "irods/private/s3_transport/circular_buffer.hpp"
 
 // iRODS includes
+#include <irods/library_features.h>
 #include <irods/transport/transport.hpp>
 #include <irods/thread_pool.hpp>
 #include <irods/rcMisc.h>
 #include <irods/rodsErrorTable.h>
 #include <irods/irods_error.hpp>
+#include <irods/base64.hpp>
+
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+    #include <irods/CRC64NVMEStrategy.hpp>
+#endif
 
 // misc includes
 #include <nlohmann/json.hpp>
 #include "libs3/libs3.h"
+#include "libs3/libs3_chunked.h"
 
 // stdlib and misc includes
 #include <string>
@@ -134,7 +141,7 @@ namespace irods::experimental::io::s3_transport
             , max_single_part_upload_size{DEFAULT_MAX_SINGLE_PART_UPLOAD_SIZE}
             , non_data_transfer_timeout_seconds{S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS}
             , s3_storage_class{S3_DEFAULT_STORAGE_CLASS}
-
+            , trailing_checksum_on_upload_enabled{false}
         {}
 
         std::int64_t object_size;
@@ -183,6 +190,7 @@ namespace irods::experimental::io::s3_transport
         std::int64_t max_single_part_upload_size;
         unsigned int non_data_transfer_timeout_seconds;
         std::string  s3_storage_class;
+        bool         trailing_checksum_on_upload_enabled;
     };
 
 
@@ -652,19 +660,6 @@ namespace irods::experimental::io::s3_transport
                     return 0;
                 }
 
-            }
-
-            try {
-                circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
-            } catch (timeout_exception& e) {
-
-                // timeout trying to push onto circular buffer
-                logger::error("{}:{} ({}) [[{}]] "
-                        "Unexpected timeout when pushing onto circular buffer.  "
-                        "Thread writing to S3 may have died.  Returning 0 bytes processed.",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
-                set_error(ERROR(S3_PUT_ERROR, "Unexpected timeout when pushing onto circular buffer."));
-                return 0;
             }
 
             return _buffer_size;
@@ -1402,6 +1397,21 @@ namespace irods::experimental::io::s3_transport
                 // been closed and flushed to S3.
                 const auto m = mode_ & ~(std::ios_base::ate | std::ios_base::binary);
                 if ((std::ios_base::out | std::ios_base::trunc) == m) {
+                    // Only reset multipart state on the FIRST open (file_open_counter == 0).
+                    // Subsequent opens by other threads should not clear state that may have
+                    // already been initialized by the first thread.
+                    if (data.file_open_counter == 0) {
+                        // Reset multipart upload state for new write operation.
+                        // The shared memory may be reused from a previous upload of the same object,
+                        // so we need to clear stale state to ensure a fresh multipart upload is initiated.
+                        data.done_initiate_multipart = false;
+                        data.upload_id.clear();
+                        data.etags.clear();
+                        data.checksum_vector.clear();
+                        data.part_size_vector.clear();
+                        data.last_error_code = error_codes::SUCCESS;
+                        data.circular_buffer_read_timeout = false;
+                    }
                     data.first_open_has_trunc_flag = true;
                 }
                 else if (data.first_open_has_trunc_flag) {
@@ -1591,6 +1601,18 @@ namespace irods::experimental::io::s3_transport
             put_props.md5 = nullptr;
             put_props.expires = -1;
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+            if (this->config_.trailing_checksum_on_upload_enabled) {
+                // For chunked uploads with trailing checksum:
+                // 1. Set xAmzChecksumAlgorithm to tell S3/MinIO this upload uses CRC64NVME checksums
+                // 2. Don't set xAmzChecksumType (only for non-chunked uploads)
+                // 3. Set xAmzTrailer to declare which trailing headers we'll send
+                put_props.xAmzChecksumAlgorithm = "CRC64NVME";       // Declare checksum algorithm for multipart
+                put_props.xAmzChecksumType = nullptr;                // Not valid for chunked uploads
+                put_props.xAmzTrailer = "x-amz-checksum-crc64nvme";  // Declare the trailer
+            }
+#endif
+
             upload_manager_.remaining = 0;
             upload_manager_.offset  = 0;
             upload_manager_.xml = "";
@@ -1723,15 +1745,43 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 if (error_codes::SUCCESS == data.last_error_code) { // If someone aborted, don't complete...
-
                     const auto msg = fmt::format("Multipart:  Completing key \"{}\" Upload ID \"{}\"", object_key_, upload_id);
                     logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
                             msg.c_str() );
 
                     std::uint64_t i;
+
                     auto xml = fmt::format("<CompleteMultipartUpload>\n");
                     for ( i = 0; i < data.etags.size() && !data.etags[i].empty(); i++ ) {
-                        xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>\n", i + 1, data.etags[i]);
+                        // Check if we have a checksum for this part
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                        if (this->config_.trailing_checksum_on_upload_enabled &&
+                            i < data.checksum_vector.size() &&
+                            data.checksum_vector[i] != 0) {
+
+                            // Convert uint64_t checksum to big-endian bytes
+                            unsigned char checksum_bytes[8];
+                            uint64_t checksum_val = data.checksum_vector[i];
+                            for (int j = 0; j < 8; ++j) {
+                                checksum_bytes[7 - j] = static_cast<unsigned char>(checksum_val & 0xFF);
+                                checksum_val >>= 8;
+                            }
+
+                            // Base64 encode the checksum
+                            unsigned long encoded_len = 16;  // 8 bytes -> 12 chars + padding
+                            unsigned char encoded_checksum[16]{};
+                            base64_encode(checksum_bytes, 8, encoded_checksum, &encoded_len);
+                            std::string checksum_b64(reinterpret_cast<char*>(encoded_checksum), encoded_len);
+
+                            xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag><ChecksumCRC64NVME>{}</ChecksumCRC64NVME></Part>\n",
+                                    i + 1, data.etags[i], checksum_b64);
+
+                        } else {
+#endif
+                            xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>\n", i + 1, data.etags[i]);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                        }
+#endif
                     }
                     xml += fmt::format("</CompleteMultipartUpload>\n");
 
@@ -1745,6 +1795,7 @@ namespace irods::experimental::io::s3_transport
                         = { {s3_multipart_upload::commit_callback::on_response_properties,
                              s3_multipart_upload::commit_callback::on_response_completion },
                             s3_multipart_upload::commit_callback::on_response, nullptr };
+
                     do {
                         // On partial error, need to restart XML send from the beginning
                         upload_manager_.remaining = manager_remaining;
@@ -1756,6 +1807,7 @@ namespace irods::experimental::io::s3_transport
                                 &commit_handler,
                                 upload_id.c_str(),
                                 upload_manager_.remaining,
+                                nullptr,  // putProperties
                                 nullptr,
                                 config_.non_data_transfer_timeout_seconds * 1000,   // timeout (ms)
                                 &upload_manager_);
@@ -2030,7 +2082,7 @@ namespace irods::experimental::io::s3_transport
             std::int64_t content_length;
             std::vector<std::int64_t> part_sizes;
 
-            // resize the etags vector if necessary
+            // resize the etags and checksum vectors if necessary
             int resize_error = shm_obj.atomic_exec([this, &shm_obj](auto& data) {
 
                 if (constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD > data.etags.size()) {
@@ -2042,8 +2094,10 @@ namespace irods::experimental::io::s3_transport
 
                     try {
                         data.etags.resize(constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD, types::shm_char_string("", shm_obj.get_allocator()));
+                        data.checksum_vector.resize(constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD);
+                        data.part_size_vector.resize(constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD);
                     } catch (boost::interprocess::bad_alloc &biba) {
-                        this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags buffer in shared memory."));
+                        this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags, checksum, or part size vectors in shared memory."));
                         data.last_error_code = error_codes::BAD_ALLOC;
                         return true;
                     }
@@ -2055,8 +2109,8 @@ namespace irods::experimental::io::s3_transport
             });
 
             if (resize_error) {
-                logger::error("Error on reallocation of etags buffer in shared memory.");
-                this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags buffer in shared memory."));
+                logger::error("Error on reallocation of etags, checksum, or part size vectors in shared memory.");
+                this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags, checksum, or part size vectors in shared memory."));
                 return;
             }
 
@@ -2115,6 +2169,7 @@ namespace irods::experimental::io::s3_transport
                         write_callback->content_length = content_length;
                     } else {
                         write_callback->content_length = part_sizes[part_number - start_part_number];
+logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), write_callback->content_length );
                     }
 
                     write_callback->sequence = part_number;
@@ -2135,21 +2190,83 @@ namespace irods::experimental::io::s3_transport
                     // server encrypt flag not valid for part upload
                     put_props.useServerSideEncryption = false;
 
-                    logger::debug("{}:{} ({}) [[{}]] S3_upload_part (ctx, {}, props, handler, {}, "
-                           "uploadId, {}, 0, partData) bytes_this_thread={}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                           object_key_.c_str(), part_number,
-                           write_callback->content_length, (std::int64_t)bytes_this_thread);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                    if (config_.trailing_checksum_on_upload_enabled) {
+                        write_callback->calculate_crc64_nvme = true;
 
-                    S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props,
-                            &put_object_handler, part_number, upload_id.c_str(),
-                            write_callback->content_length, 0, 120000, write_callback.get());
+                        // Trailing headers callback - returns the CRC64/NVME checksum
+                        auto trailing_headers_cb = [](int maxHeaders, S3NameValue* headers, void* callbackData) -> int {
+                            if (maxHeaders < 1) {
+                                return -1;
+                            }
 
-                    // zero out bytes_written in case of failure and re-run
-                    write_callback->bytes_written = 0;
+                            // Cast void* back to the callback object type
+                            auto* cb = static_cast<s3_multipart_upload::callback_for_write_to_s3_base<CharT>*>(callbackData);
 
-                    logger::debug("{}:{} ({}) [[{}]] S3_upload_part returned [part={}][status={}].",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), part_number,
-                            S3_get_status_name(write_callback->status));
+                            // Get the checksum from the hasher (accumulated during data upload)
+                            std::string checksum_str;
+                            cb->hasher.digest(checksum_str);
+                            logger::debug("{}:{} ({}) part checksum from hasher: [{}]", __FILE__, __LINE__, __FUNCTION__, checksum_str);
+
+                            // Remove the "crc64nvme:" prefix from the checksum string
+                            if (checksum_str.length() > irods::CRC64NVME_NAME.length() + 1) {
+                               cb->trailing_checksum_value = checksum_str.substr(irods::CRC64NVME_NAME.length() + 1);
+                            } else {
+                                cb->trailing_checksum_value = "";
+                            }
+
+                            headers[0].name = "x-amz-checksum-crc64nvme";
+                            headers[0].value = cb->trailing_checksum_value.c_str();
+                            logger::debug("{}:{} ({}) part trailing checksum header: {}={}",
+                                    __FILE__, __LINE__, __FUNCTION__,
+                                    headers[0].name, headers[0].value);
+                            return 1;
+                        };
+
+                        // Set up put properties for chunked upload with trailing checksum
+                        put_props.contentEncoding = "aws-chunked";
+                        put_props.xAmzTrailer = "x-amz-checksum-crc64nvme";
+                        put_props.xAmzDecodedContentLength = write_callback->content_length;
+
+                        S3PutObjectHandlerChunked chunked_handler = {
+                            {
+                                s3_multipart_upload::callback_for_write_to_s3_base<CharT>::on_response_properties,
+                                s3_multipart_upload::callback_for_write_to_s3_base<CharT>::on_response_completion
+                            },
+                            s3_multipart_upload::callback_for_write_to_s3_base<CharT>::invoke_callback,
+                            trailing_headers_cb
+                        };
+
+                        logger::debug("{}:{} ({}) [[{}]] S3_upload_part_chunked (ctx, {}, props, {}, "
+                               "uploadId, 0, partData) bytes_this_thread={} [trailing_checksum=enabled]",
+                               __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                               object_key_.c_str(), part_number,
+                               (std::int64_t)bytes_this_thread);
+
+                        S3_upload_part_chunked(&bucket_context_, object_key_.c_str(), &put_props,
+                                part_number, upload_id.c_str(),
+                                nullptr, 120000, &chunked_handler, write_callback.get());
+
+                        logger::debug("{}:{} ({}) [[{}]] S3_upload_part_chunked returned [part={}][status={}].",
+                                __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), part_number,
+                                S3_get_status_name(write_callback->status));
+                    } else {
+#endif
+                        logger::debug("{}:{} ({}) [[{}]] S3_upload_part (ctx, {}, props, handler, {}, "
+                               "uploadId, {}, 0, partData) bytes_this_thread={}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                               object_key_.c_str(), part_number,
+                               write_callback->content_length, (std::int64_t)bytes_this_thread);
+
+                        S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props,
+                                &put_object_handler, part_number, upload_id.c_str(),
+                                write_callback->content_length, 0, 120000, write_callback.get());
+
+                        logger::debug("{}:{} ({}) [[{}]] S3_upload_part returned [part={}][status={}].",
+                                __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), part_number,
+                                S3_get_status_name(write_callback->status));
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                    }
+#endif
 
                     msg = fmt::format("Multipart:  -- END --");
                     logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
@@ -2181,6 +2298,13 @@ namespace irods::experimental::io::s3_transport
                                 retry_wait_seconds = config_.max_retry_wait_seconds;
                             }
 
+                            // Reset bytes_written and hasher for retry
+                            write_callback->bytes_written = 0;
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                            if (config_.trailing_checksum_on_upload_enabled) {
+                                irods::getHasher(irods::CRC64NVME_NAME.data(), write_callback->hasher);
+                            }
+#endif
                         }
                     }
 
@@ -2201,6 +2325,9 @@ namespace irods::experimental::io::s3_transport
                             data.last_error_code = error_codes::UPLOAD_FILE_ERROR;
                         });
                     }
+
+                    // break out of for loop on part upload failure
+                    break;
                 }
                 write_callback->bytes_written = 0;
 
@@ -2208,6 +2335,60 @@ namespace irods::experimental::io::s3_transport
                 if (circular_buffer_read_timeout) {
                     break;
                 }
+
+                // save the checksum
+                std::string checksum_str;
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                write_callback->hasher.digest(checksum_str);
+                logger::debug("{}:{} ({}) checksum_str=[{}]", __FILE__, __LINE__, __FUNCTION__, checksum_str);
+
+                // delete the "crc64nvme:" prefix from the checksum string
+                if (checksum_str.length() > irods::CRC64NVME_NAME.length() + 1) {
+                   checksum_str = checksum_str.substr(irods::CRC64NVME_NAME.length() + 1);
+                } else {
+                    checksum_str = "";
+                }
+#endif
+
+                // save the actual part size and decoded checksum to shared memory
+                auto actual_part_size = write_callback->content_length;
+                shm_obj.atomic_exec([&checksum_str, part_number, actual_part_size](auto& data) {
+                    // save actual part size (not bytes_this_thread which is total for the thread)
+                    data.part_size_vector[part_number-1] = actual_part_size;
+
+                    // decode checksum as uint64_t and save it
+			        if (!checksum_str.empty()) {
+                        unsigned long out_len = 8;
+						unsigned char response[8]{};
+                        auto err = base64_decode(reinterpret_cast<const unsigned char*>(checksum_str.c_str()),
+                                     checksum_str.size(),
+                                     reinterpret_cast<unsigned char*>(response),
+                                     &out_len);
+                        if (err < 0) {
+                            logger::error("{}:{} ({}) Base64 decoding of [{}] failed.",
+					    			__FILE__, __LINE__, __FUNCTION__, checksum_str);
+                            data.checksum_vector[part_number-1] = 0;
+							return;
+						}
+
+						// The checksum was stored in big endian format before the base64 encoding.
+						// Convert this back to a uint64_t by interpreting the 8 bytes as big endian.
+						uint64_t val = 0;
+						for (int i = 0; i < 8; ++i) {
+						    val += (response[i]) * (static_cast<uint64_t>(0x01) << ((7-i) * 8));
+						}
+                        data.checksum_vector[part_number-1] = val;
+					} else {
+                        data.checksum_vector[part_number-1] = 0;
+					}
+                });
+
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                // Reset hasher for next part
+                if (config_.trailing_checksum_on_upload_enabled) {
+                    irods::getHasher(irods::CRC64NVME_NAME.data(), write_callback->hasher);
+                }
+#endif
 
             } // for
 
@@ -2285,18 +2466,84 @@ namespace irods::experimental::io::s3_transport
                 // zero out bytes_written in case of failure and re-run
                 write_callback->bytes_written = 0;
 
-                logger::debug("{}:{} ({}) [[{}]] S3_put_object(ctx, {}, "
-                       "{}, put_props, 0, &putObjectHandler, &data)",
-                       __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                       object_key_.c_str(),
-                       write_callback->content_length);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                if (config_.trailing_checksum_on_upload_enabled) {
+                    write_callback->calculate_crc64_nvme = true;
 
-                S3_put_object(&bucket_context_, object_key_.c_str(), write_callback->content_length,
-                        &put_props, 0, 0, &put_object_handler, write_callback.get());
+                    // Trailing headers callback - returns the CRC64/NVME checksum
+                    // This is called AFTER all data has been sent via the data callback,
+                    // so the hasher will have accumulated the complete checksum.
+                    auto trailing_headers_cb = [](int maxHeaders, S3NameValue* headers, void* callbackData) -> int {
+                        if (maxHeaders < 1) {
+                            return -1;
+                        }
 
-                logger::debug("{}:{} ({}) [[{}]] S3_put_object returned [status={}].",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                        S3_get_status_name(write_callback->status));
+                        // Cast void* back to the callback object type
+                        auto* cb = static_cast<s3_upload::callback_for_write_to_s3_base<CharT>*>(callbackData);
+
+                        // Get the checksum from the hasher (accumulated during data upload)
+                        std::string checksum_str;
+                        cb->hasher.digest(checksum_str);
+                        logger::debug("{}:{} ({}) checksum from hasher: [{}]", __FILE__, __LINE__, __FUNCTION__, checksum_str);
+
+                        // Remove the "crc64nvme:" prefix from the checksum string
+                        if (checksum_str.length() > irods::CRC64NVME_NAME.length() + 1) {
+                           cb->trailing_checksum_value = checksum_str.substr(irods::CRC64NVME_NAME.length() + 1);
+                        } else {
+                            cb->trailing_checksum_value = "";
+                        }
+
+                        headers[0].name = "x-amz-checksum-crc64nvme";
+                        headers[0].value = cb->trailing_checksum_value.c_str();
+                        logger::debug("{}:{} ({}) trailing checksum header: {}={}",
+                                __FILE__, __LINE__, __FUNCTION__,
+                                headers[0].name, headers[0].value);
+                        return 1;
+                    };
+
+                    // Set up put properties for chunked upload with trailing checksum
+                    put_props.contentEncoding = "aws-chunked";
+                    put_props.xAmzTrailer = "x-amz-checksum-crc64nvme";
+                    put_props.xAmzDecodedContentLength = write_callback->content_length;
+
+                    S3PutObjectHandlerChunked chunked_handler = {
+                        {
+                            s3_upload::callback_for_write_to_s3_base<CharT>::on_response_properties,
+                            s3_upload::callback_for_write_to_s3_base<CharT>::on_response_completion
+                        },
+                        s3_upload::callback_for_write_to_s3_base<CharT>::invoke_callback,
+                        trailing_headers_cb
+                    };
+
+                    logger::debug("{}:{} ({}) [[{}]] S3_put_object_chunked(ctx, {}, "
+                           "put_props, 0, &chunkedHandler, &data) [trailing_checksum=enabled]",
+                           __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                           object_key_.c_str());
+
+                    S3_put_object_chunked(&bucket_context_, object_key_.c_str(),
+                            &put_props, nullptr, 0, &chunked_handler, write_callback.get());
+
+                    logger::debug("{}:{} ({}) [[{}]] S3_put_object_chunked returned [status={}].",
+                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                            S3_get_status_name(write_callback->status));
+                } else {
+#endif
+                    // Standard upload without trailing checksum
+                    logger::debug("{}:{} ({}) [[{}]] S3_put_object(ctx, {}, "
+                           "{}, put_props, 0, &putObjectHandler, &data)",
+                           __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                           object_key_.c_str(),
+                           write_callback->content_length);
+
+                    S3_put_object(&bucket_context_, object_key_.c_str(), write_callback->content_length,
+                            &put_props, 0, 0, &put_object_handler, write_callback.get());
+
+                    logger::debug("{}:{} ({}) [[{}]] S3_put_object returned [status={}].",
+                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                            S3_get_status_name(write_callback->status));
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                }
+#endif
 
                 if (write_callback->status != libs3_types::status_ok) {
 

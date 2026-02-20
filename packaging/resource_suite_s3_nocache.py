@@ -118,6 +118,11 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
         self.s3_context += ';S3_CACHE_DIR=/var/lib/irods'
 
+        if hasattr(self, 's3EnableTrailingChecksumOnUpload'):
+            self.s3_context += ';ENABLE_TRAILING_CHECKSUM_ON_UPLOAD=' + str(self.s3EnableTrailingChecksumOnUpload)
+        if hasattr(self, 's3EnableDirectChecksumRead'):
+            self.s3_context += ';ENABLE_DIRECT_CHECKSUM_READ=' + str(self.s3EnableDirectChecksumRead)
+
         if hasattr(self, 's3DisableCopyObject'):
             self.s3DisableCopyObject = self.s3DisableCopyObject
             self.s3_context += ';S3_ENABLE_COPYOBJECT=0'

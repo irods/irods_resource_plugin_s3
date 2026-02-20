@@ -32,6 +32,7 @@
 #include <irods/irods_virtual_path.hpp>
 #include <irods/irods_resource_backport.hpp>
 #include <irods/irods_query.hpp>
+#include <irods/library_features.h>
 
 // =-=-=-=-=-=-=-
 // stl includes
@@ -153,6 +154,7 @@ const std::string  s3_restoration_tier{"S3_RESTORATION_TIER"};          //  eith
 const std::string  s3_enable_copyobject{"S3_ENABLE_COPYOBJECT"};       //  If set to 0 the CopyObject API will not be used.  Default is to use CopyObject.
 const std::string  s3_non_data_transfer_timeout_seconds{"S3_NON_DATA_TRANSFER_TIMEOUT_SECONDS"};
 const std::string  enable_direct_checksum_read("ENABLE_DIRECT_CHECKSUM_READ");
+const std::string  enable_trailing_checksum_on_upload("ENABLE_TRAILING_CHECKSUM_ON_UPLOAD");
 
 const std::string  s3_number_of_threads{"S3_NUMBER_OF_THREADS"};        //  to save number of threads
 const std::size_t  S3_DEFAULT_RETRY_WAIT_SECONDS = 2;
@@ -1245,6 +1247,35 @@ bool s3_direct_checksum_read_enabled(
 	return enable_flag;
 } // end s3_direct_checksum_read_enabled
 
+// enable_trailing_checksum_on_upload - default is false
+bool s3_trailing_checksum_on_upload_enabled(
+		irods::plugin_property_map& _prop_map )
+{
+	std::string enable_str;
+	bool enable_flag = false;
+
+	irods::error ret = _prop_map.get< std::string >(
+			enable_trailing_checksum_on_upload,
+			enable_str );
+	if (ret.ok()) {
+		// Only 0 = no, 1 = yes.
+		std::string resource_name = get_resource_name(_prop_map);
+		if ("0" != enable_str && "1" != enable_str) {
+			s3_logger::warn("[resource_name={}] Invalid value for {} of {}. The value should be 0 or 1. Defaulting to 0.",
+					resource_name, enable_trailing_checksum_on_upload, enable_str);
+		}
+		else if ("1" == enable_str) {
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+			enable_flag = true;
+#else
+			s3_logger::warn("[resource_name={}] {} flag set to 1 but this version of iRODS does not support CRC64/NVME.  This feature is disabled.",
+					resource_name, enable_trailing_checksum_on_upload);
+#endif
+		}
+	}
+	return enable_flag;
+} // end enable_trailing_checksum_on_upload
+
 irods::error s3GetFile(
     const std::string& _filename,
     const std::string& _s3ObjName,
@@ -2011,7 +2042,7 @@ irods::error s3PutCopyFile(
                 std::string&& hostname = s3GetHostname(_prop_map);
                 bucketContext.hostName = hostname.c_str(); // Safe to do, this is a local copy of the data structure
                 manager.pCtx = &bucketContext;
-                S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, NULL, 0, &manager);
+                S3_complete_multipart_upload(&bucketContext, key.c_str(), &commit_handler, manager.upload_id, manager.remaining, nullptr, nullptr, 0, &manager);
                 if (manager.status != S3StatusOK) {
                     s3_sleep( retry_wait );
                     retry_wait *= 2;

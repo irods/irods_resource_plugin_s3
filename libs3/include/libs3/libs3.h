@@ -924,6 +924,33 @@ typedef struct S3PutProperties
 	 **/
 	const char* xAmzStorageClass;
 
+    /**
+     * This optional field sets the x-amz-checksum-algorithm header.
+     * Valid values are CRC32, CRC32C, SHA1, SHA256, or CRC64NVME.
+     **/
+    const char* xAmzChecksumAlgorithm;
+
+    /**
+     * This optional field sets the x-amz-checksum-type header.
+     * Valid values are COMPOSITE or FULL_OBJECT.
+     * NOTE: Only valid for non-chunked uploads. Do NOT use with chunked encoding.
+     **/
+    const char* xAmzChecksumType;
+
+    /**
+     * This optional field declares trailing headers for chunked uploads.
+     * For example: "x-amz-checksum-crc64nvme" to send checksum as trailer.
+     * Sets the x-amz-trailer header.
+     **/
+    const char* xAmzTrailer;
+
+    /**
+     * Decoded content length for chunked uploads. Specifies the actual payload size
+     * before chunk encoding. Set to -1 if unknown, or provide the actual size.
+     * Sets the x-amz-decoded-content-length header when >= 0.
+     **/
+    int64_t xAmzDecodedContentLength;
+
 } S3PutProperties;
 
 /**
@@ -2630,6 +2657,7 @@ void S3_complete_multipart_upload(S3BucketContext* bucketContext,
                                   S3MultipartCommitHandler* handler,
                                   const char* upload_id,
                                   int contentLength,
+                                  S3PutProperties* putProperties,
                                   S3RequestContext* requestContext,
                                   int timeoutMs,
                                   void* callbackData);
