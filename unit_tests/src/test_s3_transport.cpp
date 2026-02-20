@@ -161,6 +161,33 @@ void check_download_results(const std::string& bucket_name, const std::string& f
     REQUIRE(0 == cmp_return_val);
 }
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+void check_upload_checksum_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
+{
+    const auto checksum_output_file = fmt::format("{}.checksum_output", filename);
+    const auto aws_cmd = fmt::format(
+            "aws --endpoint-url http://{} s3api get-object-attributes "
+            "--bucket {} --key {}{} "
+            "--object-attributes Checksum "
+            "--query 'Checksum.ChecksumCRC64NVME' --output text > {}",
+            hostname, bucket_name, object_prefix, filename, checksum_output_file);
+
+    fmt::print("{}\n", aws_cmd);
+    int rc = std::system(aws_cmd.c_str());
+    REQUIRE(0 == rc);
+
+    std::ifstream checksum_ifs(checksum_output_file);
+    REQUIRE(checksum_ifs.good());
+    std::string checksum;
+    std::getline(checksum_ifs, checksum);
+    checksum_ifs.close();
+    std::remove(checksum_output_file.c_str());
+
+    fmt::print("CRC64NVME checksum: {}\n", checksum);
+    REQUIRE(!checksum.empty());
+}
+#endif
+
 void check_read_write_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
 
@@ -968,6 +995,9 @@ TEST_CASE("s3_transport_upload_trailing_checksum", "[upload][thread][trailing_ch
     {
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 "https", "both", trailing_checksum_on_upload_enabled);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+        check_upload_checksum_results(bucket_name, filename, object_prefix);
+#endif
     }
 
     SECTION("upload large file with multiple threads and trailing checksum")
@@ -976,6 +1006,9 @@ TEST_CASE("s3_transport_upload_trailing_checksum", "[upload][thread][trailing_ch
         filename = "large_file";
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
                 "https", "both", trailing_checksum_on_upload_enabled);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+        check_upload_checksum_results(bucket_name, filename, object_prefix);
+#endif
     }
 
     remove_bucket(bucket_name);
