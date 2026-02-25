@@ -4,15 +4,22 @@
 #include "irods/private/s3_transport/circular_buffer.hpp"
 
 // iRODS includes
+#include <irods/library_features.h>
 #include <irods/transport/transport.hpp>
 #include <irods/thread_pool.hpp>
 #include <irods/rcMisc.h>
 #include <irods/rodsErrorTable.h>
 #include <irods/irods_error.hpp>
+#include <irods/base64.hpp>
+
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+    #include <irods/CRC64NVMEStrategy.hpp>
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
 
 // misc includes
 #include <nlohmann/json.hpp>
 #include "libs3/libs3.h"
+#include "libs3/libs3_chunked.h"
 
 // stdlib and misc includes
 #include <string>
@@ -134,7 +141,7 @@ namespace irods::experimental::io::s3_transport
             , max_single_part_upload_size{DEFAULT_MAX_SINGLE_PART_UPLOAD_SIZE}
             , non_data_transfer_timeout_seconds{S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS}
             , s3_storage_class{S3_DEFAULT_STORAGE_CLASS}
-
+            , trailing_checksum_on_upload_enabled{false}
         {}
 
         std::int64_t object_size;
@@ -183,6 +190,7 @@ namespace irods::experimental::io::s3_transport
         std::int64_t max_single_part_upload_size;
         unsigned int non_data_transfer_timeout_seconds;
         std::string  s3_storage_class;
+        bool         trailing_checksum_on_upload_enabled;
     };
 
 
@@ -385,7 +393,7 @@ namespace irods::experimental::io::s3_transport
 
         bool close(const on_close_success* _on_close_success = nullptr) override
         {
-            logger::debug("{}:{} ({}) [[{}]] fd_={}, is_open={} use_cache_={}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), fd_, is_open(), use_cache_);
+            logger::debug("{}:{} ({}) [[{}]] fd_={}, is_open={} use_cache_={}", __FILE__, __LINE__, __func__, get_thread_identifier(), fd_, is_open(), use_cache_);
 
             namespace bi = boost::interprocess;
             namespace types = shared_data::interprocess_types;
@@ -432,14 +440,14 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 logger::debug("{}:{} ({}) [[{}]] close BEFORE decrement file_open_counter = {}",
-                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), data.file_open_counter);
+                    __FILE__, __LINE__, __func__, this->get_thread_identifier(), data.file_open_counter);
 
                 if (data.file_open_counter > 0) {
                     data.file_open_counter -= 1;
                 }
 
                 logger::debug("{}:{} ({}) [[{}]] close AFTER decrement file_open_counter = {}",
-                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), data.file_open_counter);
+                    __FILE__, __LINE__, __func__, this->get_thread_identifier(), data.file_open_counter);
 
                 // determine if this is the last file to close
                 // for now on redirect cache is forced and we do not know the # threads
@@ -449,7 +457,7 @@ namespace irods::experimental::io::s3_transport
                     ( !(data.know_number_of_threads) && data.file_open_counter == 0 && !data.cache_file_flushed );
 
                 logger::debug("{}:{} ({}) [[{}]] [last_file_to_close={}][know_number_of_threads={}][threads_remaining_to_close={}]",
-                        __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(),
+                        __FILE__, __LINE__, __func__, this->get_thread_identifier(),
                         last_file_to_close_, data.know_number_of_threads, data.threads_remaining_to_close);
 
                 // if a critical error occurred - do not flush cache file or complete multipart upload
@@ -486,7 +494,7 @@ namespace irods::experimental::io::s3_transport
                     // not last file to close and using cache - close cache stream
                     if (use_cache_) {
                         logger::debug("{}:{} ({}) [[{}]] closing cache file",
-                                __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier());
+                                __FILE__, __LINE__, __func__, this->get_thread_identifier());
                         cache_fstream_.close();
                     }
                 }
@@ -498,13 +506,13 @@ namespace irods::experimental::io::s3_transport
             if (result == additional_processing_enum::DO_FLUSH_CACHE_FILE) {
 
                 logger::debug("{}:{} ({}) [[{}]] closing cache file",
-                        __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier());
+                        __FILE__, __LINE__, __func__, this->get_thread_identifier());
 
                 cache_fstream_.close();
 
                 if (error_codes::SUCCESS != flush_cache_file(shm_obj)) {
                     logger::error("{}:{} ({}) [[{}]] flush_cache_file returned error",
-                            __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier());
+                            __FILE__, __LINE__, __func__, this->get_thread_identifier());
                     this->set_error(ERROR(S3_PUT_ERROR, "flush_cache_file returned error"));
                     return_value = false;
                 }
@@ -561,7 +569,7 @@ namespace irods::experimental::io::s3_transport
                     std::streamoff current_position = this->cache_fstream_.tellp();
 
                     const auto msg = fmt::format("send() position={} size={} position_after_write=", position_before_write, _buffer_size, current_position);
-                    logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), msg.c_str());
+                    logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__, this->get_thread_identifier(), msg.c_str());
 
                     // return bytes written
                     std::streamsize bytes_written = current_position - position_before_write;
@@ -596,7 +604,7 @@ namespace irods::experimental::io::s3_transport
             // if config_.bytes_this_thread is 0 then bail
             if (config_.number_of_client_transfer_threads > 1 && 0 == get_bytes_this_thread()) {
                 logger::error("{}:{} ({}) [[{}]] part size is zero", __FILE__, __LINE__,
-                        __FUNCTION__, get_thread_identifier());
+                        __func__, get_thread_identifier());
                 this->set_error(ERROR(S3_PUT_ERROR, "Part size was set to zero"));
                 return 0;
             }
@@ -647,24 +655,11 @@ namespace irods::experimental::io::s3_transport
                     logger::error("{}:{} ({}) [[{}]] "
                             "Unexpected timeout when pushing onto circular buffer.  "
                             "Thread writing to S3 may have died.  Returning 0 bytes processed.",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                            __FILE__, __LINE__, __func__, get_thread_identifier());
                     set_error(ERROR(S3_PUT_ERROR, "Unexpected timeout when pushing onto circular buffer."));
                     return 0;
                 }
 
-            }
-
-            try {
-                circular_buffer_.push_back(&_buffer[offset], &_buffer[_buffer_size]);
-            } catch (timeout_exception& e) {
-
-                // timeout trying to push onto circular buffer
-                logger::error("{}:{} ({}) [[{}]] "
-                        "Unexpected timeout when pushing onto circular buffer.  "
-                        "Thread writing to S3 may have died.  Returning 0 bytes processed.",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
-                set_error(ERROR(S3_PUT_ERROR, "Unexpected timeout when pushing onto circular buffer."));
-                return 0;
             }
 
             return _buffer_size;
@@ -704,7 +699,7 @@ namespace irods::experimental::io::s3_transport
                             irods::error ret = get_object_s3_status(object_key_, bucket_context_, existing_object_size, object_status, storage_class);
                             if (!ret.ok() || object_status == object_s3_status::DOES_NOT_EXIST) {
                                 logger::error("{}:{} ({}) [[{}]] seek failed because object size is unknown and HEAD failed",
-                                         __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                                         __FILE__, __LINE__, __func__, get_thread_identifier());
                                 return seek_error;
                             }
                         }
@@ -887,7 +882,7 @@ namespace irods::experimental::io::s3_transport
             std::fstream fs(cache_file_path_);
             if (!fs || !fs.is_open()) {
                 logger::error("{}:{} ({}) [[{}]] could not open cache file to get size",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                        __FILE__, __LINE__, __func__, get_thread_identifier());
                 return 0;
             }
 
@@ -912,7 +907,7 @@ namespace irods::experimental::io::s3_transport
 
                 if (error_codes::SUCCESS != ret) {
                     logger::error("{}:{} ({}) [[{}]] open returning false [last_error_code={}]",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), static_cast<int>(ret));
+                            __FILE__, __LINE__, __func__, get_thread_identifier(), static_cast<int>(ret));
 
                     // update the last error
                     shm_obj.atomic_exec([ret](auto& data) {
@@ -925,7 +920,7 @@ namespace irods::experimental::io::s3_transport
             } else {
                 if (error_codes::SUCCESS != last_error_code) {
                     logger::error("{}:{} ({}) [[{}]] open returning false [last_error_code={}]",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                            __FILE__, __LINE__, __func__, get_thread_identifier(),
                             static_cast<int>(last_error_code));
                     this->set_error(ERROR(S3_PUT_ERROR, "Initiate multipart failed"));
                     return false;
@@ -940,7 +935,7 @@ namespace irods::experimental::io::s3_transport
                 std::int64_t s3_object_size)
         {
             logger::debug("{}:{} ({}) [[{}]] downloading object to cache\n",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                    __FILE__, __LINE__, __func__, get_thread_identifier());
 
             // shmem is already locked here
 
@@ -952,7 +947,7 @@ namespace irods::experimental::io::s3_transport
                 boost::filesystem::create_directories(parent_path);
             } catch (boost::filesystem::filesystem_error& e) {
                 logger::error("{}:{} ({}) [[{}]] Could not download file to cache.  {}",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), e.what());
+                        __FILE__, __LINE__, __func__, get_thread_identifier(), e.what());
                 return cache_file_download_status::FAILED;
             }
             cache_file_path_ = cache_file.string();
@@ -978,7 +973,7 @@ namespace irods::experimental::io::s3_transport
                 {
 
                     logger::error("{}:{} ({}) [[{}]] Not enough disk space to download object to cache.",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                            __FILE__, __LINE__, __func__, get_thread_identifier());
 
                     return shm_obj.atomic_exec([](auto& data) {
                         return data.cache_file_download_progress = cache_file_download_status::FAILED;
@@ -1027,7 +1022,7 @@ namespace irods::experimental::io::s3_transport
 
                 if (bytes_downloaded != s3_object_size) {
                     logger::error("{}:{} ({}) [[{}]] Failed downloading to cache - bytes_downloaded ({}) != s3_object_size ({}).",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), bytes_downloaded, s3_object_size);
+                            __FILE__, __LINE__, __func__, get_thread_identifier(), bytes_downloaded, s3_object_size);
                     fflush(stderr);
                     return shm_obj.atomic_exec([](auto& data) {
                         return data.cache_file_download_progress = cache_file_download_status::FAILED;
@@ -1051,7 +1046,7 @@ namespace irods::experimental::io::s3_transport
         error_codes flush_cache_file(named_shared_memory_object& shm_obj) {
 
             logger::debug("{}:{} ({}) [[{}]] Flushing cache file.",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                    __FILE__, __LINE__, __func__, get_thread_identifier());
 
             error_codes return_value = error_codes::SUCCESS;
 
@@ -1067,7 +1062,7 @@ namespace irods::experimental::io::s3_transport
             ifs.open(cache_file_path_.c_str(), std::ios::out);
             if (!ifs || !ifs.is_open()) {
                 logger::error("{}:{} ({}) [[{}]] Failed to open cache file.",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                        __FILE__, __LINE__, __func__, get_thread_identifier());
                 return error_codes::UPLOAD_FILE_ERROR;
             }
 
@@ -1076,19 +1071,19 @@ namespace irods::experimental::io::s3_transport
             ifs.close();
 
             logger::debug("{}:{} ({}) [[{}]] cache_file_size is {}",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), cache_file_size);
+                    __FILE__, __LINE__, __func__, get_thread_identifier(), cache_file_size);
             logger::debug("{}:{} ({}) [[{}]] number_of_cache_transfer_threads is {}",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), config_.number_of_cache_transfer_threads);
+                    __FILE__, __LINE__, __func__, get_thread_identifier(), config_.number_of_cache_transfer_threads);
 
             if (config_.number_of_cache_transfer_threads == 0) {
                 logger::error("{}:{} ({}) [[{}]] number_of_cache_transfer_threads set to an invalid value (0).",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                        __FILE__, __LINE__, __func__, get_thread_identifier());
                 return error_codes::UPLOAD_FILE_ERROR;
             }
 
             if (config_.max_single_part_upload_size == 0) {
                 logger::error("{}:{} ({}) [[{}]] max_single_part_upload_size set to an invalid value (0).",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier());
+                        __FILE__, __LINE__, __func__, get_thread_identifier());
                 return error_codes::UPLOAD_FILE_ERROR;
             }
 
@@ -1185,7 +1180,7 @@ namespace irods::experimental::io::s3_transport
                     preferred_part_size >>= 1;
 
                     logger::warn("{}:{} ({}) [[{}]] error in flushing cache file.  Trying a part size of {}.",
-                        __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), preferred_part_size);
+                        __FILE__, __LINE__, __func__, this->get_thread_identifier(), preferred_part_size);
                 } else {
                     break;
                 }
@@ -1193,7 +1188,7 @@ namespace irods::experimental::io::s3_transport
 
             // remove cache file
             logger::debug("{}:{} ({}) [[{}]] removing cache file {}",
-                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), cache_file_path_.c_str());
+                    __FILE__, __LINE__, __func__, this->get_thread_identifier(), cache_file_path_.c_str());
             std::remove(cache_file_path_.c_str());
 
             // set cache file download flag to NOT_STARTED
@@ -1321,7 +1316,7 @@ namespace irods::experimental::io::s3_transport
             logger::debug("{}:{} ({}) [[{}]] [_mode & in = {}][_mode & out = {}]"
                 "[_mode & trunc = {}][_mode & app = {}][_mode & ate = {}]"
                 "[_mode & binary = {}]",
-                __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                __FILE__, __LINE__, __func__, get_thread_identifier(),
                 (_mode & std::ios_base::in) == std::ios_base::in,
                 (_mode & std::ios_base::out) == std::ios_base::out,
                 (_mode & std::ios_base::trunc) == std::ios_base::trunc,
@@ -1358,7 +1353,7 @@ namespace irods::experimental::io::s3_transport
 
             logger::debug("{}:{} ({}) [[{}]] [object_key_ = {}][use_cache_ = {}]"
                 "[download_to_cache_ = {}]",
-                __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                __FILE__, __LINE__, __func__, get_thread_identifier(),
                 object_key_.c_str(),
                 use_cache_,
                 download_to_cache_);
@@ -1402,6 +1397,21 @@ namespace irods::experimental::io::s3_transport
                 // been closed and flushed to S3.
                 const auto m = mode_ & ~(std::ios_base::ate | std::ios_base::binary);
                 if ((std::ios_base::out | std::ios_base::trunc) == m) {
+                    // Only reset multipart state on the FIRST open (file_open_counter == 0).
+                    // Subsequent opens by other threads should not clear state that may have
+                    // already been initialized by the first thread.
+                    if (0 == data.file_open_counter) {
+                        // Reset multipart upload state for new write operation.
+                        // The shared memory may be reused from a previous upload of the same object,
+                        // so we need to clear stale state to ensure a fresh multipart upload is initiated.
+                        data.done_initiate_multipart = false;
+                        data.upload_id.clear();
+                        data.etags.clear();
+                        data.checksum_vector.clear();
+                        data.part_size_vector.clear();
+                        data.last_error_code = error_codes::SUCCESS;
+                        data.circular_buffer_read_timeout = false;
+                    }
                     data.first_open_has_trunc_flag = true;
                 }
                 else if (data.first_open_has_trunc_flag) {
@@ -1414,13 +1424,13 @@ namespace irods::experimental::io::s3_transport
 
                 data.file_open_counter += 1;
                 logger::debug("{}:{} ({}) [[{}]] number_of_client_transfer_threads = {}",
-                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), this->config_.number_of_client_transfer_threads);
+                    __FILE__, __LINE__, __func__, this->get_thread_identifier(), this->config_.number_of_client_transfer_threads);
                 if (this->config_.number_of_client_transfer_threads <= 0) {
                     data.know_number_of_threads = false;
                 }
 
                 logger::debug("{}:{} ({}) [[{}]] open file_open_counter = {}",
-                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), data.file_open_counter);
+                    __FILE__, __LINE__, __func__, this->get_thread_identifier(), data.file_open_counter);
 
                 std::string storage_class;  // used if in archive
 
@@ -1457,7 +1467,7 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 if (object_status == object_s3_status::IN_S3 && this->download_to_cache_) {
-                    logger::debug("{}:{} ({}) [[{}]] Downloading object to cache", __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier());
+                    logger::debug("{}:{} ({}) [[{}]] Downloading object to cache", __FILE__, __LINE__, __func__, this->get_thread_identifier());
 
                     cache_file_download_status download_status = this->download_object_to_cache(shm_obj, s3_object_size);
 
@@ -1481,11 +1491,11 @@ namespace irods::experimental::io::s3_transport
 
                         try {
                             logger::debug("{}:{} ({}) [[{}]] Creating parent_path  {}",
-                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), parent_path.string().c_str());
+                                    __FILE__, __LINE__, __func__, this->get_thread_identifier(), parent_path.string().c_str());
                             boost::filesystem::create_directories(parent_path);
                         } catch (boost::filesystem::filesystem_error& e) {
                             logger::error("{}:{} ({}) [[{}]] Could not create parent directories for cache file.  {}",
-                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), e.what());
+                                    __FILE__, __LINE__, __func__, this->get_thread_identifier(), e.what());
                             return_value = false;
                             return;
                         }
@@ -1512,18 +1522,18 @@ namespace irods::experimental::io::s3_transport
 						// Try opening for read and write. If it fails, create the file then open for read/write.
                         cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::in | std::ios_base::out);
                         if (!cache_fstream_.is_open()) {
-                            logger::debug("{}:{} ({}) [[{}]] opened cache file {} with create [trunc_flag={}]", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), cache_file_path_.c_str(), trunc_flag);
+                            logger::debug("{}:{} ({}) [[{}]] opened cache file {} with create [trunc_flag={}]", __FILE__, __LINE__, __func__, get_thread_identifier(), cache_file_path_.c_str(), trunc_flag);
                             // file may not exist, open with std::ios_base::out to create then with in/out
                             cache_fstream_.open(cache_file_path_.c_str(), std::ios_base::out);
                             cache_fstream_.close();
                             cache_fstream_.open(cache_file_path_.c_str(), mode | std::ios_base::in | std::ios_base::out);
                         } else {
-                            logger::debug("{}:{} ({}) [[{}]] opened cache file {} [trunc_flag={}]", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), cache_file_path_.c_str(), trunc_flag);
+                            logger::debug("{}:{} ({}) [[{}]] opened cache file {} [trunc_flag={}]", __FILE__, __LINE__, __func__, get_thread_identifier(), cache_file_path_.c_str(), trunc_flag);
                         }
 
                         if (!cache_fstream_ || !cache_fstream_.is_open()) {
                             logger::error("{}:{} ({}) [[{}]] Failed to open cache file {}, error={} open_mode: [app={}][binary={}][in={}][out={}][trunc={}][ate={}]",
-                                    __FILE__, __LINE__, __FUNCTION__, this->get_thread_identifier(), cache_file_path_.c_str(), strerror(errno),
+                                    __FILE__, __LINE__, __func__, this->get_thread_identifier(), cache_file_path_.c_str(), strerror(errno),
                                     (mode & std::ios::app) != 0,
                                     (mode & std::ios::binary) != 0,
                                     (mode & std::ios::in) != 0,
@@ -1591,6 +1601,18 @@ namespace irods::experimental::io::s3_transport
             put_props.md5 = nullptr;
             put_props.expires = -1;
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+            if (this->config_.trailing_checksum_on_upload_enabled) {
+                // For chunked uploads with trailing checksum:
+                // 1. Set xAmzChecksumAlgorithm to tell S3/MinIO this upload uses CRC64NVME checksums
+                // 2. Don't set xAmzChecksumType (only for non-chunked uploads)
+                // 3. Set xAmzTrailer to declare which trailing headers we'll send
+                put_props.xAmzChecksumAlgorithm = "CRC64NVME";       // Declare checksum algorithm for multipart
+                put_props.xAmzChecksumType = nullptr;                // Not valid for chunked uploads
+                put_props.xAmzTrailer = "x-amz-checksum-crc64nvme";  // Declare the trailer
+            }
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+
             upload_manager_.remaining = 0;
             upload_manager_.offset  = 0;
             upload_manager_.xml = "";
@@ -1618,16 +1640,16 @@ namespace irods::experimental::io::s3_transport
 
                 do {
                     logger::debug("{}:{} ({}) [[{}]] call S3_initiate_multipart [object_key={}]",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), object_key_.c_str());
+                            __FILE__, __LINE__, __func__, get_thread_identifier(), object_key_.c_str());
 
                     S3_initiate_multipart(&bucket_context_, object_key_.c_str(),
                             &put_props, &mpu_initial_handler, nullptr, 0, &upload_manager_);
 
                     logger::debug("{}:{} ({}) [[{}]] done call S3_initiate_multipart [object_key={}]",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), object_key_.c_str());
+                            __FILE__, __LINE__, __func__, get_thread_identifier(), object_key_.c_str());
 
                     logger::debug("{}:{} ({}) [[{}]] [manager.status={}]", __FILE__, __LINE__,
-                            __FUNCTION__, get_thread_identifier(), S3_get_status_name(upload_manager_.status));
+                            __func__, get_thread_identifier(), S3_get_status_name(upload_manager_.status));
 
                     if (upload_manager_.status != libs3_types::status_ok) {
                         s3_sleep( retry_wait_seconds );
@@ -1646,7 +1668,7 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 logger::debug("{}:{} ({}) [[{}]] S3_initiate_multipart returned.  Upload ID = {}",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                        __FILE__, __LINE__, __func__, get_thread_identifier(),
                         data.upload_id.c_str());
 
                 upload_manager_.remaining = 0;
@@ -1690,12 +1712,12 @@ namespace irods::experimental::io::s3_transport
             status = s3_multipart_upload::cancel_callback::g_response_completion_status;
             if (status != libs3_types::status_ok) {
                 auto msg = fmt::format("{} - Error cancelling the multipart upload of S3 object: \"{}\"",
-                        __FUNCTION__,
+                        __func__,
                         object_key_);
                 if (status >= 0) {
                     msg += fmt::format(" - \"{}\"", S3_get_status_name(status));
                 }
-                logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__, get_thread_identifier(),
                         msg.c_str() );
             }
         } // end mpu_cancel
@@ -1723,19 +1745,47 @@ namespace irods::experimental::io::s3_transport
                 }
 
                 if (error_codes::SUCCESS == data.last_error_code) { // If someone aborted, don't complete...
-
                     const auto msg = fmt::format("Multipart:  Completing key \"{}\" Upload ID \"{}\"", object_key_, upload_id);
-                    logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                    logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__, get_thread_identifier(),
                             msg.c_str() );
 
                     std::uint64_t i;
+
                     auto xml = fmt::format("<CompleteMultipartUpload>\n");
                     for ( i = 0; i < data.etags.size() && !data.etags[i].empty(); i++ ) {
-                        xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>\n", i + 1, data.etags[i]);
+                        // Check if we have a checksum for this part
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                        if (this->config_.trailing_checksum_on_upload_enabled &&
+                            i < data.checksum_vector.size() &&
+                            data.checksum_vector[i] != 0) {
+
+                            // Convert uint64_t checksum to big-endian bytes
+                            unsigned char checksum_bytes[8];
+                            uint64_t checksum_val = data.checksum_vector[i];
+                            for (int j = 0; j < 8; ++j) {
+                                checksum_bytes[7 - j] = static_cast<unsigned char>(checksum_val & 0xFF);
+                                checksum_val >>= 8;
+                            }
+
+                            // Base64 encode the checksum
+                            unsigned long encoded_len = 16;  // 8 bytes -> 12 chars + padding
+                            unsigned char encoded_checksum[16]{};
+                            base64_encode(checksum_bytes, 8, encoded_checksum, &encoded_len);
+                            std::string checksum_b64(reinterpret_cast<char*>(encoded_checksum), encoded_len);
+
+                            xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag><ChecksumCRC64NVME>{}</ChecksumCRC64NVME></Part>\n",
+                                    i + 1, data.etags[i], checksum_b64);
+
+                        } else {
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                            xml += fmt::format("<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>\n", i + 1, data.etags[i]);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                        }
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                     }
                     xml += fmt::format("</CompleteMultipartUpload>\n");
 
-                    logger::debug( "{}:{} ({}) [[{}]] [key={}] Request: {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                    logger::debug( "{}:{} ({}) [[{}]] [key={}] Request: {}", __FILE__, __LINE__, __func__, get_thread_identifier(),
                             object_key_.c_str(), xml.c_str() );
 
                     int manager_remaining = xml.size();
@@ -1745,6 +1795,7 @@ namespace irods::experimental::io::s3_transport
                         = { {s3_multipart_upload::commit_callback::on_response_properties,
                              s3_multipart_upload::commit_callback::on_response_completion },
                             s3_multipart_upload::commit_callback::on_response, nullptr };
+
                     do {
                         // On partial error, need to restart XML send from the beginning
                         upload_manager_.remaining = manager_remaining;
@@ -1756,12 +1807,13 @@ namespace irods::experimental::io::s3_transport
                                 &commit_handler,
                                 upload_id.c_str(),
                                 upload_manager_.remaining,
+                                nullptr,  // putProperties
                                 nullptr,
                                 config_.non_data_transfer_timeout_seconds * 1000,   // timeout (ms)
                                 &upload_manager_);
 
                         logger::debug("{}:{} ({}) [[{}]] [key={}][manager.status={}]", __FILE__, __LINE__,
-                                __FUNCTION__, get_thread_identifier(), object_key_.c_str(), S3_get_status_name(upload_manager_.status));
+                                __func__, get_thread_identifier(), object_key_.c_str(), S3_get_status_name(upload_manager_.status));
 
                         retry_cnt++;
 
@@ -1772,7 +1824,7 @@ namespace irods::experimental::io::s3_transport
                                 retry_cnt <= config_.retry_count_limit) {
 
                             logger::error("{}:{} ({}) [[{}]] S3_complete_multipart_upload returned error [status={}][object_key={}][attempt={}][retry_count_limit={}].  Sleeping for {} seconds",
-                                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                                    __FILE__, __LINE__, __func__, get_thread_identifier(),
                                     S3_get_status_name(upload_manager_.status), object_key_.c_str(), retry_cnt, config_.retry_count_limit, retry_wait_seconds);
                             s3_sleep( retry_wait_seconds );
                             retry_wait_seconds *= 2;
@@ -1788,7 +1840,7 @@ namespace irods::experimental::io::s3_transport
 
                     if (upload_manager_.status != libs3_types::status_ok && upload_manager_.status != libs3_types::status_request_timeout) {
                         auto msg  = fmt::format("{}  - Error putting the S3 object: \"{}\"",
-                                __FUNCTION__,
+                                __func__,
                                 object_key_);
                         if(upload_manager_.status >= 0) {
                             msg += fmt::format(" - \"{}\"", S3_get_status_name( upload_manager_.status ));
@@ -1907,7 +1959,7 @@ namespace irods::experimental::io::s3_transport
                         object_key_,
                         offset,
                         read_callback->content_length);
-                logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__, get_thread_identifier(),
                         msg.c_str());
 
                 std::uint64_t start_microseconds = get_time_in_microseconds();
@@ -1920,7 +1972,7 @@ namespace irods::experimental::io::s3_transport
                 double bw = (read_callback->content_length / (1024.0*1024.0)) /
                     ( (end_microseconds - start_microseconds) / 1000000.0 );
                 msg = fmt::format(" -- END -- BW={} MB/s", bw);
-                logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__,
+                logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__,
                         get_thread_identifier(), msg.c_str());
 
                 if (read_callback->status != libs3_types::status_ok) {
@@ -1940,7 +1992,7 @@ namespace irods::experimental::io::s3_transport
                 if (read_callback->status >= 0) {
                     msg += fmt::format(" - \"{}\"", S3_get_status_name( read_callback->status));
                 }
-                logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__,
+                logger::debug("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__,
                         get_thread_identifier(), msg.c_str());
 
                 this->set_error(ERROR(S3_GET_ERROR, msg.c_str()));
@@ -2030,7 +2082,7 @@ namespace irods::experimental::io::s3_transport
             std::int64_t content_length;
             std::vector<std::int64_t> part_sizes;
 
-            // resize the etags vector if necessary
+            // resize the etags and checksum vectors if necessary
             int resize_error = shm_obj.atomic_exec([this, &shm_obj](auto& data) {
 
                 if (constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD > data.etags.size()) {
@@ -2038,12 +2090,14 @@ namespace irods::experimental::io::s3_transport
                     std::int64_t maximum_number_etags_per_upload = constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD;
 
                     logger::debug( "{}:{} ({}) [[{}]] resize etags vector from {} to {}",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), data.etags.size(), maximum_number_etags_per_upload);
+                            __FILE__, __LINE__, __func__, get_thread_identifier(), data.etags.size(), maximum_number_etags_per_upload);
 
                     try {
                         data.etags.resize(constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD, types::shm_char_string("", shm_obj.get_allocator()));
+                        data.checksum_vector.resize(constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD);
+                        data.part_size_vector.resize(constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD);
                     } catch (boost::interprocess::bad_alloc &biba) {
-                        this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags buffer in shared memory."));
+                        this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags, checksum, or part size vectors in shared memory."));
                         data.last_error_code = error_codes::BAD_ALLOC;
                         return true;
                     }
@@ -2055,8 +2109,8 @@ namespace irods::experimental::io::s3_transport
             });
 
             if (resize_error) {
-                logger::error("Error on reallocation of etags buffer in shared memory.");
-                this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags buffer in shared memory."));
+                logger::error("Error on reallocation of etags, checksum, or part size vectors in shared memory.");
+                this->set_error(ERROR(S3_PUT_ERROR, "Error on reallocation of etags, checksum, or part size vectors in shared memory."));
                 return;
             }
 
@@ -2115,6 +2169,7 @@ namespace irods::experimental::io::s3_transport
                         write_callback->content_length = content_length;
                     } else {
                         write_callback->content_length = part_sizes[part_number - start_part_number];
+logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ", __FILE__, __LINE__, __func__, get_thread_identifier(), write_callback->content_length );
                     }
 
                     write_callback->sequence = part_number;
@@ -2125,7 +2180,7 @@ namespace irods::experimental::io::s3_transport
                             upload_id,
                             static_cast<int>(write_callback->content_length));
 
-                    logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                    logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__, get_thread_identifier(),
                             msg.c_str() );
 
                     S3PutProperties put_props{};
@@ -2135,24 +2190,82 @@ namespace irods::experimental::io::s3_transport
                     // server encrypt flag not valid for part upload
                     put_props.useServerSideEncryption = false;
 
-                    logger::debug("{}:{} ({}) [[{}]] S3_upload_part (ctx, {}, props, handler, {}, "
-                           "uploadId, {}, 0, partData) bytes_this_thread={}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                           object_key_.c_str(), part_number,
-                           write_callback->content_length, (std::int64_t)bytes_this_thread);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                    if (config_.trailing_checksum_on_upload_enabled) {
+                        write_callback->calculate_crc64_nvme = true;
 
-                    S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props,
-                            &put_object_handler, part_number, upload_id.c_str(),
-                            write_callback->content_length, 0, 120000, write_callback.get());
+                        // Trailing headers callback - returns the CRC64/NVME checksum
+                        auto trailing_headers_cb = [](int maxHeaders, S3NameValue* headers, void* callbackData) -> int {
+                            if (maxHeaders < 1) {
+                                return -1;
+                            }
 
-                    // zero out bytes_written in case of failure and re-run
-                    write_callback->bytes_written = 0;
+                            // Cast void* back to the callback object type
+                            auto* cb = static_cast<s3_multipart_upload::callback_for_write_to_s3_base<CharT>*>(callbackData);
 
-                    logger::debug("{}:{} ({}) [[{}]] S3_upload_part returned [part={}][status={}].",
-                            __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), part_number,
-                            S3_get_status_name(write_callback->status));
+                            // Get the checksum from the hasher (accumulated during data upload).
+                            // Store in cb->trailing_checksum_value so it outlives this lambda call.
+                            cb->hasher.digest(cb->trailing_checksum_value);
+                            logger::debug("{}:{} ({}) checksum from hasher: [{}]", __FILE__, __LINE__, __func__, cb->trailing_checksum_value);
+
+                            // Remove the "crc64nvme:" prefix from the checksum string
+                            remove_checksum_prefix(cb->trailing_checksum_value, irods::CRC64NVME_NAME + ":");
+
+                            headers[0].name = "x-amz-checksum-crc64nvme";
+                            headers[0].value = cb->trailing_checksum_value.c_str();
+                            logger::debug("{}:{} ({}) part trailing checksum header: {}={}",
+                                    __FILE__, __LINE__, __func__,
+                                    headers[0].name, headers[0].value);
+                            return 1;
+                        };
+
+                        // Set up put properties for chunked upload with trailing checksum
+                        put_props.contentEncoding = "aws-chunked";
+                        put_props.xAmzTrailer = "x-amz-checksum-crc64nvme";
+                        put_props.xAmzDecodedContentLength = write_callback->content_length;
+
+                        S3PutObjectHandlerChunked chunked_handler = {
+                            {
+                                s3_multipart_upload::callback_for_write_to_s3_base<CharT>::on_response_properties,
+                                s3_multipart_upload::callback_for_write_to_s3_base<CharT>::on_response_completion
+                            },
+                            s3_multipart_upload::callback_for_write_to_s3_base<CharT>::invoke_callback,
+                            trailing_headers_cb
+                        };
+
+                        logger::debug("{}:{} ({}) [[{}]] S3_upload_part_chunked (ctx, {}, props, {}, "
+                               "uploadId, 0, partData) bytes_this_thread={} [trailing_checksum=enabled]",
+                               __FILE__, __LINE__, __func__, get_thread_identifier(),
+                               object_key_.c_str(), part_number,
+                               (std::int64_t)bytes_this_thread);
+
+                        S3_upload_part_chunked(&bucket_context_, object_key_.c_str(), &put_props,
+                                part_number, upload_id.c_str(),
+                                nullptr, 120000, &chunked_handler, write_callback.get());
+
+                        logger::debug("{}:{} ({}) [[{}]] S3_upload_part_chunked returned [part={}][status={}].",
+                                __FILE__, __LINE__, __func__, get_thread_identifier(), part_number,
+                                S3_get_status_name(write_callback->status));
+                    } else {
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                        logger::debug("{}:{} ({}) [[{}]] S3_upload_part (ctx, {}, props, handler, {}, "
+                               "uploadId, {}, 0, partData) bytes_this_thread={}", __FILE__, __LINE__, __func__, get_thread_identifier(),
+                               object_key_.c_str(), part_number,
+                               write_callback->content_length, (std::int64_t)bytes_this_thread);
+
+                        S3_upload_part(&bucket_context_, object_key_.c_str(), &put_props,
+                                &put_object_handler, part_number, upload_id.c_str(),
+                                write_callback->content_length, 0, 120000, write_callback.get());
+
+                        logger::debug("{}:{} ({}) [[{}]] S3_upload_part returned [part={}][status={}].",
+                                __FILE__, __LINE__, __func__, get_thread_identifier(), part_number,
+                                S3_get_status_name(write_callback->status));
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                    }
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
 
                     msg = fmt::format("Multipart:  -- END --");
-                    logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                    logger::debug( "{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__, get_thread_identifier(),
                             msg.c_str() );
 
                     retry_cnt += 1;
@@ -2171,7 +2284,7 @@ namespace irods::experimental::io::s3_transport
                             logger::error(
                                     "{}:{} ({}) [[{}]] S3_upload_part returned error [status={}][attempt={}][retry_count_limit={}].  "
                                     "Sleeping between {} and {} seconds",
-                                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
+                                    __FILE__, __LINE__, __func__, get_thread_identifier(),
                                     S3_get_status_name(write_callback->status), retry_cnt, config_.retry_count_limit,
                                     retry_wait_seconds >> 1, retry_wait_seconds);
 
@@ -2181,6 +2294,13 @@ namespace irods::experimental::io::s3_transport
                                 retry_wait_seconds = config_.max_retry_wait_seconds;
                             }
 
+                            // Reset bytes_written and hasher for retry
+                            write_callback->bytes_written = 0;
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                            if (config_.trailing_checksum_on_upload_enabled) {
+                                irods::getHasher(irods::CRC64NVME_NAME.data(), write_callback->hasher);
+                            }
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
                         }
                     }
 
@@ -2201,18 +2321,75 @@ namespace irods::experimental::io::s3_transport
                             data.last_error_code = error_codes::UPLOAD_FILE_ERROR;
                         });
                     }
+
+                    // break out of for loop on part upload failure
+                    break;
                 }
                 write_callback->bytes_written = 0;
 
-                // break out of for loop if we timed out reading from circular buffer
+                // break out of for-loop if we timed out reading from circular buffer
                 if (circular_buffer_read_timeout) {
                     break;
                 }
 
+                // save the checksum
+                std::string checksum_str;
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                write_callback->hasher.digest(checksum_str);
+                logger::debug("{}:{} ({}) checksum_str=[{}]", __FILE__, __LINE__, __func__, checksum_str);
+
+                // delete the "crc64nvme:" prefix from the checksum string
+                if (checksum_str.length() > irods::CRC64NVME_NAME.length() + 1) {
+                   checksum_str = checksum_str.substr(irods::CRC64NVME_NAME.length() + 1);
+                } else {
+                    checksum_str = "";
+                }
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+
+                // save the actual part size and decoded checksum to shared memory
+                auto actual_part_size = write_callback->content_length;
+                shm_obj.atomic_exec([&checksum_str, part_number, actual_part_size](auto& data) {
+                    // save actual part size (not bytes_this_thread which is total for the thread)
+                    data.part_size_vector[part_number-1] = actual_part_size;
+
+                    // decode checksum as uint64_t and save it
+			        if (!checksum_str.empty()) {
+                        unsigned long out_len = 8;
+						unsigned char response[8]{};
+                        auto err = base64_decode(reinterpret_cast<const unsigned char*>(checksum_str.c_str()),
+                                     checksum_str.size(),
+                                     reinterpret_cast<unsigned char*>(response),
+                                     &out_len);
+                        if (err < 0) {
+                            logger::error("{}:{} ({}) Base64 decoding of [{}] failed.",
+					    			__FILE__, __LINE__, __func__, checksum_str);
+                            data.checksum_vector[part_number-1] = 0;
+							return;
+						}
+
+						// The checksum was stored in big endian format before the base64 encoding.
+						// Convert this back to a uint64_t by interpreting the 8 bytes as big endian.
+						uint64_t val = 0;
+						for (int i = 0; i < 8; ++i) {
+						    val += (response[i]) * (static_cast<uint64_t>(0x01) << ((7-i) * 8));
+						}
+                        data.checksum_vector[part_number-1] = val;
+					} else {
+                        data.checksum_vector[part_number-1] = 0;
+					}
+                });
+
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                // Reset hasher for next part
+                if (config_.trailing_checksum_on_upload_enabled) {
+                    irods::getHasher(irods::CRC64NVME_NAME.data(), write_callback->hasher);
+                }
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+
             } // for
 
             logger::debug("{}:{} ({}) [[{}]] Breaking out of circular_buffer_read loop.  End part number = {}",
-                    __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(), end_part_number);
+                    __FILE__, __LINE__, __func__, get_thread_identifier(), end_part_number);
         }
 
         error_codes s3_upload_file(bool read_from_cache = false)
@@ -2285,18 +2462,81 @@ namespace irods::experimental::io::s3_transport
                 // zero out bytes_written in case of failure and re-run
                 write_callback->bytes_written = 0;
 
-                logger::debug("{}:{} ({}) [[{}]] S3_put_object(ctx, {}, "
-                       "{}, put_props, 0, &putObjectHandler, &data)",
-                       __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                       object_key_.c_str(),
-                       write_callback->content_length);
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                if (config_.trailing_checksum_on_upload_enabled) {
+                    write_callback->calculate_crc64_nvme = true;
 
-                S3_put_object(&bucket_context_, object_key_.c_str(), write_callback->content_length,
-                        &put_props, 0, 0, &put_object_handler, write_callback.get());
+                    // Trailing headers callback - returns the CRC64/NVME checksum
+                    // This is called AFTER all data has been sent via the data callback,
+                    // so the hasher will have accumulated the complete checksum.
+                    auto trailing_headers_cb = [](int maxHeaders, S3NameValue* headers, void* callbackData) -> int {
+                        if (maxHeaders < 1) {
+                            return -1;
+                        }
 
-                logger::debug("{}:{} ({}) [[{}]] S3_put_object returned [status={}].",
-                        __FILE__, __LINE__, __FUNCTION__, get_thread_identifier(),
-                        S3_get_status_name(write_callback->status));
+                        // Cast void* back to the callback object type
+                        auto* cb = static_cast<s3_upload::callback_for_write_to_s3_base<CharT>*>(callbackData);
+
+                        // Get the checksum from the hasher (accumulated during data upload)
+                        // Get the checksum from the hasher (accumulated during data upload).
+                        // Store in cb->trailing_checksum_value so it outlives this lambda call.
+                        cb->hasher.digest(cb->trailing_checksum_value);
+                        logger::debug("{}:{} ({}) checksum from hasher: [{}]", __FILE__, __LINE__, __func__, cb->trailing_checksum_value);
+
+                        // Remove the "crc64nvme:" prefix from the checksum string
+                        remove_checksum_prefix(cb->trailing_checksum_value, irods::CRC64NVME_NAME + ":");
+
+                        headers[0].name = "x-amz-checksum-crc64nvme";
+                        headers[0].value = cb->trailing_checksum_value.c_str();
+                        logger::debug("{}:{} ({}) trailing checksum header: {}={}",
+                                __FILE__, __LINE__, __func__,
+                                headers[0].name, headers[0].value);
+                        return 1;
+                    };
+
+                    // Set up put properties for chunked upload with trailing checksum
+                    put_props.contentEncoding = "aws-chunked";
+                    put_props.xAmzTrailer = "x-amz-checksum-crc64nvme";
+                    put_props.xAmzDecodedContentLength = write_callback->content_length;
+
+                    S3PutObjectHandlerChunked chunked_handler = {
+                        {
+                            s3_upload::callback_for_write_to_s3_base<CharT>::on_response_properties,
+                            s3_upload::callback_for_write_to_s3_base<CharT>::on_response_completion
+                        },
+                        s3_upload::callback_for_write_to_s3_base<CharT>::invoke_callback,
+                        trailing_headers_cb
+                    };
+
+                    logger::debug("{}:{} ({}) [[{}]] S3_put_object_chunked(ctx, {}, "
+                           "put_props, 0, &chunkedHandler, &data) [trailing_checksum=enabled]",
+                           __FILE__, __LINE__, __func__, get_thread_identifier(),
+                           object_key_.c_str());
+
+                    S3_put_object_chunked(&bucket_context_, object_key_.c_str(),
+                            &put_props, nullptr, 0, &chunked_handler, write_callback.get());
+
+                    logger::debug("{}:{} ({}) [[{}]] S3_put_object_chunked returned [status={}].",
+                            __FILE__, __LINE__, __func__, get_thread_identifier(),
+                            S3_get_status_name(write_callback->status));
+                } else {
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                    // Standard upload without trailing checksum
+                    logger::debug("{}:{} ({}) [[{}]] S3_put_object(ctx, {}, "
+                           "{}, put_props, 0, &putObjectHandler, &data)",
+                           __FILE__, __LINE__, __func__, get_thread_identifier(),
+                           object_key_.c_str(),
+                           write_callback->content_length);
+
+                    S3_put_object(&bucket_context_, object_key_.c_str(), write_callback->content_length,
+                            &put_props, 0, 0, &put_object_handler, write_callback.get());
+
+                    logger::debug("{}:{} ({}) [[{}]] S3_put_object returned [status={}].",
+                            __FILE__, __LINE__, __func__, get_thread_identifier(),
+                            S3_get_status_name(write_callback->status));
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+                }
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
 
                 if (write_callback->status != libs3_types::status_ok) {
 

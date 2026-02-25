@@ -14,6 +14,8 @@ add_library(
   "${CMAKE_CURRENT_SOURCE_DIR}/src/service_access_logging.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/simplexml.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/util.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/object_chunked.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/request_chunked.c"
 )
 target_link_libraries(
   libs3_obj

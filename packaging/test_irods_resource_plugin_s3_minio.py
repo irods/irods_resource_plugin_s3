@@ -7,6 +7,10 @@ import psutil
 import sys
 import unittest
 
+from ..configuration import IrodsConfig
+
+IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
+
 class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         """Set up the test."""
@@ -107,3 +111,19 @@ class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3endPoint='localhost:9001'
         self.s3EnableMPU=1
         super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
+
+@unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
+class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCase):
+    '''
+    Tests S3 uploads with trailing checksums enabled (CRC64/NVME).
+    '''
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        self.proto = 'HTTP'
+        self.keypairfile='/var/lib/irods/minio.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint = 'localhost:9000'
+        self.s3EnableMPU=1
+        self.s3EnableTrailingChecksumOnUpload=1
+        self.s3EnableDirectChecksumRead=1
+        super(Test_S3_NoCache_Trailing_Checksum, self).__init__(*args, **kwargs)

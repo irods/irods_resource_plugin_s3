@@ -3,7 +3,12 @@
 #include "irods/private/s3_transport/s3_transport.hpp"
 #include "irods/private/s3_transport/util.hpp"
 #include "irods/private/s3_transport/multipart_shared_data.hpp"
+#include "irods/private/s3_transport/logging_category.hpp"
+
+#include <irods/miscServerFunct.hpp>
 #include <irods/filesystem/filesystem.hpp>
+#include <irods/library_features.h>
+
 #include <irods/dstream.hpp>
 #include <mutex>
 #include <condition_variable>
@@ -18,8 +23,6 @@
 #include <sstream>
 #include <string_view>
 #include <fmt/format.h>
-#include <irods/miscServerFunct.hpp>
-#include "irods/private/s3_transport/logging_category.hpp"
 
 // to run the following unit tests, the aws command line utility needs to be available in
 // the path and "aws configure" needs to be run to set up the keys
@@ -155,6 +158,33 @@ void check_download_results(const std::string& bucket_name, const std::string& f
     REQUIRE(0 == cmp_return_val);
 }
 
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+void check_upload_checksum_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
+{
+    const auto checksum_output_file = fmt::format("{}.checksum_output", filename);
+    const auto aws_cmd = fmt::format(
+            "aws --endpoint-url http://{} s3api get-object-attributes "
+            "--bucket {} --key {}{} "
+            "--object-attributes Checksum "
+            "--query 'Checksum.ChecksumCRC64NVME' --output text > {}",
+            hostname, bucket_name, object_prefix, filename, checksum_output_file);
+
+    fmt::print("{}\n", aws_cmd);
+    int rc = std::system(aws_cmd.c_str());
+    REQUIRE(0 == rc);
+
+    std::ifstream checksum_ifs(checksum_output_file);
+    REQUIRE(checksum_ifs.good());
+    std::string checksum;
+    std::getline(checksum_ifs, checksum);
+    checksum_ifs.close();
+    std::remove(checksum_output_file.c_str());
+
+    fmt::print("CRC64NVME checksum: {}\n", checksum);
+    REQUIRE(!checksum.empty());
+}
+#endif
+
 void check_read_write_results(const std::string& bucket_name, const std::string& filename, const std::string& object_prefix)
 {
 
@@ -189,7 +219,8 @@ void upload_part(const char* const hostname,
                  bool expected_cache_flag,
                  const std::string& s3_protocol_str = "http",
                  const std::string& s3_sts_date_str = "date",
-                 bool server_encrypt_flag = false)
+                 bool server_encrypt_flag = false,
+                 bool trailing_checksum_on_upload_enabled = false)
 {
 
     fmt::print("{}:{} ({}) open file={} put_repl_flag={}\n", __FILE__, __LINE__, __FUNCTION__, filename, put_repl_flag);
@@ -244,6 +275,7 @@ void upload_part(const char* const hostname,
     s3_config.put_repl_flag = put_repl_flag;
     s3_config.region_name = "us-east-1";
     s3_config.circular_buffer_size = 4 * s3_config.bytes_this_thread;
+    s3_config.trailing_checksum_on_upload_enabled = trailing_checksum_on_upload_enabled;
 
     s3_transport tp1{s3_config};
     odstream ds1{tp1, std::string(object_prefix)+filename};
@@ -490,7 +522,11 @@ void do_upload_process(const std::string& bucket_name,
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(),
                     secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
                     process_count, process_number, true, true, expected_cache_flag);
-            return;
+
+            // This has to be an exit rather than a return.  The forked process continued when this was a return which caused
+            // unexpected results.  This needs to be the _exit() system call (std::_Exit()) rather than exit() in the forked
+            // child process to ensure only the parent process performs standard I/O (stdio) cleanup and resource deallocation.
+            std::_Exit(0);
         }
 
         fmt::print("{}:{} ({}) [{}] started process {}\n", __FILE__, __LINE__, __FUNCTION__,
@@ -527,7 +563,10 @@ void do_download_process(const std::string& bucket_name,
                     secret_access_key.c_str(), filename.c_str(), object_prefix.c_str(),
                     process_count, process_number, expected_cache_flag);
 
-            return;
+            // This has to be an exit rather than a return.  The forked process continued when this was a return which caused
+            // unexpected results.  This needs to be the _exit() system call (std::_Exit()) rather than exit() in the forked
+            // child process to ensure only the parent process performs standard I/O (stdio) cleanup and resource deallocation.
+            std::_Exit(0);
         }
 
         fmt::print("{}:{} ({}) [{}] started process {}\n", __FILE__, __LINE__, __FUNCTION__,
@@ -549,7 +588,8 @@ void do_upload_thread(const std::string& bucket_name,
                       int thread_count,
                       const bool expected_cache_flag,
                       const std::string& s3_protocol_str = "http",
-                      const std::string& s3_sts_date_str = "date")
+                      const std::string& s3_sts_date_str = "date",
+                      bool trailing_checksum_on_upload_enabled = false)
 {
 
     std::string access_key, secret_access_key;
@@ -563,12 +603,12 @@ void do_upload_thread(const std::string& bucket_name,
 
         irods::thread_pool::post(writer_threads, [bucket_name, access_key,
                 secret_access_key, filename, object_prefix, thread_count, thread_number,
-                s3_protocol_str, s3_sts_date_str, expected_cache_flag] () {
+                s3_protocol_str, s3_sts_date_str, expected_cache_flag, trailing_checksum_on_upload_enabled] () {
 
 
             upload_part(hostname.c_str(), bucket_name.c_str(), access_key.c_str(), secret_access_key.c_str(),
                     filename.c_str(), object_prefix.c_str(), thread_count, thread_number, thread_count > 1, true, expected_cache_flag,
-                    s3_protocol_str, s3_sts_date_str, false);
+                    s3_protocol_str, s3_sts_date_str, false, trailing_checksum_on_upload_enabled);
         });
     }
 
@@ -780,8 +820,14 @@ TEST_CASE("shmem tests 2", "[shmem2]")
         };
 
         std::string object_key = "dir1/dir2/large_file";
+
         std::string shmem_key = constants::SHARED_MEMORY_KEY_PREFIX +
-                std::to_string(std::hash<std::string>{}(object_key));
+                std::to_string(std::hash<std::string>{}("/" + object_key));
+
+        // Remove any leftover shared memory from a previous run to avoid
+        // deadlocking on an abandoned interprocess mutex.
+        bi::shared_memory_object::remove(shmem_key.c_str());
+        bi::named_mutex::remove(shmem_key.c_str());
 
         const time_t now = time(0);
         bi::managed_shared_memory shm{bi::open_or_create, shmem_key.c_str(), constants::MAX_S3_SHMEM_SIZE};
@@ -791,17 +837,21 @@ TEST_CASE("shmem tests 2", "[shmem2]")
 
         // set some inconsistent state in the object in shared memory
         // including leaving the interprocess recursive mutex locked
-        // set access time to a value that is considered expired
+        // set access time to a value that is considered expired (must be > timeout, not ==)
         (object->thing.ref_count)++;
         (object->thing.threads_remaining_to_close)++;
         object->access_mutex.lock();
-        object->last_access_time_in_seconds = now - 20;
+        object->last_access_time_in_seconds = now - 21;
 
         int thread_count = 7;
         std::string filename = "large_file";
         std::string object_prefix = "dir1/dir2/";
         bool expected_cache_flag = false;
         do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag);
+
+        // Clean up shared memory to prevent stale state on next run
+        bi::shared_memory_object::remove(shmem_key.c_str());
+        bi::named_mutex::remove(shmem_key.c_str());
     }
 
     remove_bucket(bucket_name);
@@ -933,6 +983,38 @@ TEST_CASE("s3_transport_upload_multiple_threads", "[upload][thread]")
 
     remove_bucket(bucket_name);
 }
+
+#ifdef IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
+TEST_CASE("s3_transport_upload_trailing_checksum", "[upload][thread][trailing_checksum]")
+{
+
+    std::string bucket_name = create_bucket();
+
+    int thread_count = 2;
+    std::string filename = "medium_file";
+    std::string object_prefix = "dir1/dir2/";
+    bool expected_cache_flag = false;
+    bool trailing_checksum_on_upload_enabled = true;
+
+    SECTION("upload medium file with multiple threads and trailing checksum")
+    {
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
+                "https", "both", trailing_checksum_on_upload_enabled);
+        check_upload_checksum_results(bucket_name, filename, object_prefix);
+    }
+
+    SECTION("upload large file with multiple threads and trailing checksum")
+    {
+        thread_count = 4;
+        filename = "large_file";
+        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
+                "https", "both", trailing_checksum_on_upload_enabled);
+        check_upload_checksum_results(bucket_name, filename, object_prefix);
+    }
+
+    remove_bucket(bucket_name);
+}
+#endif // IRODS_LIBRARY_FEATURE_CHECKSUM_ALGORITHM_CRC64NVME
 
 TEST_CASE("s3_transport_download_large_multiple_threads", "[download][thread]")
 {

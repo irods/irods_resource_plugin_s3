@@ -172,9 +172,9 @@ namespace irods::experimental::io::s3_transport
         upload_manager.xml = const_cast<char*>(xml.c_str());
         upload_manager.offset = 0;
 
-        logger::debug("{}:{} ({}) [[{}]] Multipart:  Restoring object {}", __FILE__, __LINE__, __FUNCTION__, thread_id, object_key.c_str());
+        logger::debug("{}:{} ({}) [[{}]] Multipart:  Restoring object {}", __FILE__, __LINE__, __func__, thread_id, object_key.c_str());
 
-        logger::debug("{}:{} ({}) [[{}]] [key={}] Request: {}", __FILE__, __LINE__, __FUNCTION__,
+        logger::debug("{}:{} ({}) [[{}]] [key={}] Request: {}", __FILE__, __LINE__, __func__,
                 thread_id, object_key.c_str(), xml.c_str() );
 
         S3RestoreObjectHandler commit_handler
@@ -186,12 +186,12 @@ namespace irods::experimental::io::s3_transport
                 &commit_handler, upload_manager.remaining, nullptr, 0, &upload_manager);
 
         logger::debug("{}:{} ({}) [[{}]] [key={}][manager.status={}]", __FILE__, __LINE__,
-                __FUNCTION__, thread_id, object_key.c_str(), S3_get_status_name(upload_manager.status));
+                __func__, thread_id, object_key.c_str(), S3_get_status_name(upload_manager.status));
 
         if (upload_manager.status != S3StatusOK) {
 
             logger::error("{}:{} ({}) [[{}]] S3_restore_object returned error [status={}][object_key={}].",
-                    __FILE__, __LINE__, __FUNCTION__, thread_id,
+                    __FILE__, __LINE__, __func__, thread_id,
                     S3_get_status_name(upload_manager.status), object_key.c_str());
 
             return ERROR(REPLICA_STAGING_FAILED, fmt::format("Object is in {}, but scheduling restoration failed.", storage_class));
@@ -239,36 +239,36 @@ namespace irods::experimental::io::s3_transport
         if(status != libs3_types::status_ok && status != S3StatusHttpErrorNotFound) {
 
             logger::error( "{}:{} [{}] [[{}]]  libs3_types::status: [{}] - {}",
-                    __FILE__, __LINE__, __FUNCTION__, thread_id, S3_get_status_name( status ), static_cast<int>(status) );
+                    __FILE__, __LINE__, __func__, thread_id, S3_get_status_name( status ), static_cast<int>(status) );
             if (saved_bucket_context.hostName) {
                 logger::error( "{}:{} [{}] [[{}]]  S3Host: {}",
-                        __FILE__, __LINE__, __FUNCTION__, thread_id, saved_bucket_context.hostName );
+                        __FILE__, __LINE__, __func__, thread_id, saved_bucket_context.hostName );
             }
 
             logger::error( "{}:{} [{}] [[{}]]  Function: {}",
-                    __FILE__, __LINE__, __FUNCTION__, thread_id, function.c_str() );
+                    __FILE__, __LINE__, __func__, thread_id, function.c_str() );
 
             if (error) {
 
                 if (error->message) {
                     logger::error( "{}:{} [{}] [[{}]]  Message: {}",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->message);
+                            __FILE__, __LINE__, __func__, thread_id, error->message);
                 }
                 if (error->resource) {
                     logger::error( "{}:{} [{}] [[{}]]  Resource: {}",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->resource);
+                            __FILE__, __LINE__, __func__, thread_id, error->resource);
                 }
                 if (error->furtherDetails) {
                     logger::error( "{}:{} [{}] [[{}]]  Further Details: {}",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->furtherDetails);
+                            __FILE__, __LINE__, __func__, thread_id, error->furtherDetails);
                 }
                 if (error->extraDetailsCount) {
                     logger::error( "{}:{} [{}] [[{}]]{}",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, "  Extra Details:");
+                            __FILE__, __LINE__, __func__, thread_id, "  Extra Details:");
 
                     for (int i = 0; i < error->extraDetailsCount; i++) {
                         logger::error( "{}:{} [{}] [[{}]]    {}: {}",
-                                __FILE__, __LINE__, __FUNCTION__, thread_id, error->extraDetails[i].name,
+                                __FILE__, __LINE__, __func__, thread_id, error->extraDetails[i].name,
                                 error->extraDetails[i].value);
                     }
                 }
@@ -277,42 +277,50 @@ namespace irods::experimental::io::s3_transport
         } else {
 
             logger::debug( "{}:{} [{}] [[{}]]  libs3_types::status: [{}] - {}",
-                    __FILE__, __LINE__, __FUNCTION__, thread_id, S3_get_status_name( status ), static_cast<int>(status) );
+                    __FILE__, __LINE__, __func__, thread_id, S3_get_status_name( status ), static_cast<int>(status) );
             if (saved_bucket_context.hostName) {
                 logger::debug( "{}:{} [{}] [[{}]]  S3Host: {}",
-                        __FILE__, __LINE__, __FUNCTION__, thread_id, saved_bucket_context.hostName );
+                        __FILE__, __LINE__, __func__, thread_id, saved_bucket_context.hostName );
             }
 
             logger::debug( "{}:{} [{}] [[{}]]  Function: {}",
-                    __FILE__, __LINE__, __FUNCTION__, thread_id, function.c_str() );
+                    __FILE__, __LINE__, __func__, thread_id, function.c_str() );
 
             if (error) {
 
                 if (error->message) {
                     logger::debug( "{}:{} [{}] [[{}]]  Message: {}",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->message);
+                            __FILE__, __LINE__, __func__, thread_id, error->message);
                 }
                 if (error->resource) {
                     logger::debug( "{}:{} [{}] [[{}]]  Resource: {}",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->resource);
+                            __FILE__, __LINE__, __func__, thread_id, error->resource);
                 }
                 if (error->furtherDetails) {
                     logger::debug( "{}:{} [{}] [[{}]]  Further Details: {}",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, error->furtherDetails);
+                            __FILE__, __LINE__, __func__, thread_id, error->furtherDetails);
                 }
                 if (error->extraDetailsCount) {
                     logger::debug( "{}:{} [{}] [[{}]]{}",
-                            __FILE__, __LINE__, __FUNCTION__, thread_id, "  Extra Details:");
+                            __FILE__, __LINE__, __func__, thread_id, "  Extra Details:");
 
                     for (int i = 0; i < error->extraDetailsCount; i++) {
                         logger::debug( "{}:{} [{}] [[{}]]    {}: {}",
-                                __FILE__, __LINE__, __FUNCTION__, thread_id, error->extraDetails[i].name,
+                                __FILE__, __LINE__, __func__, thread_id, error->extraDetails[i].name,
                                 error->extraDetails[i].value);
                     }
                 }
             }
        }
     }  // end store_and_log_status
+
+    // Remove the prefix from the beginning of the checksum_str.
+    // If the prefix is not detected the checksum_str is unaltered.
+    void remove_checksum_prefix(std::string& checksum_str, const std::string& checksum_prefix) {
+        if (checksum_str.starts_with(checksum_prefix)) {
+            checksum_str = checksum_str.substr(checksum_prefix.length());
+        }
+    } // end remove_checksum_prefix
 
     // Returns timestamp in usec for delta-t comparisons
     // std::uint64_t provides plenty of headroom
