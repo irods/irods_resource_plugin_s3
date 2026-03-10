@@ -8,4 +8,4 @@ defaults:
 
 jobs:
   build_and_test_plugin_with_prerelease_packages_using_default_matrix:
-    uses: irods/irods_reusable_github_workflows/.github/workflows/build-and-test-plugin-with-irods-packages-matrix.yml@main
+    uses: JustinKyleJames/irods_reusable_github_workflows/.github/workflows/build-and-test-plugin-with-irods-packages-matrix.yml@main
