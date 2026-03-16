@@ -31,6 +31,8 @@ from .test_chunkydevtest import ChunkyDevTest
 
 IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 
+# adding a comment to force re-run of github actions
+
 class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         """Set up the test."""
