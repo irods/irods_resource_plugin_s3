@@ -4,12 +4,36 @@ from .resource_suite_s3_nocache import Test_S3_NoCache_MPU_Disabled_Base
 from .resource_suite_s3_cache import Test_S3_Cache_Base
 
 import psutil
+import re
+import subprocess
 import sys
 import unittest
 
 from ..configuration import IrodsConfig
 
 IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
+
+MINIO_TRAILING_CHECKSUM_MIN_VERSION = 'RELEASE.2023-01-20T02-05-44Z'
+
+def _get_minio_version():
+    """Get the MinIO server version by running the minio binary."""
+    try:
+        result = subprocess.run(
+            ['/minio', '--version'],
+            capture_output=True, text=True, timeout=5
+        )
+        match = re.search(r'RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z',
+                          result.stdout + result.stderr)
+        if match:
+            return match.group()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+_minio_version = _get_minio_version()
+MINIO_SUPPORTS_TRAILING_CHECKSUM = (
+    _minio_version is not None and _minio_version >= MINIO_TRAILING_CHECKSUM_MIN_VERSION
+)
 
 class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
@@ -113,6 +137,7 @@ class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
         super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
 
 @unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
+@unittest.skipUnless(MINIO_SUPPORTS_TRAILING_CHECKSUM, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums')
 class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCase):
     '''
     Tests S3 uploads with trailing checksums enabled (CRC64/NVME).
