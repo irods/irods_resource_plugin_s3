@@ -4,12 +4,39 @@ from .resource_suite_s3_nocache import Test_S3_NoCache_MPU_Disabled_Base
 from .resource_suite_s3_cache import Test_S3_Cache_Base
 
 import psutil
+import re
+import shutil
+import subprocess
 import sys
 import unittest
 
 from ..configuration import IrodsConfig
 
 IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
+
+MINIO_TRAILING_CHECKSUM_MIN_VERSION = 'RELEASE.2023-01-20T02-05-44Z'
+
+def _get_minio_version():
+    """Get the MinIO server version by running the minio binary.
+
+    Searches for the minio binary in PATH first, then falls back to /minio
+    (used when the binary is downloaded directly rather than installed as a package).
+
+    Returns a tuple of (version_string_or_None, error_string_or_None).
+    """
+    minio_path = shutil.which('minio') or '/minio'
+    try:
+        result = subprocess.run(
+            [minio_path, '--version'],
+            capture_output=True, text=True, timeout=5
+        )
+        match = re.search(r'RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z',
+                          result.stdout + result.stderr)
+        if match:
+            return match.group(), None
+        return None, f'No version found in output: [{result.stdout + result.stderr}]'
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        return None, f'Failed to run [{minio_path}]: {e}'
 
 class Test_Compound_With_S3_Resource(Test_S3_Cache_Base, unittest.TestCase):
     def __init__(self, *args, **kwargs):
@@ -112,7 +139,9 @@ class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
         self.s3EnableMPU=1
         super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
 
+_minio_version, _minio_version_error = _get_minio_version()
 @unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
+@unittest.skipUnless(_minio_version is not None and _minio_version >= MINIO_TRAILING_CHECKSUM_MIN_VERSION, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {_minio_version}.  Error: {_minio_version_error}.')
 class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCase):
     '''
     Tests S3 uploads with trailing checksums enabled (CRC64/NVME).
