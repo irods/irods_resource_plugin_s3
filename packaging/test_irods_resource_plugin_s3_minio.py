@@ -9,6 +9,8 @@ import subprocess
 import sys
 import unittest
 
+# just a comment to force test re-run - will delete
+
 from ..configuration import IrodsConfig
 
 IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
