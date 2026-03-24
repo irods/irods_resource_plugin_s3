@@ -59,10 +59,6 @@ def download_and_start_minio_server():
                              'https://dl.min.io/server/minio/release/linux-amd64/minio'])
     os.chmod(path_to_minio, os.stat(path_to_minio).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-    # print minio version
-    result = subprocess.run(['/minio', '--version'], capture_output=True, text=True, timeout=5)
-    print(f'MinIO version = {result.stdout + result.stderr}')
-
     root_username = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
     root_password = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
     keypair_path = '/var/lib/irods/minio.keypair'
