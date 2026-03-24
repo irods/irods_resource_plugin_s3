@@ -137,7 +137,7 @@ class Test_S3_NoCache_EU_Central_1(Test_S3_NoCache_Base, unittest.TestCase):
         super(Test_S3_NoCache_EU_Central_1, self).__init__(*args, **kwargs)
 
 @unittest.skipUnless(IRODS_SUPPORTS_CRC64NVME, 'iRODS server must support CRC64NVME')
-@unittest.skipUnless(MINIO_SUPPORTS_TRAILING_CHECKSUM, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums')
+@unittest.skipUnless(MINIO_SUPPORTS_TRAILING_CHECKSUM, f'MinIO version must be >= {MINIO_TRAILING_CHECKSUM_MIN_VERSION} to support trailing checksums.  Current MinIO version is {_minio_version}.')
 class Test_S3_NoCache_Trailing_Checksum(Test_S3_NoCache_Large_File_Tests_Base, unittest.TestCase):
     '''
     Tests S3 uploads with trailing checksums enabled (CRC64/NVME).
