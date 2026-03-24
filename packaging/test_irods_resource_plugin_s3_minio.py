@@ -17,8 +17,8 @@ MINIO_TRAILING_CHECKSUM_MIN_VERSION = 'RELEASE.2023-01-20T02-05-44Z'
 try:
     result = subprocess.run( ['/minio', '--version'], capture_output=True, text=True, timeout=5)
     minio_version_result = f'{result.stdout + result.stderr}' 
-except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-    result = 'Exception caught'
+except Exception as e:
+    result = type(e).__name__
 
 def _get_minio_version():
     """Get the MinIO server version by running the minio binary."""

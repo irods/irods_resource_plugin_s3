@@ -133,7 +133,7 @@ def main():
 
         minio_processes = download_and_start_minio_server()
 
-    test = options.test or 'test_irods_resource_plugin_s3_minio'
+    test = options.test or 'test_irods_resource_plugin_s3_minio.Test_S3_NoCache_Trailing_Checksum'
 
     try:
         test_output_file = 'log/test_output.log'
