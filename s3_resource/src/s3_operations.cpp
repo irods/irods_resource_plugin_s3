@@ -378,7 +378,7 @@ namespace irods_s3 {
 
 		    	// If we still don't know the # of threads, set it to 1 unless the oprType is unknown in
                 // which case it will remain <= 0 which will force use of cache.
-                if (number_of_threads <= 0 && oprType != -1) {
+                if (number_of_threads <= 0 && oprType > 0) {
                     number_of_threads = 1;
                 }
             }
