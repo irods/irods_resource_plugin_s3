@@ -2186,6 +2186,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                     S3PutProperties put_props{};
                     put_props.md5 = nullptr;
                     put_props.expires = -1;
+                    put_props.xAmzDecodedContentLength = -1;
 
                     // server encrypt flag not valid for part upload
                     put_props.useServerSideEncryption = false;
@@ -2458,6 +2459,7 @@ logger::debug( "{}:{} ({}) [[{}]] write_callback->content_length is set to {} ",
                 put_props.expires = -1;
                 put_props.useServerSideEncryption = config_.server_encrypt_flag;
                 put_props.xAmzStorageClass = config_.s3_storage_class.c_str();
+                put_props.xAmzDecodedContentLength = -1;
 
                 // zero out bytes_written in case of failure and re-run
                 write_callback->bytes_written = 0;

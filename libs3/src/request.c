@@ -1296,18 +1296,33 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 		request->headers = curl_slist_append(request->headers, values->fieldName); \
 	}
 
-	// Would use CURLOPT_INFILESIZE_LARGE, but it is buggy in libcurl
 	// jjames - added HttpRequestTypeCOPY because Ceph S3 requires it
 	if ((params->httpRequestType == HttpRequestTypePUT) || (params->httpRequestType == HttpRequestTypePOST) ||
 	    params->httpRequestType == HttpRequestTypeCOPY)
 	{
 		// Check if we're using chunked encoding (toS3CallbackTotalSize == -1)
 		if (params->toS3CallbackTotalSize < 0) {
-			// Chunked encoding - do NOT set Content-Length
-			// Explicitly set Transfer-Encoding: chunked for S3-compatible servers like MinIO
-			request->headers = curl_slist_append(request->headers, "Transfer-Encoding: chunked");
+			if (params->putProperties && params->putProperties->xAmzTrailer) {
+				// aws-chunked with trailing checksum (STREAMING-UNSIGNED-PAYLOAD-TRAILER).
+				// Explicitly set "Transfer-Encoding: chunked" for S3-compatible servers.
+				request->headers = curl_slist_append(request->headers, "Transfer-Encoding: chunked");
+			} else {
+				// Chunked without a trailing checksum produces UNSIGNED-PAYLOAD + chunked,
+				// which AWS S3 rejects with 501. Fall back to "Content-Length: 0". The only
+				// path that reaches here without xAmzTrailer is a 0-byte upload where
+				// content_length was passed as -1 (UNKNOWN_OBJECT_SIZE).
+				curl_easy_setopt(request->curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)0);
+				request->headers = curl_slist_append(request->headers, "Content-Length: 0");
+				request->headers = curl_slist_append(request->headers, "Transfer-Encoding:");
+			}
 		} else {
-			// Normal PUT with known size - set Content-Length
+			// Normal PUT with known size - set Content-Length and tell libcurl the exact size.
+			// Setting CURLOPT_INFILESIZE_LARGE prevents libcurl from falling back to
+			// "Transfer-Encoding: chunked" for uploads where the read callback returns 0 bytes
+			// immediately (e.g. 0-byte files), which would produce UNSIGNED-PAYLOAD + chunked
+			// — a combination that AWS S3 rejects with 501 Not Implemented.
+			curl_easy_setopt(request->curl, CURLOPT_INFILESIZE_LARGE,
+			                 (curl_off_t)params->toS3CallbackTotalSize);
 			char header[256];
 			snprintf(header, sizeof(header), "Content-Length: %llu", (unsigned long long) params->toS3CallbackTotalSize);
 			request->headers = curl_slist_append(request->headers, header);

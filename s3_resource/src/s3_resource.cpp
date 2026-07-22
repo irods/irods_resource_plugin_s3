@@ -1804,6 +1804,9 @@ irods::error s3PutCopyFile(
     if ( putProps && server_encrypt )
         putProps->useServerSideEncryption = true;
     putProps->expires = -1;
+    // Default the xAmzDecodedContentLength to -1 (UNKNOWN).  This is only used for chunked
+    // encoding with trailing CRC64NVME header.
+    putProps->xAmzDecodedContentLength = -1;
     std::string storage_class = s3_get_storage_class_from_configuration(_prop_map);
     putProps->xAmzStorageClass = storage_class.c_str();
 
