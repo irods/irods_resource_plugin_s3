@@ -1888,13 +1888,25 @@ irods::error s3PutCopyFile(
             return ERROR( SYS_MALLOC_ERR, msg );
         }
         g_mpuData = new multipart_data_t[totalSeq];
+        const auto free_mpu_data = irods::at_scope_exit{[&manager, totalSeq] {
+            delete[] g_mpuData;
+            g_mpuData = nullptr;
+            free(manager.xml);
+            free(manager.upload_id);
+            if (manager.etags) {
+                for (int i = 0; i < totalSeq; i++) {
+                    free(manager.etags[i]);
+                }
+                free(manager.etags);
+            }
+        }};
+
         if (!g_mpuData) {
             // Clear up the S3PutProperties, if it exists
             if (putProps) {
                 if (putProps->md5) free( (char*)putProps->md5 );
                 free( putProps );
             }
-            free(manager.etags);
             const auto msg = fmt::format("[resource_name={}] Out of memory error in S3 multipart g_mpuData allocation.", resource_name);
             s3_logger::error( msg );
             return ERROR( SYS_MALLOC_ERR, msg );
@@ -1907,8 +1919,6 @@ irods::error s3PutCopyFile(
                 if (putProps->md5) free( (char*)putProps->md5 );
                 free( putProps );
             }
-            delete[] g_mpuData;
-            free(manager.etags);
             const auto msg = fmt::format("[resource_name={}] Out of memory error in S3 multipart XML allocation.", resource_name);
             s3_logger::error( msg );
             return ERROR( SYS_MALLOC_ERR, msg );
@@ -1931,7 +1941,6 @@ irods::error s3PutCopyFile(
             }
         } while ( (manager.status != S3StatusOK) && S3_status_is_retryable(manager.status) && ( ++retry_cnt <= retry_count_limit));
         if (manager.upload_id == NULL || manager.status != S3StatusOK) {
-            // Clear up the S3PutProperties, if it exists
             if (putProps) {
                 if (putProps->md5) free( (char*)putProps->md5 );
                 free( putProps );
@@ -1954,6 +1963,10 @@ irods::error s3PutCopyFile(
         if (_mode == S3_COPYOBJECT) {
             ret = parseS3Path(_filename, srcBucket, srcKey, _prop_map);
             if (!ret.ok()) {
+                if (putProps) {
+                    if (putProps->md5) free( (char*)putProps->md5 );
+                    free( putProps );
+                }
                 return PASSMSG(fmt::format(
                             "[resource_name={}] Failed parsing the S3 bucket and key from the physical path: \"{}\".",
                             resource_name, _filename), ret);
@@ -2070,14 +2083,6 @@ irods::error s3PutCopyFile(
             // Return the error
             ret = g_mpuResult;
         }
-        // Clean up memory
-        if (manager.xml) free(manager.xml);
-        if (manager.upload_id) free(manager.upload_id);
-        for (int i=0; manager.etags && i<totalSeq; i++) {
-            if (manager.etags[i]) free(manager.etags[i]);
-        }
-        if (manager.etags) free(manager.etags);
-        if (g_mpuData) delete[] g_mpuData;
         // Clear up the S3PutProperties, if it exists
         if (putProps) {
             if (putProps->md5) free( (char*)putProps->md5 );
