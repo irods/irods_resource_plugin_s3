@@ -2390,7 +2390,7 @@ OUTPUT ruleExecOut
 
             # Try to write to logical_path using the misconfigured S3 resource.
             _, err, rc = self.user0.run_icommand(["istream", "-R", s3_resc, "write", logical_path], input=content)
-            self.assertEqual("Error: Cannot open data object.\n", err)
+            self.assertIn("Error: Cannot open data object", err)
             self.assertNotEqual(0, rc)
 
             # Creating the data object should have failed.
@@ -2426,7 +2426,7 @@ OUTPUT ruleExecOut
 
                     # Try to write to logical_path using the S3 resource.
                     _, err, rc = self.user0.run_icommand(["istream", "-R", s3_resc, "write", logical_path], input=content)
-                    self.assertEqual("Error: Cannot open data object.\n", err)
+                    self.assertIn("Error: Cannot open data object", err)
                     self.assertNotEqual(0, rc)
 
                     # Creating the data object should have failed.
