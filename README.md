@@ -34,11 +34,12 @@ To build the S3 Resource Plugin, you will need to have:
 
 ## Build Instructions
 
+Assuming the `irods_resource_plugin_s3` repository has been cloned and the desired commit is checked out:
+
 ```
-$ git clone -b 4-2-stable https://github.com/irods/irods_resource_plugin_s3
 $ mkdir build
 $ cd build
-$ cmake ../irods_resource_plugin_s3
+$ cmake /path/to/irods_resource_plugin_s3
 $ make package
 ```
 
