@@ -1240,16 +1240,16 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 
 	// Ask curl to parse the Last-Modified header.  This is easier than
 	// parsing it ourselves.
-	curl_easy_setopt_safe(CURLOPT_FILETIME, 1);
+	curl_easy_setopt_safe(CURLOPT_FILETIME, 1L);
 
 	// Curl docs suggest that this is necessary for multithreaded code.
 	// However, it also points out that DNS timeouts will not be honored
 	// during DNS lookup, which can be worked around by using the c-ares
 	// library, which we do not do yet.
-	curl_easy_setopt_safe(CURLOPT_NOSIGNAL, 1);
+	curl_easy_setopt_safe(CURLOPT_NOSIGNAL, 1L);
 
 	// Turn off Curl's built-in progress meter
-	curl_easy_setopt_safe(CURLOPT_NOPROGRESS, 1);
+	curl_easy_setopt_safe(CURLOPT_NOPROGRESS, 1L);
 
 	// xxx todo - support setting the proxy for Curl to use (can't use https
 	// for proxies though)
@@ -1258,20 +1258,20 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 
 	// I think this is useful - we don't need interactive performance, we need
 	// to complete large operations quickly
-	curl_easy_setopt_safe(CURLOPT_TCP_NODELAY, 1);
+	curl_easy_setopt_safe(CURLOPT_TCP_NODELAY, 1L);
 
 	// Don't use Curl's 'netrc' feature
 	curl_easy_setopt_safe(CURLOPT_NETRC, CURL_NETRC_IGNORED);
 
 	// Don't verify S3's certificate unless S3_INIT_VERIFY_PEER is set.
 	// The request_context may be set to override this
-	curl_easy_setopt_safe(CURLOPT_SSL_VERIFYPEER, verifyPeer);
+	curl_easy_setopt_safe(CURLOPT_SSL_VERIFYPEER, (long)verifyPeer);
 
 	// Follow any redirection directives that S3 sends
-	curl_easy_setopt_safe(CURLOPT_FOLLOWLOCATION, 1);
+	curl_easy_setopt_safe(CURLOPT_FOLLOWLOCATION, 1L);
 
 	// A safety valve in case S3 goes bananas with redirects
-	curl_easy_setopt_safe(CURLOPT_MAXREDIRS, 10);
+	curl_easy_setopt_safe(CURLOPT_MAXREDIRS, 10L);
 
 	// Set the User-Agent; maybe Amazon will track these?
 	curl_easy_setopt_safe(CURLOPT_USERAGENT, userAgentG);
@@ -1283,11 +1283,11 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 	// jjames - only set the low speed limit and time if the timeout is 0
 
 	if (params->timeoutMs > 0) {
-		curl_easy_setopt_safe(CURLOPT_TIMEOUT_MS, params->timeoutMs);
+		curl_easy_setopt_safe(CURLOPT_TIMEOUT_MS, (long)params->timeoutMs);
 	}
 	else {
-		curl_easy_setopt_safe(CURLOPT_LOW_SPEED_LIMIT, 1024);
-		curl_easy_setopt_safe(CURLOPT_LOW_SPEED_TIME, 15);
+		curl_easy_setopt_safe(CURLOPT_LOW_SPEED_LIMIT, 1024L);
+		curl_easy_setopt_safe(CURLOPT_LOW_SPEED_TIME, 15L);
 	}
 
 	// Append standard headers
@@ -1356,16 +1356,16 @@ static S3Status setup_curl(Request* request, const RequestParams* params, const 
 	// Set request type.
 	switch (params->httpRequestType) {
 		case HttpRequestTypeHEAD:
-			curl_easy_setopt_safe(CURLOPT_NOBODY, 1);
+			curl_easy_setopt_safe(CURLOPT_NOBODY, 1L);
 			break;
 		case HttpRequestTypePOST:
 			curl_easy_setopt_safe(CURLOPT_CUSTOMREQUEST, "POST");
-			curl_easy_setopt_safe(CURLOPT_UPLOAD, 1);
+			curl_easy_setopt_safe(CURLOPT_UPLOAD, 1L);
 			break;
 
 		case HttpRequestTypePUT:
 		case HttpRequestTypeCOPY:
-			curl_easy_setopt_safe(CURLOPT_UPLOAD, 1);
+			curl_easy_setopt_safe(CURLOPT_UPLOAD, 1L);
 			break;
 		case HttpRequestTypeDELETE:
 			curl_easy_setopt_safe(CURLOPT_CUSTOMREQUEST, "DELETE");
