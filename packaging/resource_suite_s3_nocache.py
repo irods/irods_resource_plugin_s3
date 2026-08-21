@@ -1816,6 +1816,135 @@ OUTPUT ruleExecOut
             s3plugin_lib.remove_if_exists(file1)
             s3plugin_lib.remove_if_exists(file2)
 
+    def cleanup_failed_put__issue_2234(self, filename):
+        # The part-count check in resolve_hierarchy only has the object's size to work
+        # with. The number of transfer threads is not known until after hierarchy
+        # resolution. Object uploads that fail because of the size and thread count
+        # combination are rejected after the object is locked. This method removes
+        # that lock.
+        logical_path = self.user0.session_collection + '/' + filename
+        self.admin.run_icommand(['iadmin', 'modrepl', 'logical_path', logical_path,
+                'replica_number', '0', 'DATA_REPL_STATUS', '0'])
+        self.user0.run_icommand(['irm', '-f', filename])
+
+    def test_iput_fails_cleanly_when_object_needs_too_many_parts__issue_2234(self):
+        try:
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+            resource_name = f'{(inspect.currentframe().f_code.co_name)[:58]}_resc'  # resource names must be <= 63 chars
+
+            # With S3_MPU_CHUNK=5 (MB) and CIRCULAR_BUFFER_SIZE=2, the fixed part size used
+            # for streaming multipart uploads is 10 MiB.  AWS S3 multipart uploads are capped
+            # at 10,000 parts, so any object that would need more than 10,000 parts will be rejected.
+            #
+            # When MPU is disabled, any object over the maximum single put size will be rejected.
+            s3_context = self.s3_context + ';S3_MPU_CHUNK=5;CIRCULAR_BUFFER_SIZE=2'
+
+            self.admin.assert_icommand(f'iadmin mkresc {resource_name} s3 {hostname}:/{self.s3bucketname}/{hostuser}/{resource_name} {s3_context}', 'STDOUT_SINGLELINE', 'Creating')
+
+            circular_buffer_size = 5 * 1024 * 1024 * 2  # S3_MPU_CHUNK(5MB) * CIRCULAR_BUFFER_SIZE(2)
+            maximum_number_of_parts = 10000
+
+            # Default S3_MAX_UPLOAD_SIZE_MB is not overridden by s3_context above.
+            max_single_part_upload_size = 5 * 1024 * 1024 * 1024  # 5 GiB
+
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+
+            if self.s3EnableMPU:
+                # One byte larger than the circular buffer size * maximum number of parts.
+                # This needs more than 10,000 parts no matter how the bytes are divided
+                # among threads.
+                file_size = circular_buffer_size * maximum_number_of_parts + 1
+                expected_error = 'S3_PUT_ERROR'
+                expected_message = 'cannot be uploaded via S3 multipart upload'
+            else:
+                # MPU disabled means the object is always uploaded as a single part (one S3
+                # PUT) capped at the maximum single part upload size.
+                file_size = max_single_part_upload_size + 1
+                expected_error = 'UNIX_FILE_OPEN_ERR'
+                expected_message = 'cannot be uploaded via an S3 PutObject'
+
+            s3plugin_lib.truncate_file(file1, file_size)
+
+            # Attempt a file over the maximum allowed size. These have different error codes to match
+            # existing behavior. The descriptive message is pushed onto the RE error stack and
+            # printed to stdout, while the status code shows up on stderr.
+            out, err, rc = self.user0.run_icommand(['iput', '-N', '1', '-f', '-R', resource_name, file1])
+            self.assertNotEqual(0, rc)
+            self.assertIn(expected_error, err)
+            self.assertIn(expected_message, out)
+            # rejected during hierarchy resolution, before any catalog entry was created
+            self.user0.assert_icommand(f'ils -L {file1}', 'STDERR_SINGLELINE', 'does not exist')
+
+        finally:
+            # cleanup
+            self.cleanup_failed_put__issue_2234(file1)
+            self.admin.assert_icommand(f'iadmin rmresc {resource_name}', 'EMPTY')
+            s3plugin_lib.remove_if_exists(file1)
+
+    def test_iput_fails_cleanly_when_thread_split_pushes_object_past_max_parts__issue_2234(self):
+        try:
+            hostname = lib.get_hostname()
+            hostuser = getpass.getuser()
+            resource_name = f'{(inspect.currentframe().f_code.co_name)[:58]}_resc'  # resource names must be <= 63 chars
+
+            s3_context = self.s3_context + ';S3_MPU_CHUNK=5;CIRCULAR_BUFFER_SIZE=2'
+
+            self.admin.assert_icommand(f'iadmin mkresc {resource_name} s3 {hostname}:/{self.s3bucketname}/{hostuser}/{resource_name} {s3_context}', 'STDOUT_SINGLELINE', 'Creating')
+
+            circular_buffer_size = 5 * 1024 * 1024 * 2  # S3_MPU_CHUNK(5MB) * CIRCULAR_BUFFER_SIZE(2)
+            maximum_number_of_parts = 10000
+            number_of_threads = 3
+
+            # With 3 threads, iRODS splits the object so the first two threads each get
+            # floor(object size / 3) bytes and the third (last) thread gets that plus the
+            # remainder.  Because the maximum number of parts (10,000) is not evenly divisible
+            # by 3, the largest object that still fits within the 10,000 part limit at this
+            # part size is 9999*(circular buffer size) + 2 bytes.
+            true_maximum_object_size_for_three_threads = (maximum_number_of_parts - 1) * circular_buffer_size + 2
+            file_size = true_maximum_object_size_for_three_threads + 1
+
+            file1 = f'{inspect.currentframe().f_code.co_name}_f1'
+
+            s3plugin_lib.truncate_file(file1, file_size)
+
+            # When MPU is enabled, this object's size alone does not exceed the part
+            # limit, only the 3-way thread split does. The number of transfer threads
+            # isn't known until after hierarchy resolution (iRODS core computes it via
+            # getNumThreads() but only after the catalog replica is already registered
+            # and locked. The client independently derives a generic SYS_COPY_LEN_ERR
+            # (from a byte-count mismatch) rather than asking the server for the underlying
+            # S3_PUT_ERROR or its message.
+            #
+            # When MPU is disabled, the outcome has nothing to do with thread splitting at
+            # all: the object is also well over the default 5 GiB single-part upload limit,
+            # so the max-upload-size check in resolve_hierarchy rejects it early regardless of -N.
+            # In this case the error is sent back to the client and appears in stdout.
+            if self.s3EnableMPU:
+                expected_error = 'SYS_COPY_LEN_ERR'
+                expected_message = None
+            else:
+                expected_error = 'UNIX_FILE_OPEN_ERR'
+                expected_message = 'cannot be uploaded via an S3 PutObject'
+
+            # The descriptive message (when present) is pushed onto the RE error stack and
+            # printed to stdout, while the status code shows up on stderr.
+            out, err, rc = self.user0.run_icommand(
+                    ['iput', '-N', str(number_of_threads), '-f', '-R', resource_name, file1])
+            self.assertNotEqual(0, rc)
+            self.assertIn(expected_error, err)
+            if expected_message is not None:
+                self.assertIn(expected_message, out)
+
+            if not self.s3EnableMPU:
+                self.user0.assert_icommand(f'ils -L {file1}', 'STDERR_SINGLELINE', 'does not exist')
+
+        finally:
+            # cleanup
+            self.cleanup_failed_put__issue_2234(file1)
+            self.admin.assert_icommand(f'iadmin rmresc {resource_name}', 'EMPTY')
+            s3plugin_lib.remove_if_exists(file1)
+
     def test_rm_without_force(self):
 
         try:

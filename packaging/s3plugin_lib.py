@@ -5,6 +5,10 @@ def remove_if_exists(localfile):
     if os.path.exists(localfile):
         os.unlink(localfile)
 
+def truncate_file(f_name, f_size):
+    with open(f_name, 'wb') as f:
+        f.truncate(f_size)
+
 def make_arbitrary_file(f_name, f_size, buffer_size=32*1024*1024):
     # do not care about true randomness
     random.seed(5)

@@ -573,6 +573,28 @@ namespace irods_s3 {
 
     }
 
+    // Returns the circular buffer size, in bytes for multipart uploads.
+    // Mirrors the reading logic in make_dstream() below.
+    std::int64_t get_circular_buffer_size_in_bytes(irods::plugin_property_map& _prop_map) {
+
+        unsigned int circular_buffer_size = S3_DEFAULT_CIRCULAR_BUFFER_SIZE;
+
+        std::string circular_buffer_size_str;
+        irods::error ret = _prop_map.get<std::string>(s3_circular_buffer_size, circular_buffer_size_str);
+        if (ret.ok()) {
+            try {
+                circular_buffer_size = boost::lexical_cast<unsigned int>(circular_buffer_size_str);
+            } catch (const boost::bad_lexical_cast &) {}
+        }
+
+        // minimum circular buffer size is 2 * minimum_part_size
+        if (circular_buffer_size < 2) {
+            circular_buffer_size = 2;
+        }
+
+        return static_cast<std::int64_t>(circular_buffer_size) * s3GetMPUChunksize(_prop_map);
+    }
+
 
     std::tuple<irods::error, std::shared_ptr<dstream>, std::shared_ptr<s3_transport>> make_dstream(
             irods::plugin_context& _ctx,
@@ -2306,6 +2328,11 @@ namespace irods_s3 {
                         __FILE__, __LINE__, __FUNCTION__, thread_id, data_size_str);
             }
 
+        } else if (file_obj->size() > 0) {
+            // DATA_SIZE_KW is not set in cond_input for a normal iput at hierarchy-resolution
+            // time. The size is still known as it comes from the client's request
+            // (dataObjInp->dataSize) and is already captured on the object pointed to by the file_object_ptr.
+            data_size = static_cast<std::uint64_t>(file_obj->size());
         }
 
         // try to get number of threads from NUM_THREADS_KW
@@ -2363,6 +2390,69 @@ namespace irods_s3 {
         // "sync_to_arch" operation.
         if (!is_cacheless_mode(_ctx.prop_map()) && irods::CREATE_OPERATION == *_opr) {
             return ERROR(SYS_NOT_SUPPORTED, "Create operation not supported for an archive");
+        }
+
+        if ((irods::CREATE_OPERATION == *_opr || irods::WRITE_OPERATION == *_opr) &&
+                data_size > 0 &&
+                data_size != static_cast<std::uint64_t>(s3_transport_config::UNKNOWN_OBJECT_SIZE)) {
+
+            // Reject up front if the object would need more than 10000 parts at the configured
+            // circular buffer size. This check is placed here to reject before a file is
+            // registered and locked.
+            if (s3GetEnableMultiPartUpload(_ctx.prop_map())) {
+
+                // The real number of client transfer threads is not known yet in most cases.
+                // For now just detect whether file size > circular buffer size * 10,000.
+                // If the thread split causes us to use more than 10,000 threads, that is detected later.
+                std::int64_t circular_buffer_size = get_circular_buffer_size_in_bytes(_ctx.prop_map());
+
+                std::int64_t max_object_size_for_part_count =
+                        irods::experimental::io::s3_transport::constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD *
+                        circular_buffer_size;
+
+                if (static_cast<std::int64_t>(data_size) > max_object_size_for_part_count) {
+                    logger::warn("Object [{}] of size [{}] bytes cannot be uploaded via S3 multipart upload. It "
+                            "would require more than [{}] parts at the configured circular buffer size "
+                            "(S3_MPU_CHUNK*CIRCULAR_BUFFER_SIZE) of [{}] bytes. Increase the circular "
+                            "buffer size on resource [{}] to reduce the number of parts required.",
+                            file_obj->logical_path(),
+                            data_size,
+                            irods::experimental::io::s3_transport::constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD,
+                            circular_buffer_size,
+                            get_resource_name(_ctx.prop_map()));
+                    const std::string msg_to_client = fmt::format(
+                            "Object of size [{}] bytes cannot be uploaded via S3 multipart upload "
+                            "with the current configuration.  See the warning message in the iRODS log for more details.",
+                            data_size);
+                    addRErrorMsg(&_ctx.comm()->rError, S3_PUT_ERROR, msg_to_client.c_str());
+                    return ERROR(S3_PUT_ERROR, msg_to_client);
+                }
+
+            // When MPU is disabled, an object is always uploaded as a single S3 PUT which has
+            // a maximum size of S3_MAX_UPLOAD_SIZE_MB (usually 5 GiB).
+            } else {
+
+                std::int64_t max_single_part_upload_size =
+                        s3GetMaxUploadSizeMB(_ctx.prop_map()) * 1024 * 1024;
+
+                if (static_cast<std::int64_t>(data_size) > max_single_part_upload_size) {
+                    logger::warn("Object [{}] of size [{}] bytes cannot be uploaded because S3 multipart upload is "
+                            "disabled and the object is larger than the configured maximum single-part "
+                            "upload size (S3_MAX_UPLOAD_SIZE_MB) of [{}] bytes. Enable multipart upload or "
+                            "increase the maximum upload size on resource [{}] - if the S3 provider allows larger single "
+                            "part uploads - to upload this object.",
+                            file_obj->logical_path(),
+                            data_size,
+                            max_single_part_upload_size,
+                            get_resource_name(_ctx.prop_map()));
+                    const std::string msg_to_client = fmt::format(
+                            "Object of size [{}] bytes cannot be uploaded via an S3 PutObject.  See the warning "
+                            "message in the iRODS log for more details.",
+                            data_size);
+                    addRErrorMsg(&_ctx.comm()->rError, UNIX_FILE_OPEN_ERR, msg_to_client.c_str());
+                    return ERROR(UNIX_FILE_OPEN_ERR, msg_to_client);
+                }
+            }
         }
 
         *_out_vote = irv::vote::zero;

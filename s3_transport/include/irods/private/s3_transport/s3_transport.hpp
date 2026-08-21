@@ -778,6 +778,30 @@ namespace irods::experimental::io::s3_transport
             return config_.bytes_this_thread;
         }
 
+        // Computes the total number of multipart-upload parts required to send total_bytes
+        // split across number_of_threads threads, each part at most part_size bytes.  Uses
+        // the same split as determine_start_and_end_part_from_offset_and_bytes_this_thread.
+        // All but the last thread get floor(total_bytes / number_of_threads) bytes, the last
+        // thread gets that plus the remainder.  number_of_threads is clamped to at least 1.
+        static std::int64_t total_number_of_parts_for_object(
+                std::int64_t total_bytes,
+                int number_of_threads,
+                std::int64_t part_size)
+        {
+            if (total_bytes <= 0) {
+                return 0;
+            }
+
+            std::int64_t threads = std::max(1, number_of_threads);
+
+            std::int64_t bytes_per_thread = total_bytes / threads;
+            std::int64_t last_thread_bytes = bytes_per_thread + total_bytes % threads;
+
+            std::int64_t parts_per_thread = (bytes_per_thread + part_size - 1) / part_size;
+            std::int64_t parts_last_thread = (last_thread_bytes + part_size - 1) / part_size;
+
+            return (threads - 1) * parts_per_thread + parts_last_thread;
+        }
 
         // this function uses the starting offset provided to the transport
         // and the number of bytes in this thread to determine the start and end
@@ -1362,6 +1386,27 @@ namespace irods::experimental::io::s3_transport
             if (!config_.multipart_enabled && config_.object_size > config_.max_single_part_upload_size) {
                 this->set_error(ERROR(UNIX_FILE_OPEN_ERR, "File can't be uploaded because MPU is disabled and "
                     "file size is greater than maximum part size"));
+                return false;
+            }
+
+            // For the streaming (non-cache) multipart path, part size is fixed at
+            // the circular buffer size.  If the object needs more than 10000 parts,
+            // the open needs to be rejected.
+            if (!use_cache_ && config_.multipart_enabled &&
+                    total_number_of_parts_for_object(config_.object_size,
+                            config_.number_of_client_transfer_threads,
+                            static_cast<std::int64_t>(config_.circular_buffer_size))
+                        > constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD) {
+                this->set_error(ERROR(S3_PUT_ERROR, fmt::format(
+                        "Object [{}] of size [{}] bytes cannot be uploaded via S3 multipart upload. It would "
+                        "require more than [{}] parts at the configured circular buffer size "
+                        "(S3_MPU_CHUNK*CIRCULAR_BUFFER_SIZE) of [{}] bytes. Increase the circular buffer "
+                        "size on resoure [{}] to reduce the number of parts required.",
+                        object_key_,
+                        config_.object_size,
+                        constants::MAXIMUM_NUMBER_ETAGS_PER_UPLOAD,
+                        config_.circular_buffer_size,
+                        config_.resource_name)));
                 return false;
             }
 
