@@ -2710,13 +2710,13 @@ public:
         } // for itr
 
         namespace ivpp = irods::vault_path_policy;
-        if (kvp.count(ivpp::file_naming_policy) == 0) {
+        if (kvp.count(ivpp::file_naming_policy_key) == 0) {
             if (auto archive_naming_policy = kvp.find(ARCHIVE_NAMING_POLICY_KW); archive_naming_policy != kvp.end()) {
                 auto archive_naming_policy_value = archive_naming_policy->second;
                 boost::to_lower(archive_naming_policy_value);
                 if (archive_naming_policy_value == DECOUPLED_NAMING) {
                     properties_.set<std::string>(
-                        ivpp::file_naming_policy, ivpp::file_naming_policy_reversed_dataid);
+                        ivpp::file_naming_policy_key, ivpp::file_naming_policy_reversed_dataid);
                 }
             }
         }

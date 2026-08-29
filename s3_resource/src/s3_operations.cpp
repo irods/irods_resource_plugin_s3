@@ -81,57 +81,42 @@ namespace irods_s3 {
     inline static const std::string SHARED_MEMORY_KEY_PREFIX{"irods_s3-shm-"};
     inline static constexpr int     DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS{180};
 
-    enum class file_naming_policy
-    {
-        consistent,
-        random,
-        reversed_dataid
-    };
-
-    auto get_file_naming_policy(irods::plugin_property_map& _prop_map) -> file_naming_policy
+    auto get_file_naming_policy(irods::plugin_property_map& _prop_map) -> ivpp::file_naming_policy
     {
         std::string policy;
-        if (_prop_map.get<std::string>(ivpp::file_naming_policy, policy).ok()) {
-            if (policy == ivpp::file_naming_policy_consistent) {
-                return file_naming_policy::consistent;
-            }
-
-            if (policy == ivpp::file_naming_policy_reversed_dataid) {
-                return file_naming_policy::reversed_dataid;
-            }
-
-            if (policy == ivpp::file_naming_policy_random) {
-                return file_naming_policy::random;
+        if (_prop_map.get<std::string>(ivpp::file_naming_policy_key, policy).ok()) {
+            if (const auto parsed_policy = ivpp::to_file_naming_policy(policy); parsed_policy) {
+                return *parsed_policy;
             }
 
             logger::warn(
                 "[{}] Unsupported value [{}] for resource context key [{}]. Using default value [{}].",
                 get_resource_name(_prop_map),
                 policy,
-                ivpp::file_naming_policy,
+                ivpp::file_naming_policy_key,
                 ivpp::file_naming_policy_consistent);
-            return file_naming_policy::consistent;
+            return ivpp::file_naming_policy::consistent;
         }
 
         std::string archive_naming_policy = CONSISTENT_NAMING;
         if (_prop_map.get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy).ok()) {
             boost::to_lower(archive_naming_policy);
             if (archive_naming_policy == DECOUPLED_NAMING) {
-                return file_naming_policy::reversed_dataid;
+                return ivpp::file_naming_policy::reversed_dataid;
             }
         }
 
-        return file_naming_policy::consistent;
+        return ivpp::file_naming_policy::consistent;
     } // get_file_naming_policy
 
     auto uses_reversed_dataid_naming(irods::plugin_property_map& _prop_map) -> bool
     {
-        return get_file_naming_policy(_prop_map) == file_naming_policy::reversed_dataid;
+        return get_file_naming_policy(_prop_map) == ivpp::file_naming_policy::reversed_dataid;
     } // uses_reversed_dataid_naming
 
     auto physical_names_track_logical_names(irods::plugin_property_map& _prop_map) -> bool
     {
-        return get_file_naming_policy(_prop_map) == file_naming_policy::consistent;
+        return get_file_naming_policy(_prop_map) == ivpp::file_naming_policy::consistent;
     } // physical_names_track_logical_names
 
     // See https://groups.google.com/g/boost-list/c/5ADnEPYg-ho for an explanation

@@ -157,6 +157,37 @@ class Test_S3_NoCache_Decoupled(Test_S3_NoCache_Decoupled_Base, unittest.TestCas
     def test_s3_in_replication_node__issues_2102_2122(self):
         pass
 
+class Test_S3_NoCache_Legacy_Decoupled(Test_S3_NoCache_Decoupled_Base, unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        """Set up the test."""
+        self.keypairfile='/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair'
+        self.s3region='us-east-1'
+        self.s3endPoint='s3.amazonaws.com'
+        self.s3EnableMPU=0
+        self.archive_naming_policy = 'decoupled'
+        self.use_legacy_archive_naming_policy = True
+        super(Test_S3_NoCache_Legacy_Decoupled, self).__init__(*args, **kwargs)
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_iget_with_stale_replica(self):  # formerly known as 'dirty'
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_irepl_with_purgec(self):
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_put_get_small_file_in_repl_node(self):
+        pass
+
+    @unittest.skipIf(True, 'test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_put_get_large_file_in_repl_node(self):
+        pass
+
+    @unittest.skip('test does not work in decoupled because we are using same bucket for multiple resources')
+    def test_s3_in_replication_node__issues_2102_2122(self):
+        pass
+
 class Test_S3_NoCache_Glacier(Test_S3_NoCache_Glacier_Base, unittest.TestCase):
 
     def __init__(self, *args, **kwargs):

@@ -50,12 +50,24 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         if not hasattr(self, 'proto'):
             self.proto = 'HTTPS'
 
-        # if self.archive_naming_policy is defined use it
-        # else default to 'consistent'
+        # If self.archive_naming_policy is defined, use it to preserve existing test configuration.
+        # The generated resource context uses file_naming_policy unless legacy behavior is requested.
         if not hasattr(self, 'archive_naming_policy'):
             self.archive_naming_policy = 'consistent'
 
+        if not hasattr(self, 'file_naming_policy'):
+            self.file_naming_policy = 'reversed_dataid' if self.archive_naming_policy == 'decoupled' else self.archive_naming_policy
+
+        if not hasattr(self, 'use_legacy_archive_naming_policy'):
+            self.use_legacy_archive_naming_policy = False
+
         super(Test_S3_Cache_Base, self).__init__(*args, **kwargs)
+
+    def naming_policy_context(self):
+        if self.use_legacy_archive_naming_policy:
+            return 'ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+
+        return 'file_naming_policy=' + self.file_naming_policy
 
     def setUp(self):
         # set up aws configuration
@@ -100,7 +112,7 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
         s3params += ';S3_REGIONNAME=' + self.s3region
-        s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        s3params += ';' + self.naming_policy_context()
         if hasattr(self, 's3sse'):
             s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
 
@@ -420,8 +432,8 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         output = subprocess.getstatusoutput( 'rm '+filepath )
 
     def test_decoupled_naming_policy(self):
-        if self.archive_naming_policy != 'decoupled':
-            self.skipTest("Archive naming policy is not set to 'decoupled'")
+        if self.file_naming_policy != 'reversed_dataid':
+            self.skipTest("File naming policy is not set to 'reversed_dataid'")
 
         # local setup
         filename = self.testfile
@@ -470,8 +482,8 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         session.run_icommand('irm -f ' + new_filename)
 
     def test_decoupled_naming_policy_issue1855(self):
-        if self.archive_naming_policy != 'decoupled':
-            self.skipTest("Archive naming policy is not set to 'decoupled'")
+        if self.file_naming_policy != 'reversed_dataid':
+            self.skipTest("File naming policy is not set to 'reversed_dataid'")
 
         # local setup
         filename = self.testfile
@@ -543,13 +555,13 @@ class Test_S3_Cache_Base(ResourceSuite, ChunkyDevTest):
         s3params_aws += ';S3_DEFAULT_HOSTNAME=%s' % self.s3endPoint
         s3params_aws += ';S3_AUTH_FILE=%s' % self.keypairfile
         s3params_aws += ';S3_REGIONNAME=%s' % self.s3region
-        s3params_aws += ';ARCHIVE_NAMING_POLICY=%s' % self.archive_naming_policy
+        s3params_aws += ';' + self.naming_policy_context()
 
         s3params_minio = 'S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=1;S3_PROTO=%s;S3_MPU_CHUNK=10;S3_MPU_THREADS=4;S3_ENABLE_MD5=1' % self.proto
         s3params_minio += ';S3_DEFAULT_HOSTNAME=%s:9000' % hostname
         s3params_minio += ';S3_AUTH_FILE=%s' % minio_auth_file
         s3params_minio += ';S3_REGIONNAME=%s' % self.s3region
-        s3params_minio += ';ARCHIVE_NAMING_POLICY=%s' % self.archive_naming_policy
+        s3params_minio += ';' + self.naming_policy_context()
 
         try:
 
@@ -880,12 +892,24 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
         if not hasattr(self, 'proto'):
             self.proto = 'HTTPS'
 
-        # if self.archive_naming_policy is defined use it
-        # else default to 'consistent'
+        # If self.archive_naming_policy is defined, use it to preserve existing test configuration.
+        # The generated resource context uses file_naming_policy unless legacy behavior is requested.
         if not hasattr(self, 'archive_naming_policy'):
             self.archive_naming_policy = 'consistent'
 
+        if not hasattr(self, 'file_naming_policy'):
+            self.file_naming_policy = 'reversed_dataid' if self.archive_naming_policy == 'decoupled' else self.archive_naming_policy
+
+        if not hasattr(self, 'use_legacy_archive_naming_policy'):
+            self.use_legacy_archive_naming_policy = False
+
         super(Test_S3_Cache_Glacier_Base, self).__init__(*args, **kwargs)
+
+    def naming_policy_context(self):
+        if self.use_legacy_archive_naming_policy:
+            return 'ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+
+        return 'file_naming_policy=' + self.file_naming_policy
 
     def setUp(self):
 
@@ -937,7 +961,7 @@ class Test_S3_Cache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'rod
         s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
         s3params += ';S3_REGIONNAME=' + self.s3region
-        s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        s3params += ';' + self.naming_policy_context()
         if hasattr(self, 's3sse'):
             s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
 
