@@ -32,6 +32,7 @@
 #include <irods/rsModAVUMetadata.hpp>
 #include <irods/irods_at_scope_exit.hpp>
 #include <irods/checksum.h>
+#include <irods/vault_path_policy.hpp>
 
 // =-=-=-=-=-=-=-
 // boost includes
@@ -72,8 +73,66 @@ using s3_transport_config = irods::experimental::io::s3_transport::config;
 
 namespace irods_s3 {
 
+    namespace ivpp = irods::vault_path_policy;
+
+    namespace log  = irods::experimental::log;
+    using logger = log::logger<s3_plugin_logging_category>;
+
     inline static const std::string SHARED_MEMORY_KEY_PREFIX{"irods_s3-shm-"};
     inline static constexpr int     DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS{180};
+
+    enum class file_naming_policy
+    {
+        consistent,
+        random,
+        reversed_dataid
+    };
+
+    auto get_file_naming_policy(irods::plugin_property_map& _prop_map) -> file_naming_policy
+    {
+        std::string policy;
+        if (_prop_map.get<std::string>(ivpp::file_naming_policy, policy).ok()) {
+            if (policy == ivpp::file_naming_policy_consistent) {
+                return file_naming_policy::consistent;
+            }
+
+            if (policy == ivpp::file_naming_policy_reversed_dataid) {
+                return file_naming_policy::reversed_dataid;
+            }
+
+            if (policy == ivpp::file_naming_policy_random) {
+                return file_naming_policy::random;
+            }
+
+            logger::warn(
+                "[{}] Unsupported value [{}] for resource context key [{}]. Using default value [{}].",
+                get_resource_name(_prop_map),
+                policy,
+                ivpp::file_naming_policy,
+                ivpp::file_naming_policy_consistent);
+            return file_naming_policy::consistent;
+        }
+
+        std::string archive_naming_policy = CONSISTENT_NAMING;
+        if (_prop_map.get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy).ok()) {
+            boost::to_lower(archive_naming_policy);
+            if (archive_naming_policy == DECOUPLED_NAMING) {
+                return file_naming_policy::reversed_dataid;
+            }
+        }
+
+        return file_naming_policy::consistent;
+    } // get_file_naming_policy
+
+    auto uses_reversed_dataid_naming(irods::plugin_property_map& _prop_map) -> bool
+    {
+        return get_file_naming_policy(_prop_map) == file_naming_policy::reversed_dataid;
+    } // uses_reversed_dataid_naming
+
+    auto physical_names_track_logical_names(irods::plugin_property_map& _prop_map) -> bool
+    {
+        return get_file_naming_policy(_prop_map) == file_naming_policy::consistent;
+    } // physical_names_track_logical_names
 
     // See https://groups.google.com/g/boost-list/c/5ADnEPYg-ho for an explanation
     // of why the 100*sizeof(void*) is used below.  Essentially, the shared memory
@@ -81,8 +140,6 @@ namespace irods_s3 {
     // no way of knowing the size for these.  It is stated that 100*sizeof(void*) would
     // be enough.
     inline static constexpr std::int64_t SHMEM_SIZE{100*sizeof(void*) + sizeof(multipart_shared_data)};
-    namespace log  = irods::experimental::log;
-    using logger = log::logger<s3_plugin_logging_category>;
 
     std::mutex global_mutex;
     std::int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
@@ -417,17 +474,8 @@ namespace irods_s3 {
     {
         std::uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
         irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
-        // retrieve archive naming policy from resource plugin context
-        std::string archive_naming_policy = CONSISTENT_NAMING; // default
-        irods::error ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
-        if(!ret.ok()) {
-            logger::error(fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), ret.result()));
-        }
-        boost::to_lower(archive_naming_policy);
-
-        // if archive naming policy is decoupled
-        // we use the object's reversed id as S3 key name prefix
-        if (archive_naming_policy == DECOUPLED_NAMING) {
+        // If file_naming_policy is reversed_dataid, use the object's reversed ID as S3 key name prefix.
+        if (uses_reversed_dataid_naming(_ctx.prop_map())) {
             // extract object name and bucket name from physical path
             std::vector< std::string > tokens;
             irods::string_tokenize(object->physical_path(), "/", tokens);
@@ -1872,23 +1920,15 @@ namespace irods_s3 {
 
         const auto resource_name = get_resource_name(_ctx.prop_map());
 
-        // retrieve archive naming policy from resource plugin context
-        std::string archive_naming_policy = CONSISTENT_NAMING; // default
-        auto ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
-        if (!ret.ok()) {
-            logger::error(fmt::format("[{}] {}", resource_name, ret.result()));
-        }
-        boost::to_lower(archive_naming_policy);
-
         irods::file_object_ptr object = boost::dynamic_pointer_cast<irods::file_object>(_ctx.fco());
 
-        // if archive naming policy is decoupled we're done
-        if (archive_naming_policy == DECOUPLED_NAMING) {
+        // If file_naming_policy is not consistent, physical names do not track logical names.
+        if (!physical_names_track_logical_names(_ctx.prop_map())) {
             object->file_descriptor(ENOSYS);
             return SUCCESS();
         }
 
-        ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
+        auto ret = s3GetAuthCredentials(_ctx.prop_map(), access_key, secret_access_key);
         if (!ret.ok()) {
             // TODO: this is to maintain existing behavior but probably not necessary for error cases
             object->physical_path(_new_file_name);
@@ -2215,17 +2255,8 @@ namespace irods_s3 {
             return ret;
         }
 
-        // retrieve archive naming policy from resource plugin context
-        std::string archive_naming_policy = CONSISTENT_NAMING; // default
-        ret = _ctx.prop_map().get<std::string>(ARCHIVE_NAMING_POLICY_KW, archive_naming_policy); // get plugin context property
-        if(!ret.ok()) {
-            logger::error(fmt::format("[{}] {}", get_resource_name(_ctx.prop_map()), ret.result()));
-        }
-        boost::to_lower(archive_naming_policy);
-
-        // if archive naming policy is decoupled
-        // we use the object's reversed id as S3 key name prefix
-        if (archive_naming_policy == DECOUPLED_NAMING) {
+        // If file_naming_policy is reversed_dataid, use the object's reversed ID as S3 key name prefix.
+        if (uses_reversed_dataid_naming(_ctx.prop_map())) {
             // extract object name and bucket name from physical path
             std::vector< std::string > tokens;
             irods::string_tokenize(object->physical_path(), "/", tokens);
