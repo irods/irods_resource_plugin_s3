@@ -75,7 +75,7 @@ namespace irods_s3 {
 
     namespace ivpp = irods::vault_path_policy;
 
-    namespace log  = irods::experimental::log;
+    namespace log = irods::experimental::log;
     using logger = log::logger<s3_plugin_logging_category>;
 
     inline static const std::string SHARED_MEMORY_KEY_PREFIX{"irods_s3-shm-"};
@@ -89,12 +89,11 @@ namespace irods_s3 {
                 return *parsed_policy;
             }
 
-            logger::warn(
-                "[{}] Unsupported value [{}] for resource context key [{}]. Using default value [{}].",
-                get_resource_name(_prop_map),
-                policy,
-                ivpp::file_naming_policy_key,
-                ivpp::file_naming_policy_consistent);
+            logger::warn("[{}] Unsupported value [{}] for resource context key [{}]. Using default value [{}].",
+                         get_resource_name(_prop_map),
+                         policy,
+                         ivpp::file_naming_policy_key,
+                         ivpp::file_naming_policy_consistent);
             return ivpp::file_naming_policy::consistent;
         }
 
@@ -124,7 +123,7 @@ namespace irods_s3 {
     // must have enough space for the memory algorithm and reserved area but there is
     // no way of knowing the size for these.  It is stated that 100*sizeof(void*) would
     // be enough.
-    inline static constexpr std::int64_t SHMEM_SIZE{100*sizeof(void*) + sizeof(multipart_shared_data)};
+    inline static constexpr std::int64_t SHMEM_SIZE{100 * sizeof(void*) + sizeof(multipart_shared_data)};
 
     std::mutex global_mutex;
     std::int64_t data_size = s3_transport_config::UNKNOWN_OBJECT_SIZE;
@@ -535,8 +534,8 @@ namespace irods_s3 {
 					break; // data_id is the same for all replicas so we are done
 				}
 			}
-		}
-	}
+        }
+    }
 
     std::ios_base::openmode translate_open_mode_posix_to_stream(int oflag, const std::string& call_from) noexcept
     {
