@@ -1337,7 +1337,13 @@ namespace irods::experimental::io::s3_transport
 			// operation. At the point where we are determining the number of transfer threads it is not clear
 			// that we are doing a read after write as the open mode is not updated between the write and the read.
 			// By this point we have figured out we are doing the read after write and have updated the open flags.
-			if (!(_mode & std::ios_base::out)) {
+			//
+			// When put_repl_flag is false, number_of_client_transfer_threads is computed from the existing object's
+			// transfer. For a non-put_repl_flag write (e.g. a small write into a large existing object),
+			// populate_open_mode_flags() below always forces a single-threaded, cache-based open/close regardless
+			// of that thread count, so threads_remaining_to_close would be seeded too high and never reach zero
+            // leaking shared memory.
+			if (!(_mode & std::ios_base::out) || !config_.put_repl_flag) {
 				this->config_.number_of_client_transfer_threads = -1;
 			}
 
