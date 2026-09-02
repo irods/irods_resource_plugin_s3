@@ -1480,6 +1480,10 @@ OUTPUT ruleExecOut
             # (should be much lower than that)
             self.assertLess(after_read_time - before_read_time, 3)
 
+            # regression check: a small write into a large existing object used to leak shmem
+            # (threads_remaining_to_close seeded from the object's full size, but only one
+            # open/close actually happens for this forced single-threaded/cache write)
+            s3plugin_lib.assert_no_leaked_s3_shared_memory(self)
 
         finally:
 
@@ -2638,6 +2642,11 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             assert_command(['diff', '-q', filename1, get_filename1])
             assert_command(['diff', '-q', filename1, get_filename2])
 
+            # Make sure shared memory is cleaned up.  irsync's checksum verification opens and closes
+            # the file without setting up the L1desc table and oprType remains unknown (-1).  This
+            # caused a shared memory leak.
+            s3plugin_lib.assert_no_leaked_s3_shared_memory(self)
+
         finally:
             # clean up the file that was put in case it wasn't cleaned up
             self.user1.assert_icommand(f'irm -rf {filename1}')
@@ -2694,6 +2703,11 @@ class Test_S3_NoCache_Large_File_Tests_Base(Test_S3_NoCache_Base):
             # verify the files are the same
             assert_command(['diff', '-q', filename1, get_filename1])
             assert_command(['diff', '-q', filename1, get_filename2])
+
+            # Make sure shared memory is cleaned up.  irsync's checksum verification opens and closes
+            # the file without setting up the L1desc table and oprType remains unknown (-1).  This
+            # caused a shared memory leak.
+            s3plugin_lib.assert_no_leaked_s3_shared_memory(self)
 
         finally:
             # clean up the file that was put in case it wasn't cleaned up
@@ -3159,6 +3173,12 @@ class Test_S3_NoCache_MPU_Disabled_Base(Test_S3_NoCache_Base):
             with open(file1, 'rb') as f:
                 checksum = base64.b64encode(hashlib.sha256(f.read()).digest()).decode()
             self.user0.assert_icommand("ils -L", 'STDOUT_SINGLELINE', "sha2:" + checksum)  # check proper checksum
+
+            # Make sure shared memory is cleaned up.  iput -K's checksum readback reuses the PUT's L1desc entry
+            # (oprType stays PUT_OPR) but is a single-threaded read, which used to leave
+            # threads_remaining_to_close seeded from the original multi-threaded PUT and never
+            # reach zero.
+            s3plugin_lib.assert_no_leaked_s3_shared_memory(self)
 
         finally:
 

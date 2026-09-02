@@ -1,5 +1,25 @@
+import glob
 import os
 import random
+import time
+
+def get_leaked_s3_shared_memory_files():
+    return glob.glob('/dev/shm/*s3*')
+
+# The server-side removal of a shmem segment happens shortly after the icommand/rule call that
+# triggered it returns, not synchronously with it, so a single immediate glob check can observe a
+# leftover file that disappears moments later. Poll a few times before failing to avoid that false
+# positive.
+def assert_no_leaked_s3_shared_memory(test_case, retries=5, delay_seconds=1):
+    for attempt in range(retries):
+        leaked_s3_shmem_files = get_leaked_s3_shared_memory_files()
+        if not leaked_s3_shmem_files:
+            return
+        if attempt < retries - 1:
+            time.sleep(delay_seconds)
+
+    test_case.assertEqual(leaked_s3_shmem_files, [],
+            'S3 shared memory not cleaned up after test: {}'.format(leaked_s3_shmem_files))
 
 def remove_if_exists(localfile):
     if os.path.exists(localfile):
