@@ -61,7 +61,7 @@ See [note on S3 resource plugin installation requirement](https://github.com/iro
 After installation is complete, the new plugin can be configured in cacheless mode, live on an iRODS Server:
 
 ```
-irods@hostname $ iadmin mkresc s3resc s3 $(hostname):/<s3BucketName>/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
+irods@hostname $ iadmin mkresc s3resc s3 $(hostname):/<s3BucketName>/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=3;S3_PROTO=HTTP;file_naming_policy=consistent;HOST_MODE=cacheless_attached"
 ```
 
 A local file can be immediately put into the S3 resource:
@@ -109,8 +109,9 @@ To define S3 provider constraints and control multipart behavior:
 
 > Notes about virtual hosting:  When using virtual hosted request style, configure the resource path and S3_DEFAULT_HOSTNAME as you would for path request style.  Leave the bucket name in the path and do not put the bucket name in the S3_DEFAULT_HOSTNAME.  This is important to retain backward compatibility with objects already created using path request style. 
 
-Use the `ARCHIVE_NAMING_POLICY` parameter to control whether the names of the files within the object storage service (S3, or similar) are kept in sync with the logical names in the iRODS Catalog.
-The default value of `consistent` will keep the names consistent.  Setting `ARCHIVE_NAMING_POLICY=decoupled` will not keep the names of the objects in sync.
+Use the `file_naming_policy` parameter to control whether the names of the files within the object storage service (S3, or similar) are kept in sync with the logical names in the iRODS Catalog.
+The default value of `consistent` will keep the names consistent. Setting `file_naming_policy=reversed_dataid` will store objects using the reversed data ID as a key prefix and will not keep object names in sync with logical names.
+For compatibility, `ARCHIVE_NAMING_POLICY=decoupled` maps to `file_naming_policy=reversed_dataid` when `file_naming_policy` is not set.
 
 S3 server-side encryption can be enabled using the parameter `S3_SERVER_ENCRYPT=[0|1]` (default=0=off).  This is not the same as HTTPS, and implies that the data will be stored on disk encrypted.
 To encrypt during the network transport to S3, use `S3_PROTO=HTTPS` (the default)
@@ -151,7 +152,7 @@ Cacheless mode has a few extra configuration parameters in addition to HOST_MODE
 The following is an example of how to configure a `cacheless_attached` S3 resource:
 
 ```
-iadmin mkresc s3resc s3 $(hostname):/s3-irods-bucket-name/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=3;S3_PROTO=HTTP;ARCHIVE_NAMING_POLICY=consistent;HOST_MODE=cacheless_attached"
+iadmin mkresc s3resc s3 $(hostname):/s3-irods-bucket-name/prefix/in/bucket "S3_DEFAULT_HOSTNAME=s3.us-east-1.amazonaws.com;S3_AUTH_FILE=/var/lib/irods/s3.keypair;S3_REGIONNAME=us-east-1;S3_RETRY_COUNT=1;S3_WAIT_TIME_SECONDS=3;S3_PROTO=HTTP;file_naming_policy=consistent;HOST_MODE=cacheless_attached"
 ```
 
 Some configuration settings have special meaning when the resource is in cacheless mode.
@@ -302,7 +303,7 @@ This plugin has been manually tested to work with Google Cloud Storage, with som
 1. GCS treats bucket names with dots as domain names.  These must be verified.  See [Domain-named Bucket Verification] (https://cloud.google.com/storage/docs/domain-name-verification).
 2. If an object is uploaded using multipart uploads, subsequent calls to CopyObject fail.  CopyObject is used with `imv` when consistent naming is used.  As a workaround, GCS resources should be configured with any one of the following options:
 -   Disable MPU upload: `S3_ENABLE_MPU=0`
--   Set archive naming policy to decoupled: `ARCHIVE_NAMING_POLICY=decoupled`
+-   Set file naming policy to reversed data ID: `file_naming_policy=reversed_dataid`
 -   Disable CopyObject:  `S3_ENABLE_COPYOBJECT=0`
 
 Make sure to:

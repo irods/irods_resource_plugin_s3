@@ -62,12 +62,24 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         if not hasattr(self, 'proto'):
             self.proto = 'HTTPS'
 
-        # if self.archive_naming_policy is defined use it
-        # else default to 'consistent'
+        # If self.archive_naming_policy is defined, use it to preserve existing test configuration.
+        # The generated resource context uses file_naming_policy unless legacy behavior is requested.
         if not hasattr(self, 'archive_naming_policy'):
             self.archive_naming_policy = 'consistent'
 
+        if not hasattr(self, 'file_naming_policy'):
+            self.file_naming_policy = 'reversed_dataid' if self.archive_naming_policy == 'decoupled' else self.archive_naming_policy
+
+        if not hasattr(self, 'use_legacy_archive_naming_policy'):
+            self.use_legacy_archive_naming_policy = False
+
         super(Test_S3_NoCache_Base, self).__init__(*args, **kwargs)
+
+    def naming_policy_context(self):
+        if self.use_legacy_archive_naming_policy:
+            return 'ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+
+        return 'file_naming_policy=' + self.file_naming_policy
 
     def setUp(self):
 
@@ -112,7 +124,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         self.s3_context += ';S3_RETRY_COUNT=2'
         self.s3_context += ';S3_WAIT_TIME_SECONDS=3'
         self.s3_context += ';S3_PROTO=' + self.proto
-        self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        self.s3_context += ';' + self.naming_policy_context()
         self.s3_context += ';HOST_MODE=cacheless_attached'
         self.s3_context += ';S3_ENABLE_MD5=1'
         self.s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
@@ -1513,7 +1525,7 @@ OUTPUT ruleExecOut
             s3_context += ';S3_RETRY_COUNT=2'
             s3_context += ';S3_WAIT_TIME_SECONDS=3'
             s3_context += ';S3_PROTO=' + self.proto
-            s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+            s3_context += ';' + self.naming_policy_context()
             s3_context += ';HOST_MODE=cacheless_detached'
             s3_context += ';S3_ENABLE_MD5=1'
             s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
@@ -1987,7 +1999,7 @@ OUTPUT ruleExecOut
             s3_context += ';S3_RETRY_COUNT=2'
             s3_context += ';S3_WAIT_TIME_SECONDS=3'
             s3_context += ';S3_PROTO=' + self.proto
-            s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+            s3_context += ';' + self.naming_policy_context()
             s3_context += ';HOST_MODE=cacheless_attached'
             s3_context += ';S3_ENABLE_MD5=1'
             s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
@@ -2958,12 +2970,24 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
         if not hasattr(self, 'proto'):
             self.proto = 'HTTPS'
 
-        # if self.archive_naming_policy is defined use it
-        # else default to 'consistent'
+        # If self.archive_naming_policy is defined, use it to preserve existing test configuration.
+        # The generated resource context uses file_naming_policy unless legacy behavior is requested.
         if not hasattr(self, 'archive_naming_policy'):
             self.archive_naming_policy = 'consistent'
 
+        if not hasattr(self, 'file_naming_policy'):
+            self.file_naming_policy = 'reversed_dataid' if self.archive_naming_policy == 'decoupled' else self.archive_naming_policy
+
+        if not hasattr(self, 'use_legacy_archive_naming_policy'):
+            self.use_legacy_archive_naming_policy = False
+
         super(Test_S3_NoCache_Glacier_Base, self).__init__(*args, **kwargs)
+
+    def naming_policy_context(self):
+        if self.use_legacy_archive_naming_policy:
+            return 'ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+
+        return 'file_naming_policy=' + self.file_naming_policy
 
     def setUp(self):
 
@@ -3008,7 +3032,7 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
         self.s3_context += ';S3_RETRY_COUNT=2'
         self.s3_context += ';S3_WAIT_TIME_SECONDS=3'
         self.s3_context += ';S3_PROTO=' + self.proto
-        self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        self.s3_context += ';' + self.naming_policy_context()
         self.s3_context += ';HOST_MODE=cacheless_attached'
         self.s3_context += ';S3_ENABLE_MD5=1'
         self.s3_context += ';S3_ENABLE_MPU=' + str(self.s3EnableMPU)
@@ -3020,8 +3044,6 @@ class Test_S3_NoCache_Glacier_Base(session.make_sessions_mixin([('otherrods', 'r
 
         if hasattr(self, 's3sse'):
             self.s3_context += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
-
-        self.s3_context += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
 
         self.admin.assert_icommand("iadmin modresc demoResc name origResc", 'STDOUT_SINGLELINE', 'rename', input='yes\n')
 
@@ -3460,7 +3482,7 @@ class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
         hostname = lib.get_hostname()
         resource_name = "s3_resc"
 
-        s3_context_consistent = self.s3_context.replace('ARCHIVE_NAMING_POLICY=decoupled', 'ARCHIVE_NAMING_POLICY=consistent')
+        s3_context_consistent = self.s3_context.replace(self.naming_policy_context(), 'file_naming_policy=consistent')
         s3_context_decoupled = self.s3_context
 
         # create the S3 resource
@@ -3519,7 +3541,7 @@ class Test_S3_NoCache_Decoupled_Base(Test_S3_NoCache_Base):
         hostname = lib.get_hostname()
         resource_name = "s3_resc"
 
-        s3_context_consistent = self.s3_context.replace('ARCHIVE_NAMING_POLICY=decoupled', 'ARCHIVE_NAMING_POLICY=consistent')
+        s3_context_consistent = self.s3_context.replace(self.naming_policy_context(), 'file_naming_policy=consistent')
         s3_context_decoupled = self.s3_context
 
         # create the S3 resource

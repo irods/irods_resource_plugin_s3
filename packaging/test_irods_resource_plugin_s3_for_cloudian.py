@@ -30,7 +30,7 @@ from .test_chunkydevtest import ChunkyDevTest
 class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.TestCase):
     def __init__(self, *args, **kwargs):
         self.keypairfile='/etc/irods/cloudian_credentials.keypair'
-        self.archive_naming_policy='decoupled'
+        self.file_naming_policy='reversed_dataid'
         self.s3stsdate=''
         self.s3region='demoreg1'
         self.s3endPoint='s3.cloudianhyperstore.com'
@@ -62,7 +62,7 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         s3params += ';S3_DEFAULT_HOSTNAME=' + self.s3endPoint
         s3params += ';S3_AUTH_FILE=' +  self.keypairfile
         s3params += ';S3_REGIONNAME=' + self.s3region
-        s3params += ';ARCHIVE_NAMING_POLICY=' + self.archive_naming_policy
+        s3params += ';file_naming_policy=' + self.file_naming_policy
         if hasattr(self, 's3sse'):
             s3params += ';S3_SERVER_ENCRYPT=' + str(self.s3sse)
 
@@ -337,8 +337,8 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
         output = commands.getstatusoutput( 'rm '+filepath )
 
     def test_decoupled_naming_policy(self):
-        if self.archive_naming_policy != 'decoupled':
-            self.skipTest("Archive naming policy is not set to 'decoupled'")
+        if self.file_naming_policy != 'reversed_dataid':
+            self.skipTest("File naming policy is not set to 'reversed_dataid'")
 
         # local setup
         filename = self.testfile
@@ -375,4 +375,3 @@ class Test_Compound_With_S3_Resource(ResourceSuite, ChunkyDevTest, unittest.Test
 
         # cleanup
         session.run_icommand('irm -f ' + filename)
-
