@@ -465,14 +465,6 @@ namespace irods::experimental::io::s3_transport
 
                     } else {
 
-
-                        if ( this->use_streaming_multipart()  ) {
-
-                            if (error_codes::SUCCESS != complete_multipart_upload()) {
-                                return_value = false;
-                            }
-                        }
-
                         return_value = true;
 
                     }
@@ -506,8 +498,89 @@ namespace irods::experimental::io::s3_transport
                 }
             }
 
+            // Issue 2319: Rather than relying on a close counter which is very buggy due to inconsistent
+            // close calls by the server, inspect the etags vector. If it is fully populated then the part
+            // writes are finished. In that case complete the multipart.
+            if (this->error_.ok() && !this->use_cache_ && this->use_streaming_multipart()) {
+
+                bool all_parts_uploaded = shm_obj.atomic_exec([](auto& data) {
+                    std::int64_t completed = 0;
+                    while (completed < static_cast<std::int64_t>(data.etags.size()) &&
+                            !data.etags[completed].empty()) {
+                        ++completed;
+                    }
+                    return data.total_parts_expected > 0 && completed >= data.total_parts_expected;
+                });
+
+                if (all_parts_uploaded && error_codes::SUCCESS != wait_for_multipart_upload_completion()) {
+                    return_value = false;
+                }
+            }
 
             return return_value;
+        }
+
+        // Issue 2319: S3_complete_multipart_upload is called inline in the multipart upload callback.
+        // This waits for the multipart upload's completion to have actually
+        // finished, then returns its result.
+        //
+        // This exists because the close event that observes threads_remaining_to_close hit zero is not
+        // guaranteed to be the true last real transfer thread's close - iRODS core does not reliably call
+        // this resource plugin's close operation once per parallel transfer thread (confirmed via testing:
+        // one of N real worker threads never gets its own close invoked at all).
+        error_codes wait_for_multipart_upload_completion()
+        {
+            namespace bi = boost::interprocess;
+
+            named_shared_memory_object shm_obj{shmem_key_,
+                config_.shared_memory_timeout_in_seconds,
+                constants::MAX_S3_SHMEM_SIZE};
+
+            // Same total wait budget the old poll loop allowed - retry_count_limit steps of the same
+            // capped-doubling backoff - just expressed as one deadline instead of repeated sleeps.
+            // interprocess_condition's timed_wait ultimately reaches pthread_cond_timedwait with no
+            // custom clock attribute set, so this must be CLOCK_REALTIME (system_clock), not steady_clock.
+
+            auto deadline = std::chrono::system_clock::now();
+            {
+                int wait_seconds = config_.retry_wait_seconds;
+                for (unsigned int i = 0; i < config_.retry_count_limit; ++i) {
+                    deadline += std::chrono::seconds(wait_seconds);
+                    wait_seconds = std::min(wait_seconds * 2, config_.max_retry_wait_seconds);
+                }
+            }
+
+            logger::debug("{}:{} ({}) [[{}]] waiting for multipart upload completion [object_key={}]",
+                    __FILE__, __LINE__, __func__, get_thread_identifier(), object_key_.c_str());
+
+            auto [finished, result] = shm_obj.exec([&deadline](auto& data) {
+                bi::scoped_lock<bi::interprocess_mutex> etags_lock{data.etags_mutex};
+                bool ok = data.etags_cv.timed_wait(etags_lock, deadline,
+                        [&data] { return data.multipart_upload_completion_finished; });
+                return std::make_pair(ok, data.multipart_upload_completion_result);
+            });
+
+            if (!finished) {
+
+                auto [total_parts_expected, parts_completed] = shm_obj.atomic_exec([](auto& data) {
+                    std::int64_t completed = 0;
+                    while (completed < static_cast<std::int64_t>(data.etags.size()) &&
+                            !data.etags[completed].empty()) {
+                        ++completed;
+                    }
+                    return std::make_pair(data.total_parts_expected, completed);
+                });
+
+                auto msg = fmt::format("{} - Timed out waiting for multipart upload completion for \"{}\" "
+                        "[parts_completed={}][total_parts_expected={}]",
+                        __func__, object_key_, parts_completed, total_parts_expected);
+                logger::error("{}:{} ({}) [[{}]] {}", __FILE__, __LINE__, __func__,
+                        get_thread_identifier(), msg.c_str());
+                this->set_error(ERROR(S3_PUT_ERROR, msg.c_str()));
+                return error_codes::COMPLETE_MULTIPART_UPLOAD_ERROR;
+            }
+
+            return result;
         }
 
 
@@ -579,6 +652,15 @@ namespace irods::experimental::io::s3_transport
                         return_value = false;
                     } else {
                         data.done_initiate_multipart = true;
+
+                        // Record the true expected part count once, from the thread that actually
+                        // initiates the upload, so a later finalizing close (which may be a distinct
+                        // coordinator open/close with its own local config) can reliably know how many
+                        // parts to wait for. See total_parts_expected in multipart_shared_data.hpp.
+                        data.total_parts_expected = total_number_of_parts_for_object(
+                                this->config_.object_size,
+                                this->config_.number_of_client_transfer_threads,
+                                static_cast<std::int64_t>(this->config_.circular_buffer_size));
                     }
                 }
             });
@@ -779,6 +861,31 @@ namespace irods::experimental::io::s3_transport
             return config_.bytes_this_thread;
         }
 
+
+        // Computes the total number of multipart-upload parts required to send total_bytes
+        // split across number_of_threads threads, each part at most part_size bytes.  Uses
+        // the same split as determine_start_and_end_part_from_offset_and_bytes_this_thread.
+        // All but the last thread get floor(total_bytes / number_of_threads) bytes, the last
+        // thread gets that plus the remainder.  number_of_threads is clamped to at least 1.
+        static std::int64_t total_number_of_parts_for_object(
+                std::int64_t total_bytes,
+                int number_of_threads,
+                std::int64_t part_size)
+        {
+            if (total_bytes <= 0) {
+                return 0;
+            }
+
+            std::int64_t threads = std::max(1, number_of_threads);
+
+            std::int64_t bytes_per_thread = total_bytes / threads;
+            std::int64_t last_thread_bytes = bytes_per_thread + total_bytes % threads;
+
+            std::int64_t parts_per_thread = (bytes_per_thread + part_size - 1) / part_size;
+            std::int64_t parts_last_thread = (last_thread_bytes + part_size - 1) / part_size;
+
+            return (threads - 1) * parts_per_thread + parts_last_thread;
+        }
 
         // this function uses the starting offset provided to the transport
         // and the number of bytes in this thread to determine the start and end
@@ -1702,7 +1809,7 @@ namespace irods::experimental::io::s3_transport
             }
         } // end mpu_cancel
 
-
+    public:
         error_codes complete_multipart_upload()
         {
             namespace bi = boost::interprocess;
@@ -1816,6 +1923,7 @@ namespace irods::experimental::io::s3_transport
 
             return result;
         } // end complete_multipart_upload
+    private:
 
 
         // download the part from the S3 object
