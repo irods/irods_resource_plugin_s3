@@ -94,11 +94,6 @@ namespace irods_s3 {
         std::ios_base::openmode open_mode;
         std::shared_ptr<dstream> dstream_ptr;
         std::shared_ptr<s3_transport> s3_transport_ptr;
-
-        // Captured at open time (see make_dstream) instead of reading the shared irods_s3::oprType
-        // global at close time. With multiple parallel PUT threads, another thread finishing last
-        // could reset that global to -1 before this thread's close ran, causing a shmem leak.
-        int oprType{-1};
     }; // end per_thread_data
 
     class fd_to_data_map {
@@ -667,10 +662,6 @@ namespace irods_s3 {
         logger::debug("{}:{} ({}) [[{}]] data_size set to {}", __FILE__, __LINE__, __FUNCTION__, thread_id, data_size);
         logger::debug("{}:{} ({}) [[{}]] number_of_threads={}", __FILE__, __LINE__, __FUNCTION__, thread_id, number_of_threads);
 
-        // Save the oprType in per-thread data. Use this in close() rather than the shared version
-        // which can be prematurely updated to -1 by other threads or processes.
-        data.oprType = oprType;
-
         // read the size of the circular buffer from configuration
         std::string circular_buffer_size_str;
         ret = _ctx.prop_map().get<std::string>(s3_circular_buffer_size, circular_buffer_size_str);
@@ -1183,15 +1174,8 @@ namespace irods_s3 {
             // Not necessary for GET_OPR as the shared memory is not created in that instance.
             // Issue 2319: If oprType is -1 (unknown) do not run this code as it will recreate
             //   shared memory and decrement threads_remaining_to_close to -1.
-            //
-            // data.oprType (captured per-fd at open, see per_thread_data above) is used here rather than
-            // the irods_s3::oprType global, since the global can already have been reset to -1 by another
-            // thread's close() by the time this one runs.
-            //
-            // The same reasoning applies to a read-after-write for a checksum operation. oprType is still
-            // PUT_OPR, but this must be treated like a GET_OPR.
-            bool is_read_after_write_for_checksum = (data.oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
-            if (data.oprType != GET_OPR && data.oprType != -1 && !is_read_after_write_for_checksum) {
+            bool is_read_after_write_for_checksum = (oprType == PUT_OPR) && !(data.open_mode & std::ios_base::out);
+            if (oprType != GET_OPR && oprType != -1 && !is_read_after_write_for_checksum) {
 
                 std::string shmem_key = get_shmem_key(_ctx, file_obj);
                 named_shared_memory_object shm_obj{shmem_key,
@@ -1199,8 +1183,14 @@ namespace irods_s3 {
                     SHMEM_SIZE};
 
                 auto [open_count, ref_count] = shm_obj.atomic_exec([](auto& data) {
-                    // shmem freed when threads_remaining_to_close is zero
-                    return std::make_pair(--(data.threads_remaining_to_close), data.ref_count);
+                    // shmem freed when threads_remaining_to_close is zero.
+                    // Floor at zero - this can be reached after the counter has already been
+                    // brought to zero elsewhere (e.g. a late/duplicate close), and letting it
+                    // go negative would prevent it from ever cleanly reaching zero again.
+                    if (data.threads_remaining_to_close > 0) {
+                        --data.threads_remaining_to_close;
+                    }
+                    return std::make_pair(data.threads_remaining_to_close, data.ref_count);
                 });
                 logger::trace("{}:{} ({}) [[{}]] shmem_key={} hashed_string={} open_count={} ref_coun={}", __FILE__, __LINE__, __func__, thread_id, shmem_key, get_resource_name(_ctx.prop_map()) + file_obj->logical_path(), open_count, ref_count);
             }
@@ -2379,9 +2369,12 @@ namespace irods_s3 {
                     DEFAULT_SHARED_MEMORY_TIMEOUT_IN_SECONDS,
                     SHMEM_SIZE};
 
+                // Issue 2319: Do NOT touch threads_remaining_to_close here. This
+                // hierarchy-resolution/redirect vote can be called multiple times per logical
+                // operation. This can mess up the counting used for determining when shared
+                // memory can be cleaned up.
                 shm_obj.atomic_exec([number_of_threads](auto& data) {
                     data.number_of_threads = number_of_threads;
-                    data.threads_remaining_to_close = number_of_threads;
                 });
 
             } catch (const boost::bad_lexical_cast &) {

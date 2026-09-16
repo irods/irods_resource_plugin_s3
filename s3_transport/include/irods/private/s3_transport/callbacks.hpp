@@ -651,8 +651,8 @@ namespace irods::experimental::io::s3_transport
                         shared_memory_timeout_in_seconds,
                         constants::MAX_S3_SHMEM_SIZE};
 
-                    return shm_obj.atomic_exec([properties,
-                            &callback_for_write_to_s3_base_data](auto& data) {
+                    auto [status, elected_to_complete] = shm_obj.atomic_exec([properties,
+                            &callback_for_write_to_s3_base_data](auto& data) -> std::pair<libs3_types::status, bool> {
 
                         const char *etag = properties->eTag;
 
@@ -666,11 +666,46 @@ namespace irods::experimental::io::s3_transport
 
                         } catch (const bi::bad_alloc& ba) {
                             logger::error("{}:{} ({}) Exception caught allocating room for etags string. [{}]", __FILE__, __LINE__, __func__, ba.what());
-                            return S3StatusOutOfMemory;
+                            return {S3StatusOutOfMemory, false};
                         }
-                        return libs3_types::status_ok;
+
+                        // Elect this thread to perform the multipart completion itself, inline, if every
+                        // expected part now has an etag and nobody else has already been elected.
+                        bool elected = false;
+                        if (!data.multipart_upload_completion_started) {
+                            std::int64_t completed = 0;
+                            while (completed < static_cast<std::int64_t>(data.etags.size()) &&
+                                    !data.etags[completed].empty()) {
+                                ++completed;
+                            }
+                            if (data.total_parts_expected > 0 && completed >= data.total_parts_expected) {
+                                data.multipart_upload_completion_started = true;
+                                elected = true;
+                            }
+                        }
+
+                        return {libs3_types::status_ok, elected};
                     });
 
+                    if (elected_to_complete) {
+
+                        // Perform the actual S3 completion request here.
+                        error_codes completion_result =
+                            callback_for_write_to_s3_base_data->transport_object_ptr->complete_multipart_upload();
+
+                        shm_obj.atomic_exec([completion_result](auto& data) {
+                            data.multipart_upload_completion_result = completion_result;
+                            data.multipart_upload_completion_finished = true;
+                        });
+
+                        shm_obj.exec([](auto& data) {
+                            bi::scoped_lock<bi::interprocess_mutex> etags_lock{data.etags_mutex};
+                            data.etags_cv.notify_all();
+                            return 0;
+                        });
+                    }
+
+                    return status;
                 }
 
                 static void on_response_completion (libs3_types::status status,
