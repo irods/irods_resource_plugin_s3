@@ -3,6 +3,8 @@
 
 #include <boost/container/scoped_allocator.hpp>
 #include <boost/interprocess/containers/vector.hpp>
+#include <boost/interprocess/sync/interprocess_condition.hpp>
+#include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/sync/named_mutex.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
 
@@ -63,6 +65,10 @@ namespace irods::experimental::io::s3_transport::shared_data
             , checksum_vector{allocator}
 			, part_size_vector{allocator}
             , first_open_has_trunc_flag{false}
+            , total_parts_expected{0}
+            , multipart_upload_completion_started{false}
+            , multipart_upload_completion_finished{false}
+            , multipart_upload_completion_result{error_codes::SUCCESS}
         {}
 
         bool can_delete() {
@@ -89,6 +95,28 @@ namespace irods::experimental::io::s3_transport::shared_data
         // this is set so that multiple processes that are used to write to the file don't download the file
         // to cache if the trunc flag is not set.
         bool                                  first_open_has_trunc_flag;
+
+        // Issue 2319: This is the true expected part count for this multipart upload, computed once
+        // by whichever thread/process initiates it.
+        std::int64_t                          total_parts_expected;
+
+        // Set atomically (alongside the etag write that makes every expected part's etag present - see
+        // on_response_properties in callbacks.hpp) by whichever part-upload worker thread/process writes
+        // the last part's etag; that thread then calls complete_multipart_upload() itself, directly, rather
+        // than a separate close()-side wait discovering readiness later and making the call itself. Only
+        // ever transitions false -> true once, so exactly one thread ever performs the completion call.
+        bool                                   multipart_upload_completion_started;
+
+        // Set true by whichever thread claimed multipart_upload_completion_started, after its
+        // complete_multipart_upload() call has actually returned (result in
+        // multipart_upload_completion_result below). This, not etag completeness, is what
+        // wait_for_multipart_upload_completion() blocks on.
+        bool                                   multipart_upload_completion_finished;
+        error_codes                            multipart_upload_completion_result;
+
+        // Dedicated lock/condvar pair for wait_for_multipart_upload_completion().
+        boost::interprocess::interprocess_mutex     etags_mutex;
+        boost::interprocess::interprocess_condition etags_cv;
     };
 
 }
