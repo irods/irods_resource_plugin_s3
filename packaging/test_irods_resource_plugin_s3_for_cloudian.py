@@ -1,9 +1,11 @@
+import sys
+
 try:
    from minio import Minio
    from minio.error import ResponseError
 except ImportError:
    print('This test requires minio: perhaps try pip install minio')
-   exit()
+   sys.exit(1)
 
 import commands
 import datetime

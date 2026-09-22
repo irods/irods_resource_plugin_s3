@@ -13,6 +13,7 @@ import platform
 import distro
 import logging
 import sys
+import zipfile
 
 import irods_python_ci_utilities
 
@@ -40,7 +41,7 @@ def install_test_prerequisites():
         irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', '--upgrade', 'pip>=20.3.4'], check_rc=True)
     irods_python_ci_utilities.subprocess_get_output(['sudo', 'python3', '-m', 'pip', 'install', 'boto3', '--upgrade'], check_rc=True)
 
-    # Minio 7.1.17 imports the annontations module which only exists in Python 3.7 and beyond.
+    # Minio 7.1.17 imports the annotations module which only exists in Python 3.7 and beyond.
     # For OS which default to Python 3.6, we have to install the previous version of Minio to avoid
     # compatibility issues. The --upgrade flag is ignored if "minio_version" results in a non-empty string.
     minio_version = '==7.1.16' if sys.hexversion < 0x030700F0 else ''
@@ -50,56 +51,114 @@ def install_test_prerequisites():
     irods_python_ci_utilities.subprocess_get_output(['python3', '-m', 'pip', 'install', 'python-irodsclient'], check_rc=True)
 
 
-def download_and_start_minio_server():
+def wait_for_rustfs_servers_or_raise(procs, proc_infos, timeout_seconds=30):
+    import socket
+    import time as time_module
 
-    path_to_minio = '/minio'
+    deadline = time_module.time() + timeout_seconds
+    remaining = list(zip(procs, proc_infos))
 
-    # Download the latest MinIO binary directly (supports aws-chunked encoding with trailing checksums)
-    subprocess.check_output(['wget', '-q', '--no-check-certificate', '-O', path_to_minio,
-                             'https://dl.min.io/server/minio/release/linux-amd64/minio'])
-    os.chmod(path_to_minio, os.stat(path_to_minio).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    while remaining:
+        still_waiting = []
+        for proc, info in remaining:
+            exit_code = proc.poll()
+            if exit_code is not None:
+                _dump_rustfs_log_and_raise(info, 'exited early with code {0}'.format(exit_code))
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(1)
+                if sock.connect_ex(('127.0.0.1', int(info['address']))) == 0:
+                    print('RustFS server on port {0} is accepting connections.'.format(info['address']))
+                    continue
+
+            still_waiting.append((proc, info))
+
+        remaining = still_waiting
+        if remaining and time_module.time() >= deadline:
+            for _, info in remaining:
+                _dump_rustfs_log_and_raise(info, 'never became reachable on port {0} within {1}s'.format(info['address'], timeout_seconds))
+        if remaining:
+            time_module.sleep(1)
+
+
+def _dump_rustfs_log_and_raise(info, reason):
+    log_path = info['log_path']
+    print('RustFS server (port {0}) {1}. Log ({2}):'.format(info['address'], reason, log_path))
+    try:
+        with open(log_path) as f:
+            print(f.read())
+    except OSError as e:
+        print('  (could not read log: {0})'.format(e))
+    raise RuntimeError('RustFS server on port {0} {1}'.format(info['address'], reason))
+
+
+def download_and_start_rustfs_server():
+    rustfs_version = '1.0.0'
+
+    path_to_rustfs = '/rustfs'
+    rustfs_zip_path = '/tmp/rustfs.zip'
+
+    # Use the musl build, not gnu: the gnu build is dynamically linked against a glibc
+    # newer than what ships on several supported distros (e.g. glibc 2.38+ vs. the 2.34-2.36
+    # available on RockyLinux 9 / Ubuntu 22.04 / Debian 12), so it fails to even start there.
+    # The musl build is statically linked and has no such dependency.
+    subprocess.check_output(['wget', '-q', '--no-check-certificate', '-O', rustfs_zip_path,
+                             'https://github.com/rustfs/rustfs/releases/download/{0}/rustfs-linux-x86_64-musl-v{0}.zip'
+                                .format(rustfs_version)])
+
+    with zipfile.ZipFile(rustfs_zip_path) as zip_file:
+        zip_file.extract('rustfs', path='/tmp/rustfs_extracted')
+    shutil.move('/tmp/rustfs_extracted/rustfs', path_to_rustfs)
+    os.chmod(path_to_rustfs, os.stat(path_to_rustfs).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     root_username = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
     root_password = ''.join(random.choice(string.ascii_letters) for i in list(range(10)))
-    keypair_path = '/var/lib/irods/minio.keypair'
 
-    with open(keypair_path, 'w') as f:
-        f.write('%s\n' % root_username)
-        f.write('%s\n' % root_password)
+    for keypair_path in ('/var/lib/irods/rustfs.keypair', '/var/lib/irods/minio.keypair'):
+        with open(keypair_path, 'w') as f:
+            f.write('%s\n' % root_username)
+            f.write('%s\n' % root_password)
+        shutil.chown(keypair_path, user='irods', group='irods')
 
-    shutil.chown(keypair_path, user='irods', group='irods')
+    os.environ['RUSTFS_ACCESS_KEY'] = root_username
+    os.environ['RUSTFS_SECRET_KEY'] = root_password
 
-    os.environ['MINIO_ROOT_USER'] = root_username
-    os.environ['MINIO_ROOT_PASSWORD'] = root_password
-    os.environ['MINIO_CI_CD'] = '1'
-
-    minio_region_name_key = 'MINIO_REGION_NAME'
+    rustfs_region_name_key = 'RUSTFS_REGION'
 
     proc_infos = [
         {
             'address':              '9000',
             'console_address':      '9002',
-            minio_region_name_key:  None
+            rustfs_region_name_key: None
         },
         {
             'address':              '9001',
             'console_address':      '9003',
-            minio_region_name_key:  'eu-central-1'
+            rustfs_region_name_key: 'eu-central-1'
         }
     ]
 
     procs = list()
 
     for p in proc_infos:
-        if p[minio_region_name_key] is not None:
-            os.environ[minio_region_name_key] = p[minio_region_name_key]
-        elif minio_region_name_key in os.environ:
-            del os.environ[minio_region_name_key]
+        if p[rustfs_region_name_key] is not None:
+            os.environ[rustfs_region_name_key] = p[rustfs_region_name_key]
+        elif rustfs_region_name_key in os.environ:
+            del os.environ[rustfs_region_name_key]
 
-        procs.append(subprocess.Popen([path_to_minio, 'server',
+        data_dir = '/data_rustfs_%s' % p[rustfs_region_name_key]
+        os.makedirs(data_dir, exist_ok=True)
+
+        log_path = '/tmp/rustfs_%s.log' % p['address']
+        p['log_path'] = log_path
+        log_file = open(log_path, 'wb')
+
+        procs.append(subprocess.Popen([path_to_rustfs, 'server',
                                        '--address', ':' + p["address"],
                                        '--console-address', ':' + p["console_address"],
-                                       '/data_%s' % p[minio_region_name_key]]))
+                                       data_dir], stdout=log_file, stderr=subprocess.STDOUT))
+
+    wait_for_rustfs_servers_or_raise(procs, proc_infos)
 
     return procs
 
@@ -110,12 +169,12 @@ def main():
     parser.add_option('--built_packages_root_directory')
     parser.add_option('--test', metavar='dotted name')
     parser.add_option('--skip-setup', action='store_false', dest='do_setup', default=True)
-    parser.add_option('--teardown-minio', action='store_true', dest='do_teardown', default=False)
+    parser.add_option('--teardown-rustfs', action='store_true', dest='do_teardown', default=False)
     options, _ = parser.parse_args()
 
     if not options.do_setup and options.do_teardown:
-        # TODO: if minio-client can shut down the server, this will not be true
-        print('--skip-setup and --teardown-minio are incompatible')
+        # TODO(#2327): if a client can shut down the server, this will not be true
+        print('--skip-setup and --teardown-rustfs are incompatible')
         exit(1)
 
     built_packages_root_directory = options.built_packages_root_directory
@@ -131,9 +190,9 @@ def main():
 
         install_test_prerequisites()
 
-        minio_processes = download_and_start_minio_server()
+        s3_server_processes = download_and_start_rustfs_server()
 
-    test = options.test or 'test_irods_resource_plugin_s3_minio'
+    test = options.test or 'test_irods_resource_plugin_s3_rustfs'
 
     try:
         test_output_file = 'log/test_output.log'
@@ -142,13 +201,8 @@ def main():
             check_rc=True)
 
         if options.do_teardown:
-            # TODO: investigate mc admin service stop
-            # Get minio client
-            #   wget https://dl.min.io/client/mc/release/linux-amd64/mc
-            #   chmod +x mc
-            #   sudo cp mc /usr/bin
-            for m in minio_processes:
-                m.terminate()
+            for p in s3_server_processes:
+                p.terminate()
 
     finally:
         output_root_directory = options.output_root_directory

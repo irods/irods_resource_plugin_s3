@@ -27,7 +27,7 @@ try:
     from minio import Minio
 except ImportError:
     print('This test requires minio: perhaps try pip install minio')
-    exit()
+    sys.exit(1)
 
 try:
     from minio.error import InvalidResponseError as ResponseError
@@ -36,7 +36,7 @@ except ImportError:
         from minio.error import ResponseError
     except ImportError:
         print('Failed to import InvalidResponseError or ResponseError')
-        exit()
+        sys.exit(1)
 
 IRODS_SUPPORTS_CRC64NVME = IrodsConfig().version_tuple > (5, 0, 2)
 

@@ -99,6 +99,7 @@ install(
   FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3.py"
   "${CMAKE_CURRENT_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_minio.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_rustfs.py"
   "${CMAKE_CURRENT_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_ceph.py"
   "${CMAKE_CURRENT_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_gcs.py"
   "${CMAKE_CURRENT_SOURCE_DIR}/packaging/test_irods_resource_plugin_s3_fujifilm.py"
