@@ -659,7 +659,7 @@ class Test_S3_NoCache_Base(session.make_sessions_mixin([('otherrods', 'rods')], 
         with open(datafilename, 'wt') as f:
             print("TESTFILE -- [" + datafilename + "]", file=f, end='')
         # assertions
-        fullpath = IrodsConfig().irods_directory + "/newphysicalpath.txt"
+        fullpath = "/tmp/newphysicalpath.txt"
         self.admin.assert_icommand("iput -p " + fullpath + " " + datafilename)  # should complete
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', datafilename)  # should be listed
         self.admin.assert_icommand("ils -L " + datafilename, 'STDOUT_SINGLELINE', fullpath)  # should be listed
