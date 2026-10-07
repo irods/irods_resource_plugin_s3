@@ -11,6 +11,27 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 > - MINOR version when you add functionality in a backward compatible manner
 > - PATCH version when you make backward compatible bug fixes
 
+## [5.1.1] - 2026-10-14
+
+This release adds support for Ubuntu 26.04, fixes how 0-byte files are uploaded, improves handling of shared memory, and expands documentation.
+
+### Changed
+
+- Document where the plugin should be installed (#2166).
+- Document `S3_STORAGE_CLASS` setting (#2222).
+- Document maximum upload size when using the default values for `CIRCULAR_BUFFER_SIZE` and `S3_MPU_CHUNK` (#2234).
+- Detect and report an error message when file is too large to upload (#2234).
+- Refactor code to guard against potential memory leaks (#2256).
+- Remove installation of unused nanodbc package dependency from build hook (#2314).
+- Declare dependency on libxml2-16 package for Ubuntu 26.04 (#2316).
+- Use RustFS instead of MinIO for testing (#2324).
+
+### Fixed
+
+- Do not send invalid combination of HTTP headers when uploading 0-byte files using `irsync` (#2301).
+- Fix shared memory leaks (#2319).
+- Fix curl type warnings for Ubuntu 26.04 (irods/irods#8877).
+
 ## [5.1.0] - 2026-06-22
 
 This release implements support for trailing checksums, the ability to read checksums directly from the storage device, and fixes bugs for archive mode and cache file usage.
