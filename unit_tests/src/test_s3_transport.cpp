@@ -40,6 +40,10 @@ namespace io = irods::experimental::io;
 std::string keyfile = "/projects/irods/vsphere-testing/externals/amazon_web_services-CI.keypair";
 std::string hostname = "s3.amazonaws.com";
 
+// set by --skip-https-tests and --force-amz-date
+bool skip_https_tests = false;
+bool force_amz_date = false;
+
 const unsigned int S3_DEFAULT_NON_DATA_TRANSFER_TIMEOUT_SECONDS = 300;
 
 void read_keys(const std::string& keyfile, std::string& access_key, std::string& secret_access_key)
@@ -271,7 +275,9 @@ void upload_part(const char* const hostname,
     s3_config.secret_access_key = secret_access_key;
     s3_config.shared_memory_timeout_in_seconds = 20;
     s3_config.s3_protocol_str = s3_protocol_str;
-    s3_config.s3_sts_date_str = s3_sts_date_str;
+    // --force-amz-date replaces "date" (Date header only) with "amz" (x-amz-date header only)
+    // for endpoints that require x-amz-date
+    s3_config.s3_sts_date_str = (force_amz_date && s3_sts_date_str == "date") ? "amz" : s3_sts_date_str;
     s3_config.server_encrypt_flag = server_encrypt_flag;
     s3_config.put_repl_flag = put_repl_flag;
     s3_config.region_name = "us-east-1";
@@ -502,6 +508,17 @@ void read_write_on_file(const char *hostname,
     fmt::print("CLOSE DONE FOR {}\n", thread_number);
 }
 
+// Returns true if a test using this protocol should be skipped based on the
+// --skip-https-tests option.
+bool skip_test(const std::string& s3_protocol_str)
+{
+    if (skip_https_tests && s3_protocol_str == "https") {
+        WARN("skipping test because --skip-https-tests was set");
+        return true;
+    }
+    return false;
+}
+
 void do_upload_process(const std::string& bucket_name,
                        const std::string& filename,
                        const std::string& object_prefix,
@@ -592,6 +609,9 @@ void do_upload_thread(const std::string& bucket_name,
                       const std::string& s3_sts_date_str = "date",
                       bool trailing_checksum_on_upload_enabled = false)
 {
+    if (skip_test(s3_protocol_str)) {
+        return;
+    }
 
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
@@ -627,6 +647,9 @@ void do_upload_single_part(const std::string& bucket_name,
                            const std::string& s3_sts_date_str = "date",
                            bool server_encrypt_flag = false)
 {
+    if (skip_test(s3_protocol_str)) {
+        return;
+    }
 
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
@@ -649,6 +672,9 @@ void do_download_thread(const std::string& bucket_name,
                         const bool& expected_cache_flag,
                         const std::string& s3_protocol_str = "http")
 {
+    if (skip_test(s3_protocol_str)) {
+        return;
+    }
 
     std::string access_key, secret_access_key;
     read_keys(keyfile, access_key, secret_access_key);
@@ -999,18 +1025,22 @@ TEST_CASE("s3_transport_upload_trailing_checksum", "[upload][thread][trailing_ch
 
     SECTION("upload medium file with multiple threads and trailing checksum")
     {
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                "https", "both", trailing_checksum_on_upload_enabled);
-        check_upload_checksum_results(bucket_name, filename, object_prefix);
+        if (!skip_test("https")) {
+            do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
+                    "https", "both", trailing_checksum_on_upload_enabled);
+            check_upload_checksum_results(bucket_name, filename, object_prefix);
+        }
     }
 
     SECTION("upload large file with multiple threads and trailing checksum")
     {
         thread_count = 4;
         filename = "large_file";
-        do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
-                "https", "both", trailing_checksum_on_upload_enabled);
-        check_upload_checksum_results(bucket_name, filename, object_prefix);
+        if (!skip_test("https")) {
+            do_upload_thread(bucket_name, filename, object_prefix, keyfile, thread_count, expected_cache_flag,
+                    "https", "both", trailing_checksum_on_upload_enabled);
+            check_upload_checksum_results(bucket_name, filename, object_prefix);
+        }
     }
 
     remove_bucket(bucket_name);
