@@ -4,6 +4,8 @@
 extern std::string keyfile;
 extern std::string hostname;
 extern std::string bucket_name;
+extern bool skip_https_tests;
+extern bool force_amz_date;
 
 int main( int argc, char* argv[] )
 {
@@ -21,7 +23,13 @@ int main( int argc, char* argv[] )
         ("the S3 host (default: s3.amazonaws.com)")
     | Opt( keyfile, "keyfile" )
         ["--keyfile"]
-        ("the file holding the access key and secret access key");
+        ("the file holding the access key and secret access key")
+    | Opt( skip_https_tests )
+        ["--skip-https-tests"]
+        ("skip tests that use https")
+    | Opt( force_amz_date )
+        ["--force-amz-date"]
+        ("send the x-amz-date header instead of the Date header in tests that would use S3_STSDATE=date");
 
   // Now pass the new composite back to Catch so it uses that
   session.cli( cli );
