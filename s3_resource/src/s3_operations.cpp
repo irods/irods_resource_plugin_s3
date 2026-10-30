@@ -91,11 +91,11 @@ namespace irods_s3 {
 
     // addRErrorMsg is not thread safe and the parallel transfer threads share a single
     // rsComm, so all calls to it from this plugin must go through this function.
-    std::mutex r_error_mutex;
-    void add_r_error_msg(rError_t* _r_error, int _status, const char* _msg)
+    void safe_add_r_error_msg(rError_t& _r_error, int _status, const char* _msg)
     {
+        static std::mutex r_error_mutex;
         std::lock_guard lock(r_error_mutex);
-        addRErrorMsg(_r_error, _status, _msg);
+        addRErrorMsg(&_r_error, _status, _msg);
     }
 
     // data per thread
@@ -950,7 +950,7 @@ namespace irods_s3 {
                 std::int64_t object_size = 0;
                 result = get_object_s3_status(object_key, bucket_context, object_size, object_status, storage_class);
                 if (!result.ok()) {
-                    add_r_error_msg(&_ctx.comm()->rError, 0, result.result().c_str());
+                    safe_add_r_error_msg(_ctx.comm()->rError, 0, result.result().c_str());
                     return PASS(result);
                 }
 
@@ -965,7 +965,7 @@ namespace irods_s3 {
                 const std::string restoration_tier = s3_get_restoration_tier(_ctx.prop_map());
                 result = handle_glacier_status(object_key, bucket_context, restoration_days, restoration_tier, object_status, storage_class);
                 if (!result.ok()) {
-                    add_r_error_msg(&_ctx.comm()->rError, 0, result.result().c_str());
+                    safe_add_r_error_msg(_ctx.comm()->rError, 0, result.result().c_str());
                     return PASS(result);
                 }
 
@@ -1001,7 +1001,7 @@ namespace irods_s3 {
             // If an error has occurred somewhere in the transport,
             // short circuit process and return error.
             if (!result.ok()) {
-                add_r_error_msg(&_ctx.comm()->rError, 0, result.result().c_str());
+                safe_add_r_error_msg(_ctx.comm()->rError, 0, result.result().c_str());
                 return PASS(result);
             }
 
@@ -1049,7 +1049,7 @@ namespace irods_s3 {
             std::tie(result, dstream_ptr, s3_transport_ptr) = make_dstream(_ctx, __FUNCTION__);
 
             if (!result.ok()) {
-                add_r_error_msg(&_ctx.comm()->rError, 0, result.result().c_str());
+                safe_add_r_error_msg(_ctx.comm()->rError, 0, result.result().c_str());
                 return PASS(result);
             }
 
@@ -1608,7 +1608,7 @@ namespace irods_s3 {
             // If an error has occurred somewhere in the transport,
             // short circuit process and return error.
             if (!result.ok()) {
-                add_r_error_msg(&_ctx.comm()->rError, 0, result.result().c_str());
+                safe_add_r_error_msg(_ctx.comm()->rError, 0, result.result().c_str());
                 return PASS(result);
             }
 
@@ -2159,7 +2159,7 @@ namespace irods_s3 {
         std::int64_t object_size = 0;
         ret = get_object_s3_status(object_key, bucket_context, object_size, object_status, storage_class);
         if (!ret.ok()) {
-            add_r_error_msg(&_ctx.comm()->rError, 0, ret.result().c_str());
+            safe_add_r_error_msg(_ctx.comm()->rError, 0, ret.result().c_str());
             return PASS(ret);
         }
 
@@ -2174,7 +2174,7 @@ namespace irods_s3 {
         const std::string restoration_tier = s3_get_restoration_tier(_ctx.prop_map());
         ret = handle_glacier_status(object_key, bucket_context, restoration_days, restoration_tier, object_status, storage_class);
         if (!ret.ok()) {
-            add_r_error_msg(&_ctx.comm()->rError, 0, ret.result().c_str());
+            safe_add_r_error_msg(_ctx.comm()->rError, 0, ret.result().c_str());
             return PASS(ret);
         }
 
@@ -2451,7 +2451,7 @@ namespace irods_s3 {
                             "Object of size [{}] bytes cannot be uploaded via S3 multipart upload "
                             "with the current configuration.  See the warning message in the iRODS log for more details.",
                             data_size);
-                    add_r_error_msg(&_ctx.comm()->rError, S3_PUT_ERROR, msg_to_client.c_str());
+                    safe_add_r_error_msg(_ctx.comm()->rError, S3_PUT_ERROR, msg_to_client.c_str());
                     return ERROR(S3_PUT_ERROR, msg_to_client);
                 }
 
@@ -2476,7 +2476,7 @@ namespace irods_s3 {
                             "Object of size [{}] bytes cannot be uploaded via an S3 PutObject.  See the warning "
                             "message in the iRODS log for more details.",
                             data_size);
-                    add_r_error_msg(&_ctx.comm()->rError, UNIX_FILE_OPEN_ERR, msg_to_client.c_str());
+                    safe_add_r_error_msg(_ctx.comm()->rError, UNIX_FILE_OPEN_ERR, msg_to_client.c_str());
                     return ERROR(UNIX_FILE_OPEN_ERR, msg_to_client);
                 }
             }
